@@ -104,11 +104,3 @@ def plot_eigvals(eigvals_list,lattice_size,plot_info): #plot the eigen values vs
         plt.grid()
         plt.legend()
         plt.show() #show plot
-
-
-
-
-
-
-
-
