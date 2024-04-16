@@ -138,8 +138,8 @@ def plot_all_eigvals(latticeShape,isPer,super_list): #will plot all eigenvalues 
             plot_eigenvalues(super_list[i][j],title)
 
 
-
-if __name__ == "__main__":
+doPlot = True #controls whether to plot
+if __name__ == "__main__" and doPlot:
     #ex to plot using hop_1D
     L = 1000
     periodicBound = False
