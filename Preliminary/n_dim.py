@@ -76,46 +76,6 @@ def init_cos_sin(n_points):
 
 
 
-def hop_ndim(shape,isPer): #generalization to n dimensions
-    #shape: a tuple describing the size each dimension
-    #isPer: a list of boolean with the same length as shape; is periodic in given dir?
-
-    n_dims = len(shape)
-    n_points = 1 #initalize
-    for i in shape: #product of all dimension size
-        n_points *= i
-
-    lattice = np.arange(n_points).reshape(shape)
-
-    super_list = [None]*n_dims #list of all cos, sin arrays
-
-    for i in range(n_dims): #initalize cos, sin matrices
-        
-        super_list[i] = list(init_cos_sin(n_points)) #both for each direction
-
-
-    for idx, value in np.ndenumerate(lattice): #for all lattice points
-        for i in range(len(idx)): #each idx is a point; for each dimension 
-            point = np.array(idx) #convert point to array 
-            value = (point[i]+1)%(shape[i]) #find nearest neighbor in pos ith dir
-            neighbor = point #initialize neighbor
-            neighbor[i] = value #change ith coord. to neighboring value
-
-            doHop = isPer[i] or value != 0 #check if hopping is allowed 
-            if doHop:
-                neighbor = tuple(neighbor)
-                super_list[i][0][lattice[idx],lattice[neighbor]] = 1/2 #cos
-                super_list[i][1][lattice[idx],lattice[neighbor]] = 1j/2 #sin
-
-    for i in range(n_dims):
-        for j in range(2):
-            super_list[i][j] += super_list[i][j].conj().T #add hermitian adjoint
-            super_list[i][j] = super_list[i][j].toarray() #conver to np array
-
-    return super_list
-
-
-
 def plot_eigenvalues(matrix,title): #self explanatory.
     eigvals = np.linalg.eigvalsh(matrix) #list of eigenvalues
     t = np.arange(len(eigvals))
