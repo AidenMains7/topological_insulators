@@ -124,7 +124,7 @@ def wannier_symmetry(lattice: np.ndarray, pbc: bool, n: int, r0:float=1):
     Sy = 1j/2 * sin_dphi*F_p
     Cx_p_Cy = F_d/4
 
-    
+
 
 def wannier_fourier(lattice:np.ndarray, pbc:bool) -> tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
 
@@ -385,6 +385,11 @@ def disorder(disorder_strength:float, system_size:int, df:int, sparse:bool) -> n
     return disorder_op
 
 
+def main():
+    
+    
+    pass
+
 
 if __name__ == "__main__":
-    pass
+    main()
