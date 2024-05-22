@@ -13,11 +13,14 @@ Functions:
 - main(): Placeholder for main function implementation.
 """
 
+import sys
+sys.path.append(".")
+
 import numpy as np
 import os
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from ComputeBottIndex import projector_exact, projector_KPM, bott_index
+from ProjectCode.ComputeBottIndex import projector_exact, projector_KPM, bott_index
 from scipy.sparse import csr_matrix
 from time import time
 from DisorderDependencies import H_and_lattice_wrapper, uniform_mass_disorder
@@ -172,7 +175,15 @@ def single_disorder_bott(H_base, lattice, W, num_realizations, E_F=0., num_jobs=
 
 def main():
     # Placeholder for main function implementation
-    pass
+    order = 3
+    M = 9.2
+    B_tilde = 2
+    W=0
+    n = int(10)
+    iters=10
+    H_init, frac_lat = H_and_lattice_wrapper(order, 'symmetry', M, B_tilde, n=n)
+    mean_bott = single_disorder_bott(H_init, frac_lat, W, iters, E_F=0.0, num_jobs=8)
+    print("Mean Bott Index = ", mean_bott)
 
 
 if __name__ == '__main__':
