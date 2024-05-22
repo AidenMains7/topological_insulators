@@ -1,0 +1,111 @@
+
+# Research Project: Analyzing Non-Interacting Crystalline Topological Insulators on Fractal Lattices
+
+This project focuses on analyzing models of non-interacting crystalline topological insulators on 2D lattices, specifically fractal lattices such as the Sierpinski carpet. The study aims to address the challenges posed by the lack of translational symmetry in fractal lattices, which complicates traditional Fourier transform methods used in momentum space.
+
+## Background
+
+In typical crystalline models, the single-particle Hamiltonian is expressed in momentum space and then Fourier transformed site-wise to determine the hopping amplitude between sites and the on-site energy. This method relies on the translational symmetry of the lattice. However, fractal lattices, such as the Sierpinski carpet, lack this symmetry, making momentum a non-viable quantum number. Consequently, a direct real-space approach is necessary.
+
+### Methods
+
+To construct the Hamiltonian for the fractal lattice, three different methods are employed:
+
+1. **Symmetry Method**:
+   - Directly constructs the model in terms of real-space angles and distances between sites.
+   - The hopping and on-site terms, traditionally defined in momentum space, are replaced with real-space equivalents that maintain the same symmetries.
+   - Allows for arbitrary hopping distances, which decay exponentially.
+   - For nearest-neighbor hopping, the symmetry method produces results equivalent to those obtained from a Fourier-transformed Hamiltonian.
+   - Hopping directions are constrained to the principal axes and diagonal directions but allow for further hopping distances beyond nearest neighbors if specified.
+
+2. **Method of Site Elimination**:
+   - The fractal lattice exists within a parent square lattice. The square lattice Hamiltonian can be defined in momentum space and Fourier transformed.
+   - The Hamiltonian for the square lattice is constructed, and its rows and columns are rearranged so that the upper left block corresponds to the non-vacant sites in the fractal, while the lower right block corresponds to the vacancies.
+   - The effective Hamiltonian is then taken as the upper left block, discarding the rest.
+   - This method includes only nearest-neighbor hopping along the principal axes and diagonal directions.
+
+3. **Method of Renormalization**:
+   - Similar to the site elimination method, but instead of discarding the lower right block, it is used to construct a Schur complement.
+   - This approach results in a Hamiltonian that corresponds to the fractal lattice but retains properties of the square lattice.
+   - It is expected to provide results qualitatively similar to those obtained from a Fourier-transformed Hamiltonian of the square lattice model.
+
+### Implementation Details
+
+- **Wannier Matrices**:
+  - The matrices used in the Hamiltonian construction are termed "Wannier matrices" because they are in the second quantization real-space basis. These matrices include:
+    - `Cx`, `Cy`: Represent Fourier transforms of `cos(k_x*a)` and `cos(k_y*a)`.
+    - `Sx`, `Sy`: Represent Fourier transforms of `sin(k_x*a)` and `sin(k_y*a)`.
+
+### Disorder Introduction
+
+After constructing the Hamiltonian using any of the three methods, disorder can be introduced via a stochastic disorder operator of a specified strength. The goal is to compute certain quantities for the disordered Hamiltonians. For each fixed disorder strength, multiple realizations are averaged, and this average is correlated with the disorder strength.
+
+## Code Overview
+
+The codebase is organized into several modules, each serving specific purposes in the project:
+
+### ComputeBottIndex.py
+
+This module calculates the Bott index. The Bott index is a topological invariant that can be used to classify systems given a real space Hamiltonian, and it is the real space equivalent of the Chern number. Functions include:
+
+- **projector_exact(H, E_F)**: Directly computes the eigenvalues and eigenvectors of the Hamiltonian and constructs the projector from them.
+- **projector_KPM(H, E_F, N)**: Uses the Kernel Polynomial Method to approximate the projector.
+- **bott_index(P, lattice, order=None)**: Calculates the Bott index from the projector.
+- **_rescaling_factors(H, epsilon=0.01, k=12)**: Computes rescaling factors for the Hamiltonian.
+- **_jackson_kernel_coefficients(N)**: Generates Jackson kernel coefficients for the KPM.
+- **_projector_moments(E_tilde, N)**: Computes the moments for the projector.
+- **_trace_logm_power_series(A, order)**: Calculates the trace of the matrix logarithm using a power series expansion.
+
+### DisorderDependencies.py
+
+This module constructs the Hamiltonian which is analyzed using code from `ComputeBottIndex.py`. The functions include:
+
+- **generate_lattices(order, pad_width)**: Generates square and fractal lattices (Sierpinski carpet) with specified order and padding.
+- **geometry_arrays(lattice, pbc, n)**: Constructs geometry arrays for distances and angles between lattice sites.
+- **wannier_matrices_symmetry_method(lattice, pbc, n, r0)**: Constructs Wannier matrices using the symmetry method.
+- **wannier_matrices_FT(lattice, pbc)**: Constructs Wannier matrices using Fourier transform method.
+- **Hamiltonian(M, B_tilde, wannier_matrices, t1, t2, B)**: Constructs the Hamiltonian matrix from given Wannier matrices and parameters.
+- **H_site_elim(H, fills, holes)**: Constructs an effective Hamiltonian by eliminating sites corresponding to holes.
+- **mat_inv(matrix, hermitian, alt, overwrite_a, tol)**: Computes the inverse of a matrix.
+- **mat_solve_iterative(matrix, tol)**: Solves a linear system iteratively using the Conjugate Gradient method.
+- **H_renorm(H, fills, holes)**: Constructs a renormalized effective Hamiltonian using the Schur complement.
+- **H_and_lattice_wrapper(lattice_order, method, M, B_tilde, pbc, pad_width, n, **kwargs)**: Wrapper function to generate Hamiltonian and lattice using specified method.
+- **uniform_mass_disorder(disorder_strength, system_size, internal_freedoms, sparse)**: Generates a uniform mass disorder operator.
+
+### DisorderExecute.py
+
+This module uses the previously described modules to parallelize computations for finding the mean Bott index for a given base Hamiltonian with specified disorder strength. The key functions include:
+
+- **in_regions(point, regions)**: Checks if a point is within specified regions.
+- **task_with_timeout(task_func, timeout, *args, **kwargs)**: Executes a task with a specified timeout.
+- **single_disorder_bott(H_base, lattice, W, num_realizations, E_F, num_jobs, cores_per_job, KPM, N, exact_log_regions, log_order, progress, task_timeout, **kwargs)**: Computes the mean Bott index for a Hamiltonian with disorder, averaged over multiple realizations.
+
+### PhaseDiagramDependencies.py
+
+This module is used for analyzing Hamiltonians without disorder for various M and B_tilde combinations to generate phase diagrams. Components of the Hamiltonian are precomputed without M or B_tilde dependence to optimize parallelization when varying these parameters. The functions include:
+
+- **generate_lattices(order, pad_width)**: Generates square and fractal lattices (Sierpinski carpet) with specified order and padding.
+- **geometry_arrays(lattice, pbc, n)**: Constructs geometry arrays for distances and angles between lattice sites.
+- **wannier_matrices_symmetry_method(lattice, pbc, n, r0)**: Constructs Wannier matrices using the symmetry method.
+- **wannier_matrices_FT(lattice, pbc)**: Constructs Wannier matrices using Fourier transform method.
+- **hamiltonian_components(wannier_matrices, t1, t2, B, sparse)**: Constructs Hamiltonian components without M or B_tilde dependence.
+- **decompose_matrix(H, fills, holes)**: Decomposes a Hamiltonian matrix into sub-blocks for filled and vacant sites.
+- **double_decompose(wannier_matrices, fills, holes)**: Double-decomposes the Hamiltonian components.
+- **precompute_data(order, method, pbc, n, pad_width)**: Precomputes Hamiltonian data for a given lattice order and method.
+- **mat_inv(matrix, hermitian, alt, overwrite_a, tol)**: Computes the inverse of a matrix.
+- **mat_solve_iterative(matrix, tol)**: Solves a linear system iteratively using the Conjugate Gradient method.
+- **H_renorm(H_parts)**: Constructs a renormalized effective Hamiltonian using the Schur complement.
+- **reconstruct_hamiltonian(method, precomputed_data, M, B_tilde, sparse)**: Reconstructs the Hamiltonian with specified M and B_tilde values.
+
+### PhaseDiagramExecute.py
+
+This module calls `PhaseDiagramDependencies.py` and `ComputeBottIndex.py` to parallelize computations for generating phase diagrams for different M and B_tilde values. The key functions include:
+
+- **in_regions_1D(point, regions)**: Checks if a point is within specified 1D regions.
+- **in_regions_2D(point, regions, tolerance=1e-9)**: Checks if a point is within specified 2D regions.
+- **task_with_timeout(task_func, timeout, *args, **kwargs)**: Executes a task with a specified timeout.
+- **phase_diagram_data(order, method, M_values, B_tilde_values, n, E_F, num_jobs, cores_per_job, KPM, N, exact_log_regions, log_order, progress, task_timeout, **kwargs)**: Computes phase diagram data for different M and B_tilde values.
+
+## Summary
+
+This project utilizes a combination of real-space and momentum-space methods to construct and analyze Hamiltonians for non-interacting crystalline topological insulators on fractal lattices. By leveraging different methods for constructing the Hamiltonian and introducing disorder, the project aims to compute topological invariants such as the Bott index. The codebase is structured to facilitate parallel computations and optimize performance for generating phase diagrams and analyzing disordered systems.
