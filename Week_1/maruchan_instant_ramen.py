@@ -12,25 +12,34 @@ mass_disorder
 
 projector
 bott_index
+avg_bott_disorder
 
+->precomputation
+->parallelization
+->plotting
+
+Fix:----------------
 in_regions
 task_with_timeout
 bott_from_disorder
 --------------------
 '''
 
+import sys
+sys.path.append(".")
 import numpy as np
 from scipy.linalg import eig, eigh, logm
 from scipy.sparse import dok_matrix, csr_matrix, diags
 from scipy.sparse.linalg import cg
 
+
+from ProjectCode.DisorderAveraging.DisorderDependencies import generate_lattices
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from joblib import Parallel, delayed
 from time import time
 import os
 
 
-#create a Sierpinski carpet and its corresponding square lattice
 def create_lattice(order:int, pad_width:int=0) -> tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
     '''
     Generates a Sierpinski carpet fractal lattice and its corresponding square lattice, as well as the index locations for the empty and filled sites.
@@ -93,7 +102,6 @@ def create_lattice(order:int, pad_width:int=0) -> tuple[np.ndarray,np.ndarray,np
     return square_lat, fractal_lat, hole_indices, filled_indices
 
 
-#Get the distance  and angles between all pairs of filled sites
 def geometry(lattice: np.ndarray, pbc: bool, n: int) -> tuple[np.ndarray,np.ndarray,np.ndarray,np.ndarray,np.ndarray]:
     '''
     Finds the distance and angle between sites. Polar.
@@ -138,7 +146,6 @@ def geometry(lattice: np.ndarray, pbc: bool, n: int) -> tuple[np.ndarray,np.ndar
     return dr, cos_dphi, sin_dphi, prin_mask, diag_mask
 
 
-#use the method of symmetry to construct wannier matrices
 def method_of_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.0)->tuple:
     '''
     Parameters: 
@@ -181,7 +188,6 @@ def method_of_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.0)->tuple
     return I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy
 
 
-#construct hamiltonian from wannier matrices
 def Hamiltonian(M:float, B_tilde:float, wannier_matrices:tuple, t1:float=1.0, t2:float=1.0, B:float=1.0):
     '''
     Constructs the Hamiltonian from Wannier Matrices
@@ -215,9 +221,8 @@ def Hamiltonian(M:float, B_tilde:float, wannier_matrices:tuple, t1:float=1.0, t2
         H += np.kron(d[i], pauli[i])
 
     return H
-    
 
-#wrapper function for method of symmetry
+
 def hamiltonian_wrapper(fractal_order:int, pad_width:int, pbc:bool, n:int, r0:float, M:float, B_tilde:float, t1:float=1.0, t2:float=1.0, B:float=1.0) -> tuple: 
     '''
     
@@ -230,7 +235,6 @@ def hamiltonian_wrapper(fractal_order:int, pad_width:int, pbc:bool, n:int, r0:fl
     return H, fractal_lat, square_lat
 
 
-#generate disorder operator
 def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str='uniform') -> np.ndarray:
     '''
     Generates a disorder operator of random values for a given strength.
@@ -269,7 +273,6 @@ def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str
     return disorder_operator
 
 
-#construct the projector onto the eigenstates
 def projector(H:np.ndarray, fermi_energy:float) -> np.ndarray:
     '''
     Constructs the projector of the Hamiltonian onto the states below the Fermi energy
@@ -294,7 +297,6 @@ def projector(H:np.ndarray, fermi_energy:float) -> np.ndarray:
     return P
 
 
-#
 def bott_index(P:np.ndarray, lattice:np.ndarray):
     '''
     
@@ -322,7 +324,6 @@ def bott_index(P:np.ndarray, lattice:np.ndarray):
     return bott
 
 
-#
 def in_regions(point:float, regions:list):
     """
     Check if a point lies within any of the specified regions.
@@ -337,7 +338,7 @@ def in_regions(point:float, regions:list):
     regions = np.array(regions)
     return np.any((regions[:, 0] <= point) & (point <= regions[:, 1]))
 
-#
+
 def task_with_timeout(task_func, timeout:float, *args, **kwargs):
     """
     Execute a task function with a specified timeout.
@@ -360,7 +361,6 @@ def task_with_timeout(task_func, timeout:float, *args, **kwargs):
     return result
 
 
-#
 def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, num_realizations:int, fermi_energy:float=0.0, num_jobs:int=4, cores_per_job:int=1, progress:bool=True, task_timeout:float=None):
     '''
     I only have 4 cores
@@ -416,7 +416,6 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, num_reali
     return bott_mean
 
 
-#wrapper for computing bott from a disorder
 def bott_disorder_wrapper(fractal_order:int, pad_width:int, pbc:bool, n:int, r0:float, M:float, B_tilde:float, t1:float, t2:float, B:float, W:float, num_realizations:int, fermi_energy:float, num_jobs:int):
     '''
     
@@ -429,23 +428,18 @@ def bott_disorder_wrapper(fractal_order:int, pad_width:int, pbc:bool, n:int, r0:
     return bott_mean
 
 
-def main():
-    order = 3
-    pad_w = 0
-    n = 5
-    r0 = 1
-    M = 1
-    B_tilde = 1
-    t1 = 1
-    t2 = 1
-    B = 1
-    W = 0
-    num_r = 5
-    fermi_e = 2
-    num_jobs = 4
 
-    bott_mean = bott_disorder_wrapper(order, pad_w, True, n, r0, M, B_tilde, t1, t2, B, W, num_r, fermi_e, num_jobs)
-    print(bott_mean)
+def main():
+    order=10
+    t0 = time()
+    generate_lattices(order,0)
+    t = time() - t0
+    print(f'dan time={t}s')
+
+    t0 = time()
+    create_lattice(order,0)
+    t = time() - t0
+    print(f'me time={t}s')
 
 if __name__ == "__main__":
     main()
