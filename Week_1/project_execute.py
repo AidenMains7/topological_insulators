@@ -123,22 +123,7 @@ def many_lattices(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_valu
     return data_array
 
 def main():
-    method = "symmetry"
-    order = 3
-    pad_w = 0
-    pbc = True
-    n = 5
-    M_values = np.linspace(-1, 1, 3)
-    B_tilde_values = np.linspace(-1, 1, 3)
-    W_values = np.linspace(0, 10, 3)
-    iterations_per_disorder = 10
-    fermi_energy = 0.0
-
-    data = many_lattices(method=method, order=order, pad_w=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values, 
-                         iterations_per_disorder=iterations_per_disorder, fermi_energy=fermi_energy, num_jobs=4, cores_per_job=1, progresses=(True, True, False))
-    
-    print(data)
-    np.savetxt("array_data.txt", delimier=',,')
+    pass
 
 
 if __name__ == "__main__":
