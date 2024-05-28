@@ -5,6 +5,7 @@ init_environment: initializes the environment with specified number of cores per
 bott_from_disorder: computes the average bott index from a disorder strength 
 many_disorder: iterates bott_from_disorder for a range of disorder strength values
 many_lattices: compues the bott index, and if nonzero, the disorder over a range of values for a specified range of M and B_tilde
+plot_data: plots data
 """
 
 
@@ -14,15 +15,15 @@ sys.path.append(".")
 from Week_1.project_dependencies import mass_disorder, projector, bott_index, precompute_lattice, Hamiltonian_reconstruct
 from joblib import Parallel, delayed
 import numpy as np
+import matplotlib.pyplot as plt
 from itertools import product
 from time import time
-from datetime import datetime
 import os
-import pandas as pd
 
+#had some errors, just to ensure that total function works properly 
 from ProjectCode.PhaseDiagram.PhaseDiagramDependencies import precompute_data
 
-def init_environment(cores_per_job):
+def init_environment(cores_per_job): #initiate cores to prevent cannibalization
     ncore = str(int(cores_per_job))
     os.environ["OMP_NUM_THREADS"] = ncore
     os.environ["OPENBLAS_NUM_THREADS"] = ncore
@@ -34,9 +35,11 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
 
     init_environment(cores_per_job)
 
+    #size
     system_size = np.max(lattice) + 1
     t0 = time()
 
+    #get the bott index from disorder a single time
     def do_iter(i):
         try:
             disorder_operator = mass_disorder(strength=W, system_size=system_size, df=2, sparse=False, type='uniform')
@@ -53,8 +56,13 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
             print(f"An error occurred for W={W:.3f}: {e}")
             return np.nan
 
+    #do for the number of iterations
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
+    
+    #remove incomplete data
     data = data[~np.isnan(data)]
+
+    #find the average
     bott_mean = np.mean(data)
     return bott_mean
 
@@ -63,6 +71,8 @@ def many_disorder(H, lattice, W_values, iterations_per_disorder, fermi_energy, n
     init_environment(cores_per_job)
 
     t0 = time()
+
+    #compute disorder for a single W valeu
     def compute_single(i):
         try:
             W = W_values[i]
@@ -78,6 +88,7 @@ def many_disorder(H, lattice, W_values, iterations_per_disorder, fermi_energy, n
             print(f"Error at W={W}: {e}")
             return [np.nan]*2
 
+    #compute disorder over the range of given values
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
     return data
 
@@ -85,16 +96,19 @@ def many_lattices(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_valu
     
     init_environment(cores_per_job)
 
+    #ensure symmetry (just for now)
     if method not in ['symmetry']:
         raise ValueError("Method is incorrect.")
     if method == 'symmetry' and n is None:
         raise ValueError("When using symmetry, n must not be None.")
 
+    #precompute data and possible values
     pre_data, frac_lat = precompute_data(method=method, order=order, pad_width=pad_w, pbc=pbc, n=n)
     parameter_values = tuple(product(M_values, B_tilde_values))
 
     t00 = time()
 
+    #compute a single bott index; if nonzero, apply disorder over a range
     def compute_single(i):
         M, B_tilde = parameter_values[i]
 
@@ -116,14 +130,57 @@ def many_lattices(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_valu
     
     data = Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values)))
 
+    #array, custom dtype, each row is a different M, B_tilde
     data_array = np.empty(len(parameter_values), dtype = np.dtype([('val1', 'f4'), ('val2', 'f4'), ('val3', 'f4'), ('array', 'O')]))
     for i in range(len(parameter_values)):
         data_array[i] = data[i]
 
     return data_array
 
+def plot_data(filepath):
+    #load file
+    read_data = np.load(filepath, allow_pickle=True)
+    data = read_data['arr_0']
+
+    #plot 
+    for i in range(data.size):
+        M = data[i][0]
+        B_tilde = data[i][1]
+        bott_init = data[i][2]
+        bott_array = data[i][3]
+        if (bott_init != 0):
+            x = np.concatenate(([0],bott_array[0]))
+            y = np.concatenate(([bott_init], bott_array[1]))
+            plt.plot(x,y, label=f"M={M}, B_tilde={B_tilde}")
+
+    #set plotting values
+    plt.xlabel("W (disorder strength)")
+    plt.ylabel("Bott Index")
+    plt.grid()
+    plt.legend()
+    plt.show()
+
+
+
 def main():
-    pass
+    method = "symmetry"
+    order = 3
+    pad_w = 0
+    pbc = True
+    n = 5
+    M_values = np.linspace(-1, 1, 3)
+    B_tilde_values = np.linspace(-1, 1, 3)
+    W_values = np.linspace(0, 10, 11)
+    iterations_per_disorder = 10
+    fermi_energy = 0.0
+
+    data = many_lattices(method=method, order=order, pad_w=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values, 
+                            iterations_per_disorder=iterations_per_disorder, fermi_energy=fermi_energy, num_jobs=4, cores_per_job=1, progresses=(True, True, False))
+
+    #save data
+    filepath="data.npz"
+    np.savez(filepath,data)
+    plot_data(filepath=filepath)
 
 
 if __name__ == "__main__":
