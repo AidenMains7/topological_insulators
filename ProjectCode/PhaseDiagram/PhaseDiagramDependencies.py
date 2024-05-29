@@ -551,7 +551,7 @@ def reconstruct_hamiltonian(method, precomputed_data, M, B_tilde, sparse=True):
 
 def main():
     # Placeholder for main function implementation
-    pass
+    ham, frac = precompute_data(3, "symmetry", True, 5)
 
 
 if __name__ == '__main__':
