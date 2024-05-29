@@ -1,15 +1,14 @@
 """
-
+Largely Dan Salib's code
 """
 import sys
 sys.path.append(".")
-from ProjectCode.PhaseDiagram import PhaseDiagramDependencies as pdd
 
 import numpy as np
 from scipy.sparse import csr_matrix, diags
 from scipy.linalg import eigh, logm
 
-
+#my own method for first part
 def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     """
     Generates a Sierpinski carpet lattice of specified order.
@@ -106,6 +105,7 @@ def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
 
     return d_r, d_cos, d_sin, mask_principal, mask_diagonal
 
+#hard to use different method
 def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
 
     d_r, d_cos, d_sin, mask_principal, mask_diagonal = geometry(lattice, pbc, n)
