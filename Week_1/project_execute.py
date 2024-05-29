@@ -5,7 +5,7 @@ sys.path.append(".")
 import numpy as np
 import os
 from time import time
-from Week_1.project_dependencies import mass_disorder, projector, bott_index, precompute, Hamiltonian_reconstruct
+from project_dependencies import mass_disorder, projector, bott_index, precompute, Hamiltonian_reconstruct
 from itertools import product
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
