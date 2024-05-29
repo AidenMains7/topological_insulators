@@ -148,7 +148,6 @@ def plot_data(filepath):
     plt.xlabel("W (disorder strength)")
     plt.ylabel("Bott Index")
     plt.grid()
-    plt.legend()
     plt.show()
 
 
@@ -177,7 +176,7 @@ def main2():
     plot_data(filepath=filepath)
 
 if __name__ == "__main__":
-    main()
+    main2()
 
 
 
