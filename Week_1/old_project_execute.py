@@ -1,17 +1,31 @@
+"""
+
+Functions: 
+init_environment: initializes the environment with specified number of cores per job as to not cannabalize
+bott_from_disorder: computes the average bott index from a disorder strength 
+many_disorder: iterates bott_from_disorder for a range of disorder strength values
+many_lattices: compues the bott index, and if nonzero, the disorder over a range of values for a specified range of M and B_tilde
+plot_data: plots data
+"""
 
 
+#outline
 import sys
 sys.path.append(".")
-import numpy as np
-import os
-from time import time
-from project_redone import mass_disorder, projector, bott_index, precompute, Hamiltonian_reconstruct
-from itertools import product
 from joblib import Parallel, delayed
+import numpy as np
 import matplotlib.pyplot as plt
+from itertools import product
+from time import time
+import os
 
+from Week_1.old_project_dependencies import mass_disorder, precompute_lattice as precompute_data, Hamiltonian_reconstruct, bott_index, projector
 
-
+'''
+from ProjectCode.DisorderAveraging.DisorderDependencies import uniform_mass_disorder as mass_disorder
+from ProjectCode.PhaseDiagram.PhaseDiagramDependencies import precompute_data, reconstruct_hamiltonian as Hamiltonian_reconstruct
+from ProjectCode.ComputeBottIndex import bott_index, projector_exact as projector
+'''
 
 def init_environment(cores_per_job): #initiate cores to prevent cannibalization
     ncore = str(int(cores_per_job))
@@ -34,7 +48,7 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
     #get the bott index from disorder a single time
     def do_iter(i):
         try:
-            disorder_operator = mass_disorder(strength=W, system_size=system_size, df=2, sparse=False)
+            disorder_operator = mass_disorder(disorder_strength=W, system_size=system_size, internal_freedoms=2, sparse=False)
             H_new = H_init + disorder_operator
             P = projector(H_new, E_F)
             bott = bott_index(P, lattice)
@@ -84,12 +98,12 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
     return data
 
-def many_lattices(order:int, pad_w:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, sparse:bool=False, progresses:tuple[bool, bool, bool]=(True,True,False)):
+def many_lattices(order:int, pad_w:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:tuple[bool, bool, bool]=(True,True,False)):
     
     init_environment(cores_per_job)
 
     #precompute data and possible values
-    pre_data, frac_lat = precompute(order=order, pad_width=pad_w, pbc=pbc, n=n, sparse=sparse)
+    pre_data, frac_lat = precompute_data(order=order, pad_width=pad_w, pbc=pbc, n=n)
     parameter_values = tuple(product(M_values, B_tilde_values))
 
     t0 = time()
@@ -148,6 +162,7 @@ def plot_data(filepath):
     plt.xlabel("W (disorder strength)")
     plt.ylabel("Bott Index")
     plt.grid()
+    plt.legend()
     plt.show()
 
 
@@ -157,26 +172,20 @@ def main():
     pad_w = 0
     pbc = True
     n = 5
-    M_values = np.linspace(-1, 1, 11)
-    B_tilde_values = np.linspace(-1, 1, 11)
-    W_values = np.linspace(0, 10, 11)
+    M_values = np.linspace(-1, 1, 3)
+    B_tilde_values = np.linspace(-1, 1, 3)
+    W_values = np.linspace(0, 10, 3)
     iterations_per_disorder = 10
-    E_F = 0.0
+    fermi_energy = 0.0
 
-    data = many_lattices(order=order, pad_w=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values, 
-                            iterations_per_disorder=iterations_per_disorder, E_F=E_F, num_jobs=4, cores_per_job=1, progresses=(True, False, False))
+    data = many_lattices(order=order, pad_w=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values, iterations_per_disorder=iterations_per_disorder, 
+                         fermi_energy=fermi_energy, num_jobs=4, cores_per_job=1, progresses=(True, True, False))
 
     #save data
     filepath="data.npz"
     np.savez(filepath,data)
     plot_data(filepath=filepath)
 
-def main2():
-    filepath="data.npz"
-    plot_data(filepath=filepath)
 
 if __name__ == "__main__":
-    main2()
-
-
-
+    main()

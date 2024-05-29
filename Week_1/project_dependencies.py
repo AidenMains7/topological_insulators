@@ -1,35 +1,32 @@
 """
-Very similar to D. Salib's code
+
 """
-
-
 import sys
 sys.path.append(".")
+from ProjectCode.PhaseDiagram import PhaseDiagramDependencies as pdd
 
 import numpy as np
-from scipy.linalg import eig, eigh, logm 
-from scipy.sparse import dok_matrix, csr_matrix, diags
-from scipy.sparse.linalg import cg
+from scipy.sparse import csr_matrix, diags
+from scipy.linalg import eigh, logm
 
 
-def check_method(method:str):
-    list_of_methods = ['symmetry', 'square', 'site_elim', 'renorm']
-    if method not in list_of_methods:
-        raise ValueError(f"Method must be one of: {str(list_of_methods)}")
-
-def sierpinski_lattice(fractal_order:int, pad_width:int) -> tuple:
+def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     """
-    Generates the lattice array for a Sierpinski carpet of given order, with given padding.
+    Generates a Sierpinski carpet lattice of specified order.
+
+    Parameters:
+    order (int): order of the fractal
+    pad_width (int): width of padding
 
     Returns: 
-    square_lat (ndarray): Square lattice array
-    fractal_lat (ndarray): Fractal lattice array
-    holes (ndarray): Indices for the holes of the fractal lattice
-    fills (ndarray): Indices for the fills of the fractal lattice
+    square_lat (ndarray): square lattice of the same size
+    fractal_lat (ndarray): the fractal lattice
+    holes (ndarray): indices of the empty sites
+    filled (ndarray): indices of the filled sites
     """
 
     #check that order is proper
-    if (fractal_order < 0):
+    if (order < 0):
         raise ValueError("Order of lattice must be >= 0.")
 
     def _sierpinski_carpet(order_:int):
@@ -49,47 +46,52 @@ def sierpinski_lattice(fractal_order:int, pad_width:int) -> tuple:
 
         return carpet
     
-    #'side length' in one dimension
-    L = 3**fractal_order
+    #side length
+    L = 3**order
 
     #square lattice
     square_lat = np.arange(L*L).reshape((L,L))
-    carpet = _sierpinski_carpet(fractal_order)
+    carpet = _sierpinski_carpet(order)
 
-    #now, we account for padding (if wanted)
-    if(pad_width > 0):
+    #pad width
+    if (pad_width > 0):
         carpet = np.pad(carpet,pad_width,mode='constant',constant_values=1)
-    
-    #Determining indecies for holes and otherwise
-    #flattened array
+
+    #get indices of empty and filled sites 
     flat = carpet.flatten()
+    holes = np.where(flat==0)[0]
+    filled = np.flatnonzero(flat)
 
-    #locations of the filled and empty sites
-    filled_indices = np.flatnonzero(flat)
-    hole_indices = np.where(flat==0)[0]
-
-    #lattice structuring
+    #construct fractal lattice
     fractal_lat = np.full(flat.shape, -1, dtype=int)
-    fractal_lat[filled_indices] = np.arange(filled_indices.size)
+    fractal_lat[filled] = np.arange(filled.size)
     fractal_lat = fractal_lat.reshape(carpet.shape)
 
-    return square_lat, fractal_lat, hole_indices, filled_indices
+    return square_lat, fractal_lat, holes, filled
 
 def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
     """
-    
+    Finds the distance between sites, the angles, and principal and diagonal masks.
+
+    Parameters:
+
+    Returns: 
+
     """
-    num_sites = lattice.shape[0] 
-    if(pbc and n >= num_sites//2):
+    side_length = lattice.shape[0]
+
+    if (pbc and n >= side_length//2):
         raise ValueError("With periodic boundary conditions, n must be less than half of the system size.")
     
     filled = np.argwhere(lattice >= 0)
-    diff = filled[None, :, None] - filled[:, None, :]
+
+
+    diff = filled[None, :, :] - filled[:, None, :]
     dy, dx = diff[...,0], diff[...,1]
 
     if pbc:
-        dx = np.where(np.abs(dx) > num_sites / 2, dx - np.sign(dx) * num_sites, dx)
-        dy = np.where(np.abs(dy) > num_sites / 2, dy - np.sign(dy) * num_sites, dy)
+        dx = np.where(np.abs(dx) > side_length / 2, dx - np.sign(dx) * side_length, dx)
+        dy = np.where(np.abs(dy) > side_length / 2, dy - np.sign(dy) * side_length, dy)
     
     mask_dist = np.maximum(np.abs(dx), np.abs(dy)) <= n
 
@@ -104,55 +106,63 @@ def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
 
     return d_r, d_cos, d_sin, mask_principal, mask_diagonal
 
-def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1) -> tuple:
-    """
+def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
 
-    Returns:
+    d_r, d_cos, d_sin, mask_principal, mask_diagonal = geometry(lattice, pbc, n)
 
-    """
-    
-    dr, cos_dphi, sin_dphi, prncpl_mask, diags_mask = geometry(lattice, pbc, n)
-    system_size = np.max(lattice) + 1
+    num_sites = np.max(lattice) + 1
 
-    I = np.eye(system_size, dtype=np.complex128)
+    I = np.eye(num_sites, dtype=np.complex128)
 
-    F_p = np.where(prncpl_mask, np.exp(1 - dr / r0), 0. + 0.j)
-    F_d = np.where(diags_mask, np.exp(1 - dr / r0), 0. + 0.j)
+    # Exponential decay function for principal and diagonal directions
+    F_p = np.where(mask_principal, np.exp(1 - d_r / r0), 0. + 0.j)
+    F_d = np.where(mask_diagonal,  np.exp(1 - d_r / r0), 0. + 0.j)
 
-    Sx = 1j * cos_dphi * F_p / 2
-    Sy = 1j * sin_dphi * F_p / 2
+    # Construct Wannier matrices for different terms based on geometry arrays and decay functions
+    Sx = 1j * d_cos * F_p / 2
+    Sy = 1j * d_sin * F_p / 2
     Cx_plus_Cy = F_p / 2
 
-    CxSy = 1j * sin_dphi * F_d / (2 * np.sqrt(2))
-    SxCy = 1j * cos_dphi * F_d / (2 * np.sqrt(2))
+    CxSy = 1j * d_sin * F_d / (2 * np.sqrt(2))
+    SxCy = 1j * d_cos * F_d / (2 * np.sqrt(2))
     CxCy = F_d / 4
 
     return I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy
 
-def wannier_fourier():
-    pass  
+def Hamiltonian_components(wannier:tuple, t1:float=1., t2:float=1., B:float=1., sparse:bool=True) -> tuple:
+    """
+    Constructs the components of the Hamiltonian without dependencey on M or B_tilde
 
-def Hamiltonian_components(wannier:tuple, t1:float=1.0, t2:float=1.0, B:float=1.0, sparse:bool=True) -> tuple:
+    Parameters:
+    wannier (tuple): The wannier matrices given by wannier_symmetry or wannier_fourier
+    t1 (float): Amplitude of principal hop between opposite orbitals
+    t2 (float): Amplitude of diagonal hop between opposite orbitals
+    B (float):  Amplitude of principal hop between same orbitals
+    sparse (bool): Whether to return as sparse
+
+    Returns: 
+    H_0 (ndarray): Components of the Hamiltonian 
+    M_hat (ndarray): 
+    B_tilde_hat (ndarray): 
     """
-    
-    """
+    #Pauli matrices
+    pauli1 = np.array([[0, 1], [1, 0]], dtype=np.complex128)
+    pauli2 = np.array([[0, -1j], [1j, 0]], dtype=np.complex128)
+    pauli3 = np.array([[1, 0], [0, -1]], dtype=np.complex128)
 
     I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy = wannier
 
-    #pauli matrices
-    tau1 = np.array([[0, 1], [1, 0]], dtype=np.complex128)
-    tau2 = np.array([[0, -1j], [1j, 0]], dtype=np.complex128)
-    tau3 = np.array([[1, 0], [0, -1]], dtype=np.complex128)
-
+    #components of the hamilltonian
     d1 = t1 * Sx + t2 * CxSy
     d2 = t1 * Sy + t2 * SxCy
     d3 = -4 * B * I + 2 * B * Cx_plus_Cy
 
-    # Hamiltonian components without M or B_tilde dependence
-    M_hat = np.kron(I, tau3)
-    B_tilde_hat = np.kron(4 * (CxCy - I), tau3)
+    #not dependent on values of M or B_tilde
+    M_hat = np.kron(I, pauli3)
+    B_tilde_hat = np.kron(4 * (CxCy - I), pauli3)
 
-    H_0 = np.kron(d1, tau1) + np.kron(d2, tau2) + np.kron(d3, tau3)
+    #Hamiltonian
+    H_0 = np.kron(d1, pauli1) + np.kron(d2, pauli2) + np.kron(d3, pauli3)
 
     if sparse:
         return csr_matrix(H_0), csr_matrix(M_hat), csr_matrix(B_tilde_hat)
@@ -161,9 +171,18 @@ def Hamiltonian_components(wannier:tuple, t1:float=1.0, t2:float=1.0, B:float=1.
 
 def decompose(H:np.ndarray, holes:np.ndarray, fills:np.ndarray) -> tuple:
     """
-    Decompose Hamiltonian into submatrices for holes, filled, and two for interactions
+    Decomposes a Hamiltonian matrix into sub-blocks dependent on filled and not filled sites
+
+    Parameters:
+    H (ndarray): Hamiltonian
+    fills (ndarray): Indices of filled sites.
+    holes (ndarray): Indices of not filled sites.
 
     Returns:
+    H_aa (ndarray): Sub-blocks of the Hamiltonian
+    H_bb (ndarray):
+    H_ab (ndarray):
+    H_ba (ndarray):
     """
     num_fills = fills.size
     num_holes = holes.size
@@ -190,9 +209,19 @@ def decompose(H:np.ndarray, holes:np.ndarray, fills:np.ndarray) -> tuple:
 
     return H_aa, H_bb, H_ab, H_ba
 
-def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple[tuple, tuple, tuple]:
+def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
     """
     Decompose the components of the Hamiltonian
+
+    Parameters:
+    wannier
+    holes
+    fills
+
+    Returns: 
+    H_0_parts
+    M_hat_parts
+    B_tilde_parts
     """
 
     H_0, M_hat, B_tilde_hat = Hamiltonian_components(wannier, sparse=False)
@@ -202,46 +231,29 @@ def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple[
 
     return H_0_parts, M_hat_parts, B_tilde_hat_parts
 
-def precompute_lattice(method:str, order:int, pad_width:int, pbc:bool, n:int=None) -> tuple[tuple, np.ndarray]:
+def precompute(order:int, pad_width:int, pbc:bool, n:int, sparse:bool=True) -> tuple:
     """
-    Precomputes the Hamiltonian and fractal lattice.
-
-    Returns 
+    Precomputes the lattice and the parts of its Hamiltonian
     """
 
-    check_method(method)
-    if method == "symmetry" and n is None:
-        raise ValueError("When using the method of symmetry, n must be defined.")
+    #currently only using symmetry so no method will be included
 
     sq_lat, frac_lat, holes, fills = sierpinski_lattice(order, pad_width)
 
-    if method == "symmetry":
-        wannier = wannier_symmetry(frac_lat, pbc, n)
-        H_parts = Hamiltonian_components(wannier)
-        return H_parts, frac_lat
+    wannier = wannier_symmetry(frac_lat, pbc, n)
+    H_parts = Hamiltonian_components(wannier, sparse=sparse)
+    return H_parts, frac_lat
 
+def Hamiltonian_reconstruct(precomputed_data:tuple, M:float, B_tilde:float, sparse:bool=True) -> np.ndarray:
+    """
+    
+    """
 
-"""Other methos
-def Hamiltonian_site_elim():
-    pass
+    H_0, M_hat, B_tilde_hat = precomputed_data
 
-def mat_inv():
-    pass
-
-def Hamiltonian_renorm():
-    pass
-
-"""
-
-def Hamiltonian_reconstruct(method:str, pre_data:tuple, M:float, B_tilde:float, sparse:bool=True) -> np.ndarray:
-    check_method(method)
-
-    if method == "symmetry":
-        H_0, M_hat, B_tilde_hat = pre_data
-
-        H = H_0 + M*M_hat + B_tilde*B_tilde_hat
-        if not sparse:
-            H = H.toarray()
+    H = H_0 + M*M_hat + B_tilde*B_tilde_hat
+    if not sparse:
+        H = H.toarray()
     return H
 
 def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str='uniform') -> np.ndarray:
@@ -280,7 +292,7 @@ def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str
     disorder_operator = np.diag(disorder_array).astype(np.complex128) if not sparse else diags(disorder_array, dtype=np.complex128, format='csr')
     return disorder_operator
 
-def projector(H:np.ndarray, fermi_energy:float) -> np.ndarray:
+def projector(H:np.ndarray, E_F:float) -> np.ndarray:
     '''
     Constructs the projector of the Hamiltonian onto the states below the Fermi energy
 
@@ -295,7 +307,7 @@ def projector(H:np.ndarray, fermi_energy:float) -> np.ndarray:
     eigvals, eigvecs = eigh(H, overwrite_a=True)
 
     #diagonal matrix 
-    D = np.where(eigvals < fermi_energy, 1.0 + 0.0j, 0.0 + 0.0j)
+    D = np.where(eigvals < E_F, 1.0 + 0.0j, 0.0 + 0.0j)
     D_dagger = np.einsum('i,ij->ij', D, eigvecs.conj().T)
 
     #projector given by matrix multiplaction of eigenvectors and D_dagger
@@ -303,9 +315,9 @@ def projector(H:np.ndarray, fermi_energy:float) -> np.ndarray:
 
     return P
 
-def bott_index(P:np.ndarray, lattice:np.ndarray):
+def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     '''
-    
+    Computes the Bott Index for a given lattice and projector
     '''
     Y, X = np.where(lattice >= 0)[:]
     system_size = np.max(lattice) + 1
@@ -329,13 +341,10 @@ def bott_index(P:np.ndarray, lattice:np.ndarray):
 
     return bott
 
-def avg_bott_disorder():
-    pass
-
-
 
 def main():
     pass
 
 if __name__ == "__main__":
     main()
+
