@@ -10,9 +10,6 @@ from itertools import product
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
 
-
-
-
 def init_environment(cores_per_job): #initiate cores to prevent cannibalization
     ncore = str(int(cores_per_job))
     os.environ["OMP_NUM_THREADS"] = ncore
@@ -21,9 +18,22 @@ def init_environment(cores_per_job): #initiate cores to prevent cannibalization
     os.environ["VECLIB_MAXIMUM_THREADS"] = ncore
     os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
-def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, progress=False):
+def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, progress=False) -> float:
     """
     Finds the average Bott index from random disorder of given strength W.
+
+    Parameters:
+    H_init (ndarray): initial Hamiltonian
+    lattice (ndarray): lattice arrary
+    W (float): Strength of disorder
+    iterations (int): number of times to compute / average over
+    E_F (float): fermi energy
+    num_jobs (int): number of jobs 
+    cores_per_job (int): CPU cores per job
+    progress (bool): Whether to display progress
+
+    Returns:
+    bott_mean (float): average bott index over iterations
     """
     init_environment(cores_per_job)
 
@@ -58,8 +68,24 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
     bott_mean = np.mean(data)
     return bott_mean
 
-def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:tuple[bool, bool]=(True, False), printparams:str=None):
+def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:tuple[bool, bool]=(False, False), printparams:str=None) -> np.ndarray:
+    """
+    Calculuates the bott index after disorder over a range of disorder values.
 
+    Parameters:
+    H (ndarray): Hamiltonian
+    lattice (ndarray): lattice array
+    W_values (ndarray): Array of disorder values
+    iterations_per_disorder (int): Iterations for each disorder
+    E_F (float): fermi energy
+    num_jobs (int): number of jobs 
+    cores_per_job (int): CPU cores per job
+    progress (tuple[bool, bool]): Whether to display progress. First index is for many_disorder, second index is for bott_from_disorder 
+    printparams (str): Additional parameters to write into progress message
+
+    Returns: 
+    data (ndarray): 2xN array, where N is the length of W_values. First row is W_values, second row is final bott index. 
+    """
     init_environment(cores_per_job)
 
     t0 = time()
@@ -68,10 +94,10 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
     def compute_single(i):
         try:
             W = W_values[i]
-            bott_final = bott_from_disorder(H, lattice, W, iterations=iterations_per_disorder, E_F=E_F, num_jobs=num_jobs, cores_per_job=cores_per_job, progress=progresses[0])
+            bott_final = bott_from_disorder(H, lattice, W, iterations=iterations_per_disorder, E_F=E_F, num_jobs=num_jobs, cores_per_job=cores_per_job, progress=progresses[1])
         
             dt = time() - t0
-            if progresses[1]:
+            if progresses[0]:
                 print(f"Finished W={W}, {printparams}; {round(dt,1)}s")
     
             return W, bott_final
@@ -84,12 +110,32 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
     return data
 
-def many_lattices(order:int, pad_w:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, sparse:bool=False, progresses:tuple[bool, bool, bool]=(True,True,False)):
-    
+def many_lattices(order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:tuple[bool, bool, bool]=(False,False,False)) -> np.ndarray:
+    """
+    Computes many Sierpinski carpet lattices over a range of M and B_tilde values. If the bott index is not 0, compute the disorder over a range.
+
+    Paramters:
+    order (int): order of the Sierpinski carpet
+    pad_width (int): padding width of the lattice
+    pbc (bool): periodic boundary conditions?
+    n (int): maximum hopping distance 
+    M_values (ndarray): array of values for M
+    B_tilde_values (ndarray): array of values for B_tilde
+    W_values (ndaray): array of values for disorder strength 
+    iterations_per_disorder (int): number of times to compute each disorder value 
+    E_F (float): fermi energy
+    num_jobs (int): number of jobs
+    cores_per_job (int): CPU cores per job
+    sparse (bool): Whether to generate as a sprase matrix (currently not functional)
+    progresses (tuple[bool, bool, bool]): whether to print progress update. Index 0 is for creating the lattice and finding its bott index. Index 1 is for many_disorder. Index 2 is for bott_from_disorder
+
+    Returns: 
+    data (ndarray): array containing the data for each computed lattice.
+    """
     init_environment(cores_per_job)
 
     #precompute data and possible values
-    pre_data, frac_lat = precompute(order=order, pad_width=pad_w, pbc=pbc, n=n, sparse=sparse)
+    pre_data, frac_lat = precompute(order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
     parameter_values = tuple(product(M_values, B_tilde_values))
 
     t0 = time()
@@ -128,7 +174,7 @@ def many_lattices(order:int, pad_w:int, pbc:bool, n:int, M_values:np.ndarray, B_
 
     return data_array
 
-def plot_data(filepath):
+def plot_data(filepath) -> None:
     #load file
     read_data = np.load(filepath, allow_pickle=True)
     data = read_data['arr_0']
@@ -163,8 +209,8 @@ def main():
     iterations_per_disorder = 10
     E_F = 0.0
 
-    data = many_lattices(order=order, pad_w=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values, 
-                            iterations_per_disorder=iterations_per_disorder, E_F=E_F, num_jobs=4, cores_per_job=1, progresses=(True, False, False))
+    data = many_lattices(order=order, pad_width=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values,
+                         iterations_per_disorder=iterations_per_disorder, E_F=E_F, progresses=(True, True, True))
 
     #save data
     filepath="data.npz"
@@ -176,7 +222,7 @@ def main2():
     plot_data(filepath=filepath)
 
 if __name__ == "__main__":
-    main2()
+    main()
 
 
 
