@@ -6,7 +6,7 @@ from scipy.spatial import ConvexHull
 import os
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from ProjectCode.ComputeBottIndex import projector_exact, projector_KPM, bott_index
+from ProjectCode_1.ComputeBottIndex import projector_exact, projector_KPM, bott_index
 from time import time
 from PhaseDiagramDependencies import precompute_data, reconstruct_hamiltonian
 from itertools import product

@@ -19,7 +19,7 @@ from itertools import product
 from time import time
 import os
 
-from Week_1.old_project_dependencies import mass_disorder, precompute_lattice as precompute_data, Hamiltonian_reconstruct, bott_index, projector
+from Project_1.old_project_dependencies import mass_disorder, precompute_lattice as precompute_data, Hamiltonian_reconstruct, bott_index, projector
 
 '''
 from ProjectCode.DisorderAveraging.DisorderDependencies import uniform_mass_disorder as mass_disorder
