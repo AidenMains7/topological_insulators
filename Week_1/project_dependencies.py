@@ -1,5 +1,5 @@
 """
-Largely Dan Salib's code
+Influenced by and taken from Dan Salib's code
 """
 import sys
 sys.path.append(".")
