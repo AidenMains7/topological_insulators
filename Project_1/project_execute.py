@@ -9,6 +9,7 @@ from project_dependencies import mass_disorder, projector, bott_index, precomput
 from itertools import product
 from joblib import Parallel, delayed
 import matplotlib.pyplot as plt
+from datetime import datetime
 
 def init_environment(cores_per_job): #initiate cores to prevent cannibalization
     ncore = str(int(cores_per_job))
@@ -55,7 +56,7 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
 
             return bott
         except Exception as e:
-            print(f"An error occurred for W={W:.3f}: {e}")
+            print(f"An error occurred for W={W:.2f}: {e}")
             return np.nan
 
     #do for the number of iterations
@@ -153,7 +154,7 @@ def many_lattices(order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray
         
         #show progress?
         if progresses[0]:
-            print(f'M={M}, B_tilde={B_tilde}; {100*(i+1)/len(parameter_values):.2f}%, {round(dt)}s.....bott={bott_init}')
+            print(f'M={M:.2f}, B_tilde={B_tilde:.2f}; {100*(i+1)/len(parameter_values):.2f}%, {round(dt)}s.....bott={bott_init}')
 
         #if bott index is not 0
         if bott_init != 0:
@@ -196,30 +197,40 @@ def plot_data(filepath) -> None:
     plt.grid()
     plt.show()
 
-
+def timely_filename() -> str:
+    now = datetime.now()
+    year = now.year
+    month = now.month
+    day = now.day
+    hr = now.hour
+    minute = now.minute
+    time_string=f"{month}_{day}_{year}__{hr}_{minute}"
+    return time_string
 
 def main():
     order = 3
     pad_w = 0
     pbc = True
     n = 5
-    M_values = np.linspace(-1, 1, 11)
-    B_tilde_values = np.linspace(-1, 1, 11)
-    W_values = np.linspace(0, 10, 11)
-    iterations_per_disorder = 10
+    M_values = np.linspace(-2, 12, 10)
+    B_tilde_values = np.linspace(0, 2, 10)
+    W_values = np.linspace(0.5, 5, 10)
+    print("W_values = ",W_values)
+    iterations_per_disorder = 20
     E_F = 0.0
 
     data = many_lattices(order=order, pad_width=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values,
-                         iterations_per_disorder=iterations_per_disorder, E_F=E_F, progresses=(True, True, True))
+                         iterations_per_disorder=iterations_per_disorder, E_F=E_F, progresses=(True, True, False))
 
     #save data
-    filepath="data.npz"
+
+    filepath = f"Project_1\\bott_index_disorder_{timely_filename()}.npz"
     np.savez(filepath,data)
     plot_data(filepath=filepath)
 
 def main2():
-    filepath="data.npz"
-    plot_data(filepath=filepath)
+    pass
+    
 
 if __name__ == "__main__":
     main()
