@@ -5,10 +5,10 @@ import sys
 sys.path.append(".")
 
 import numpy as np
-from scipy.sparse import csr_matrix, diags
-from scipy.linalg import eigh, logm
+from scipy.sparse import csr_matrix, diags, dok_matrix
+from scipy.linalg import eigh, logm, eig, eigvals
+from scipy.sparse.linalg import cg
 
-#my own method for first part
 def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     """
     Generates a Sierpinski carpet lattice of specified order.
@@ -105,7 +105,6 @@ def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
 
     return d_r, d_cos, d_sin, mask_principal, mask_diagonal
 
-#hard to use different method
 def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
 
     d_r, d_cos, d_sin, mask_principal, mask_diagonal = geometry(lattice, pbc, n)
@@ -129,9 +128,72 @@ def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
 
     return I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy
 
+def wannier_fourier(lattice:np.ndarray, pbc:bool) -> tuple:
+    """
+    Constructs the wannier matrices using the fourier transform method.
+    """
+    num_sites = np.max(lattice) + 1
+    L_y, L_x = lattice.shape
+
+    I = np.eye(num_sites, dtype=np.complex128)
+    Cx = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+    Sx = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+    Cy = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+    Sy = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+    CxSy = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+    SxCy = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+    CxCy = dok_matrix((num_sites, num_sites), dtype=np.complex128)
+
+    for y in range(L_y):
+        for x in range(L_x):
+            pos = lattice[y, x]
+            if pos > -1:
+                #if not a hole
+
+                x_neg, x_pos = (x-1)%L_x, (x+1)%L_x
+                y_pos = (y+1)%L_y
+
+                pos_xp = lattice[y, x_pos]
+                x_hop = (pbc or x_pos != 0) and pos_xp > -1
+                pos_yp = lattice[y_pos, x]
+                y_hop = (pbc or y_pos != 0) and pos_yp > -1
+
+                pos_ypxp = lattice[y_pos, x_pos]
+                ypxp_hop = (pbc or x_pos != 0) and (pbc or y_pos != 0) and pos_ypxp > -1
+
+                pos_ypxn = lattice[y_pos, x_neg]
+                ypxn_hop = (pbc or x_neg != L_x - 1) and (pbc or y_pos != 0) and pos_ypxn > -1
+
+                if x_hop:
+                    Cx[pos, pos_xp] = 1 / 2
+                    Sx[pos, pos_xp] = 1j / 2
+                if y_hop:
+                    Cy[pos, pos_yp] = 1 / 2
+                    Sy[pos, pos_yp] = 1j / 2
+                if ypxp_hop:
+                    CxSy[pos, pos_ypxp] = 1j / 4
+                    SxCy[pos, pos_ypxp] = 1j / 4
+                    CxCy[pos, pos_ypxp] = 1 / 4
+                if ypxn_hop:
+                    CxSy[pos, pos_ypxn] = 1j / 4
+                    SxCy[pos, pos_ypxn] = -1j / 4
+                    CxCy[pos, pos_ypxn] = 1 / 4
+
+    Cx += Cx.conj().T
+    Sx += Sx.conj().T
+    Cy += Cy.conj().T
+    Sy += Sy.conj().T
+    CxSy += CxSy.conj().T
+    SxCy += SxCy.conj().T
+    CxCy += CxCy.conj().T
+
+    Sx, Sy, Cx, Cy, CxSy, SxCy, CxCy = [arr.toarray() for arr in [Sx, Sy, Cx, Cy, CxSy, SxCy, CxCy]]
+
+    return I, Sx, Sy, Cx + Cy, CxSy, SxCy, CxCy
+
 def Hamiltonian_components(wannier:tuple, t1:float=1., t2:float=1., B:float=1., sparse:bool=True) -> tuple:
     """
-    Constructs the components of the Hamiltonian without dependencey on M or B_tilde
+    Constructs the components of the  Hamiltonian without dependencey on M or B_tilde
 
     Parameters:
     wannier (tuple): The wannier matrices given by wannier_symmetry or wannier_fourier
@@ -169,7 +231,7 @@ def Hamiltonian_components(wannier:tuple, t1:float=1., t2:float=1., B:float=1., 
 
     return H_0, M_hat, B_tilde_hat
 
-def decompose(H:np.ndarray, holes:np.ndarray, fills:np.ndarray) -> tuple:
+def decompose(H:np.ndarray, fills:np.ndarray, holes:np.ndarray) -> tuple:
     """
     Decomposes a Hamiltonian matrix into sub-blocks dependent on filled and not filled sites
 
@@ -231,29 +293,104 @@ def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
 
     return H_0_parts, M_hat_parts, B_tilde_hat_parts
 
-def precompute(order:int, pad_width:int, pbc:bool, n:int, sparse:bool=True) -> tuple:
+def mat_inv(matrix:np.ndarray, hermitian:bool=True, alt:bool=True, overwrite_a:bool=True, tol:float=1e-10) -> np.ndarray:
+
+    if not alt:
+        try:
+            return np.linalg.inv(matrix)
+        except np.linalg.LinAlgError:
+            return np.linalg.pinv(matrix, hermitian=hermitian)
+    else:
+        if hermitian:
+            D, P = eigh(matrix, overwrite_a=overwrite_a)
+            D_inv = np.where(np.abs(D) > tol, 1 / D, 0. + 0.j)
+            D_inv = np.diag(D_inv)
+            return np.dot(P, np.dot(D_inv, P.T.conj()))
+        else:
+            D, P_right, P_left = eig(matrix, left=True, right=True, overwrite_a=overwrite_a)
+            zero_value = 0. + 0.j if np.iscomplexobj(D) else 0.
+            D_inv = np.where(np.abs(D) > tol, 1 / D, zero_value)
+            D_inv = np.diag(D_inv)
+            return np.dot(P_right, np.dot(D_inv, P_left.conj().T))
+
+def mat_solve_iterative(matrix:np.ndarray, tol:float=1e-5):
+    def solve(b):
+        x, info = cg(csr_matrix(matrix), b, tol=tol)
+        if info != 0:
+            raise np.linalg.LinAlgError("Conjugate gradient solver did not converge")
+        return x
+    return solve
+
+def H_renorm(H_parts:tuple) -> np.ndarray:
+    H_aa, H_bb, H_ab, H_ba = H_parts
+
+    try:
+        solve_H_bb = mat_solve_iterative(H_bb)
+        H_ba_solved = np.hstack([solve_H_bb(H_ba[:, i].ravel()).reshape(-1, 1) for i in range(H_ba.shape[1])])
+        H_eff = H_aa - H_ab @ H_ba_solved
+    except:
+        H_eff = H_aa - H_ab @ mat_inv(H_bb) @ H_ba
+
+    return H_eff
+
+def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, sparse:bool=True) -> tuple:
     """
     Precomputes the lattice and the parts of its Hamiltonian
     """
 
-    #currently only using symmetry so no method will be included
-
+    if method not in ['symmetry', 'square', 'renorm', 'site_elim']:
+        raise ValueError("Method must be one of ['symmetry', 'square', 'renorm', 'site_elim']")
+    if method == 'symmetry' and not isinstance(n, int):
+        raise ValueError(f"When using the method of symmetry, n must be defined. It is currently {n}, of type {type(n)}.")
+    
     sq_lat, frac_lat, holes, fills = sierpinski_lattice(order, pad_width)
 
-    wannier = wannier_symmetry(frac_lat, pbc, n)
-    H_parts = Hamiltonian_components(wannier, sparse=sparse)
-    return H_parts, frac_lat
+    match method:
+        case "symmetry":
+            wannier = wannier_symmetry(frac_lat, pbc=pbc, n=n)
+            H_components = Hamiltonian_components(wannier=wannier)
+            return H_components, frac_lat
+        case "square":
+            wannier = wannier_fourier(sq_lat, pbc=pbc)
+            H_components = Hamiltonian_components(wannier=wannier)
+            return H_components, sq_lat
+        case "site_elim":
+            wannier = wannier_fourier(sq_lat, pbc=pbc)
+            parts_groups = decompose_parts(wannier, holes, fills)
+            H_components = []
+            for parts_group in parts_groups:
+                H_components.append(csr_matrix(parts_group[0]))
+            H_components = tuple(H_components)
+            return H_components, frac_lat
+        case "renorm":
+            wannier = wannier_fourier(sq_lat, pbc=pbc)
+            parts_groups = decompose_parts(wannier, holes, fills)
+            return parts_groups, frac_lat
 
-def Hamiltonian_reconstruct(precomputed_data:tuple, M:float, B_tilde:float, sparse:bool=True) -> np.ndarray:
+def Hamiltonian_reconstruct(method:str, precomputed_data:tuple, M:float, B_tilde:float, sparse:bool=True) -> np.ndarray:
     """
     
     """
 
-    H_0, M_hat, B_tilde_hat = precomputed_data
+    if method == "renorm":
+        H_0_parts, M_hat_parts, B_tilde_hat_parts = precomputed_data
+        H_parts = []
 
-    H = H_0 + M*M_hat + B_tilde*B_tilde_hat
-    if not sparse:
-        H = H.toarray()
+        for i in range(len(H_0_parts)):
+            H_part = H_0_parts[i] + M * M_hat_parts[i] + B_tilde * B_tilde_hat_parts[i]
+            H_parts.append(H_part)
+
+        H_parts = tuple(H_parts)
+        H = H_renorm(H_parts)
+        if sparse:
+            H = csr_matrix(H)
+
+    else:
+        H_0, M_hat, B_tilde_hat = precomputed_data
+        H = H_0 + M*M_hat + B_tilde*B_tilde_hat
+        if not sparse:
+            H = H.toarray()
+    
     return H
 
 def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str='uniform') -> np.ndarray:
@@ -337,7 +474,8 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
 
     A = np.eye(P.shape[0], dtype=np.complex128) - P + P.dot(UxP).dot(UyP).dot(Ux_daggerP).dot(Uy_daggerP)
    
-    bott = round(np.imag(np.trace(logm(A))) / (2 * np.pi))
+    #Tr(logm(A)) = sum of log of eigvals of A
+    bott = round(np.imag(np.sum(np.log(eigvals(A)))) / (2 * np.pi))
 
     return bott
 
