@@ -111,11 +111,12 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
     return data
 
-def many_lattices(order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:tuple[bool, bool, bool]=(False,False,False)) -> np.ndarray:
+def many_lattices(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:tuple[bool, bool, bool]=(False,False,False)) -> np.ndarray:
     """
     Computes many Sierpinski carpet lattices over a range of M and B_tilde values. If the bott index is not 0, compute the disorder over a range.
 
     Paramters:
+    method (str): method to use
     order (int): order of the Sierpinski carpet
     pad_width (int): padding width of the lattice
     pbc (bool): periodic boundary conditions?
@@ -136,7 +137,7 @@ def many_lattices(order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray
     init_environment(cores_per_job)
 
     #precompute data and possible values
-    pre_data, frac_lat = precompute(order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
+    pre_data, frac_lat = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
     parameter_values = tuple(product(M_values, B_tilde_values))
 
     t0 = time()
@@ -146,7 +147,7 @@ def many_lattices(order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray
         M, B_tilde = parameter_values[i]
 
         #method of symmetry
-        H = Hamiltonian_reconstruct(precomputed_data=pre_data, M=M, B_tilde=B_tilde, sparse=True)
+        H = Hamiltonian_reconstruct(method=method, precomputed_data=pre_data, M=M, B_tilde=B_tilde, sparse=sparse)
         P = projector(H, E_F=E_F)
         bott_init = bott_index(P, frac_lat)
 
@@ -208,18 +209,20 @@ def timely_filename() -> str:
     return time_string
 
 def main():
+    methodlist= ['symmetry', 'square', 'renorm', 'site_elim']
+    method = methodlist[0]
     order = 3
     pad_w = 0
     pbc = True
     n = 5
-    M_values = np.linspace(-2, 12, 10)
-    B_tilde_values = np.linspace(0, 2, 10)
-    W_values = np.linspace(0.5, 5, 10)
+    M_values = np.linspace(-2, 12, 5)
+    B_tilde_values = np.linspace(0, 2, 5)
+    W_values = np.linspace(0.5, 5, 5)
     print("W_values = ",W_values)
-    iterations_per_disorder = 20
+    iterations_per_disorder = 10
     E_F = 0.0
 
-    data = many_lattices(order=order, pad_width=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values,
+    data = many_lattices(method=method, order=order, pad_width=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values,
                          iterations_per_disorder=iterations_per_disorder, E_F=E_F, progresses=(True, True, False))
 
     #save data
