@@ -7,11 +7,9 @@ import os
 from time import time
 from project_dependencies import mass_disorder, projector, bott_index, precompute, Hamiltonian_reconstruct
 from itertools import product
-from joblib import Parallel, delayed
-import matplotlib.pyplot as plt
-from datetime import datetime
+from joblib import Parallel, delayed, parallel_backend
 
-def init_environment(cores_per_job): #initiate cores to prevent cannibalization
+def _init_environment(cores_per_job): #initiate cores to prevent cannibalization
     ncore = str(int(cores_per_job))
     os.environ["OMP_NUM_THREADS"] = ncore
     os.environ["OPENBLAS_NUM_THREADS"] = ncore
@@ -19,7 +17,35 @@ def init_environment(cores_per_job): #initiate cores to prevent cannibalization
     os.environ["VECLIB_MAXIMUM_THREADS"] = ncore
     os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
-def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, progress=False) -> float:
+def many_bott(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progress=True) -> np.ndarray:
+    """
+    """
+
+    _init_environment(cores_per_job=cores_per_job)
+    
+    pre_data, frac_lat = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
+    parameter_values = tuple(product(M_values, B_tilde_values))
+
+    t0 = time()
+
+    def compute_single(i):
+        M, B_tilde = parameter_values[i]
+
+        H = Hamiltonian_reconstruct(method=method, precomputed_data=pre_data, M=M, B_tilde=B_tilde, sparse=sparse)
+        P = projector(H, E_F=E_F)
+        bott = bott_index(P, frac_lat)
+
+        dt = time() - t0
+
+        if progress:
+            print(f"{(100*(i+1)/len(parameter_values)):.2f}% Completed: M={M:.2f}, B_tilde={B_tilde:.2f}, bott={bott};  {dt:.1f}s")
+
+        return np.array([M, B_tilde, bott])
+    
+    data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values))))
+    return data
+
+def _bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, progress=False) -> float:
     """
     Finds the average Bott index from random disorder of given strength W.
 
@@ -36,7 +62,6 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
     Returns:
     bott_mean (float): average bott index over iterations
     """
-    init_environment(cores_per_job)
 
     #size
     system_size = np.max(lattice) + 1
@@ -60,7 +85,8 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
             return np.nan
 
     #do for the number of iterations
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
+    with parallel_backend('loky', inner_max_num_threads=1):
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
     
     #remove incomplete data
     data = data[~np.isnan(data)]
@@ -69,7 +95,7 @@ def bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteration
     bott_mean = np.mean(data)
     return bott_mean
 
-def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:tuple[bool, bool]=(False, False), printparams:str=None) -> np.ndarray:
+def _many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:"tuple[bool, bool]"=(False, False), printparams:str=None) -> np.ndarray:
     """
     Calculuates the bott index after disorder over a range of disorder values.
 
@@ -87,7 +113,6 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
     Returns: 
     data (ndarray): 2xN array, where N is the length of W_values. First row is W_values, second row is final bott index. 
     """
-    init_environment(cores_per_job)
 
     t0 = time()
 
@@ -95,7 +120,7 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
     def compute_single(i):
         try:
             W = W_values[i]
-            bott_final = bott_from_disorder(H, lattice, W, iterations=iterations_per_disorder, E_F=E_F, num_jobs=num_jobs, cores_per_job=cores_per_job, progress=progresses[1])
+            bott_final = _bott_from_disorder(H, lattice, W, iterations=iterations_per_disorder, E_F=E_F, num_jobs=num_jobs, cores_per_job=cores_per_job, progress=progresses[1])
         
             dt = time() - t0
             if progresses[0]:
@@ -108,135 +133,78 @@ def many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterati
             return [np.nan]*2
 
     #compute disorder over the range of given values
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
+    with parallel_backend('loky', inner_max_num_threads=1):
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
+    
     return data
 
-def many_lattices(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:tuple[bool, bool, bool]=(False,False,False)) -> np.ndarray:
+def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:"tuple[bool, bool, bool]"=(True,False,False)) -> np.ndarray:
     """
-    Computes many Sierpinski carpet lattices over a range of M and B_tilde values. If the bott index is not 0, compute the disorder over a range.
-
-    Paramters:
-    method (str): method to use
-    order (int): order of the Sierpinski carpet
-    pad_width (int): padding width of the lattice
-    pbc (bool): periodic boundary conditions?
-    n (int): maximum hopping distance 
-    M_values (ndarray): array of values for M
-    B_tilde_values (ndarray): array of values for B_tilde
-    W_values (ndaray): array of values for disorder strength 
-    iterations_per_disorder (int): number of times to compute each disorder value 
-    E_F (float): fermi energy
-    num_jobs (int): number of jobs
-    cores_per_job (int): CPU cores per job
-    sparse (bool): Whether to generate as a sprase matrix (currently not functional)
-    progresses (tuple[bool, bool, bool]): whether to print progress update. Index 0 is for creating the lattice and finding its bott index. Index 1 is for many_disorder. Index 2 is for bott_from_disorder
-
-    Returns: 
-    data (ndarray): array containing the data for each computed lattice.
     """
-    init_environment(cores_per_job)
 
-    #precompute data and possible values
-    pre_data, frac_lat = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
-    parameter_values = tuple(product(M_values, B_tilde_values))
+    _init_environment(cores_per_job)
+
+    pre_data, frac_lat = precompute(method, order, pad_width, pbc, n, sparse)
+    parameters = tuple(product(M_values, B_tilde_values))
 
     t0 = time()
 
-    #compute a single bott index; if nonzero, apply disorder over a range
-    def compute_single(i):
-        M, B_tilde = parameter_values[i]
+    def worker(i:int) -> np.ndarray:
+        try: 
+            #Compute bott values for parameter
+            M, B_tilde = parameters[i]
 
-        #method of symmetry
-        H = Hamiltonian_reconstruct(method=method, precomputed_data=pre_data, M=M, B_tilde=B_tilde, sparse=sparse)
-        P = projector(H, E_F=E_F)
-        bott_init = bott_index(P, frac_lat)
+            H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse)
+            P = projector(H, E_F)
+            bott = bott_index(P, frac_lat)
 
-        dt = time() - t0
+            bott_array = np.array([[0.0], [bott]])
+
+            dt = time() - t0
+            if progresses[0]:
+                percent_str = f"{100*(i+1)/len(parameters):.2f}%"
+                bott_str = f"bott = {bott:+.2f}"
+                time_str = f"{dt:.0f}s"
+                print(f"{percent_str.ljust(10)} {bott_str.ljust(15)} {time_str.rjust(5)}")
+
+            #If nonzero, disorder over the range
+            if bott != 0:
+                disorder_array = _many_disorder(H, frac_lat, W_values, iterations_per_disorder, E_F, num_jobs, cores_per_job, (progresses[1], progresses[2]), printparams=None)
+                
+                disorder_array = np.concatenate((bott_array, disorder_array), axis=1)
+
+                dt = time() - t0
+                if progresses[0]:
+                    percent_str = f"{100*(i+1)/len(parameters):.2f}%"
+                    message_str = "Completed disorder calculation."
+                    time_str = f"{dt:.0f}s"
+                    print(f"{percent_str.ljust(10)} {message_str.ljust(15)} {time_str.rjust(5)}")
+
+            else:
+                disorder_array = np.concatenate((bott_array, np.full((2, W_values.size), np.nan)), axis=1)
+
+            return disorder_array.T
+
+        except Exception as e:
+            print(f"Error occured at M, B_tilde = {parameters[i]}: {e}")
+            return np.full((2, W_values.size + 1), np.nan).T
         
-        #show progress?
-        if progresses[0]:
-            print(f'M={M:.2f}, B_tilde={B_tilde:.2f}; {100*(i+1)/len(parameter_values):.2f}%, {round(dt)}s.....bott={bott_init}')
-
-        #if bott index is not 0
-        if bott_init != 0:
-            bott_disorder_array = many_disorder(H, frac_lat, W_values=W_values, iterations_per_disorder=iterations_per_disorder, E_F=E_F, num_jobs=num_jobs, cores_per_job=cores_per_job, progresses = (progresses[1], progresses[2]), printparams=f"M={M}, B_tilde={B_tilde}")
-        
-        #othe
-        else:
-            bott_disorder_array = np.full((2,W_values.size),np.nan)
-
-        return M, B_tilde, bott_init, bott_disorder_array
+    with parallel_backend('loky', inner_max_num_threads=1):
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(len(parameters))))
     
-    data = Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values)))
+    return data
 
-    #array, custom dtype, each row is a different M, B_tilde
-    data_array = np.empty(len(parameter_values), dtype = np.dtype([('val1', 'f4'), ('val2', 'f4'), ('val3', 'f4'), ('array', 'O')]))
-    for i in range(len(parameter_values)):
-        data_array[i] = data[i]
 
-    return data_array
+            
 
-def plot_data(filepath) -> None:
-    #load file
-    read_data = np.load(filepath, allow_pickle=True)
-    data = read_data['arr_0']
 
-    #plot 
-    for i in range(data.size):
-        M = data[i][0]
-        B_tilde = data[i][1]
-        bott_init = data[i][2]
-        bott_array = data[i][3]
-        if (bott_init != 0):
-            x = np.concatenate(([0],bott_array[0]))
-            y = np.concatenate(([bott_init], bott_array[1]))
-            plt.plot(x,y, label=f"M={M}, B_tilde={B_tilde}")
 
-    #set plotting values
-    plt.xlabel("W (disorder strength)")
-    plt.ylabel("Bott Index")
-    plt.grid()
-    plt.show()
 
-def timely_filename() -> str:
-    now = datetime.now()
-    year = now.year
-    month = now.month
-    day = now.day
-    hr = now.hour
-    minute = now.minute
-    time_string=f"{month}_{day}_{year}__{hr}_{minute}"
-    return time_string
 
-def main():
-    methodlist= ['symmetry', 'square', 'renorm', 'site_elim']
-    method = methodlist[0]
-    order = 3
-    pad_w = 0
-    pbc = True
-    n = 5
-    M_values = np.linspace(-2, 12, 5)
-    B_tilde_values = np.linspace(0, 2, 5)
-    W_values = np.linspace(0.5, 5, 5)
-    print("W_values = ",W_values)
-    iterations_per_disorder = 10
-    E_F = 0.0
 
-    data = many_lattices(method=method, order=order, pad_width=pad_w, pbc=pbc, n=n, M_values=M_values, B_tilde_values=B_tilde_values, W_values=W_values,
-                         iterations_per_disorder=iterations_per_disorder, E_F=E_F, progresses=(True, True, False))
 
-    #save data
-
-    filepath = f"Project_1\\bott_index_disorder_{timely_filename()}.npz"
-    np.savez(filepath,data)
-    plot_data(filepath=filepath)
-
-def main2():
-    pass
-    
 
 if __name__ == "__main__":
-    main()
-
+    pass
 
 

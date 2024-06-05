@@ -345,27 +345,27 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, sparse:boo
     
     sq_lat, frac_lat, holes, fills = sierpinski_lattice(order, pad_width)
 
-    match method:
-        case "symmetry":
-            wannier = wannier_symmetry(frac_lat, pbc=pbc, n=n)
-            H_components = Hamiltonian_components(wannier=wannier)
-            return H_components, frac_lat
-        case "square":
-            wannier = wannier_fourier(sq_lat, pbc=pbc)
-            H_components = Hamiltonian_components(wannier=wannier)
-            return H_components, sq_lat
-        case "site_elim":
-            wannier = wannier_fourier(sq_lat, pbc=pbc)
-            parts_groups = decompose_parts(wannier, holes, fills)
-            H_components = []
-            for parts_group in parts_groups:
-                H_components.append(csr_matrix(parts_group[0]))
-            H_components = tuple(H_components)
-            return H_components, frac_lat
-        case "renorm":
-            wannier = wannier_fourier(sq_lat, pbc=pbc)
-            parts_groups = decompose_parts(wannier, holes, fills)
-            return parts_groups, frac_lat
+
+    if method == "symmetry":
+        wannier = wannier_symmetry(frac_lat, pbc=pbc, n=n)
+        H_components = Hamiltonian_components(wannier=wannier)
+        return H_components, frac_lat
+    elif method == "square":
+        wannier = wannier_fourier(sq_lat, pbc=pbc)
+        H_components = Hamiltonian_components(wannier=wannier)
+        return H_components, sq_lat
+    elif method == "site_elim":
+        wannier = wannier_fourier(sq_lat, pbc=pbc)
+        parts_groups = decompose_parts(wannier, holes, fills)
+        H_components = []
+        for parts_group in parts_groups:
+            H_components.append(csr_matrix(parts_group[0]))
+        H_components = tuple(H_components)
+        return H_components, frac_lat
+    elif method == "renorm":
+        wannier = wannier_fourier(sq_lat, pbc=pbc)
+        parts_groups = decompose_parts(wannier, holes, fills)
+        return parts_groups, frac_lat
 
 def Hamiltonian_reconstruct(method:str, precomputed_data:tuple, M:float, B_tilde:float, sparse:bool=True) -> np.ndarray:
     """
@@ -475,7 +475,8 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     A = np.eye(P.shape[0], dtype=np.complex128) - P + P.dot(UxP).dot(UyP).dot(Ux_daggerP).dot(Uy_daggerP)
    
     #Tr(logm(A)) = sum of log of eigvals of A
-    bott = round(np.imag(np.sum(np.log(eigvals(A)))) / (2 * np.pi))
+    #bott = round(np.imag(np.sum(np.log(eigvals(A)))) / (2 * np.pi))
+    bott = round(np.imag(np.trace(logm(A))) / (2 * np.pi))
 
     return bott
 
