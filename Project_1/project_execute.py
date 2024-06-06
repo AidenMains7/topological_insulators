@@ -17,6 +17,7 @@ def _init_environment(cores_per_job): #initiate cores to prevent cannibalization
     os.environ["VECLIB_MAXIMUM_THREADS"] = ncore
     os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
+
 def many_bott(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progress=True) -> np.ndarray:
     """
     """
@@ -44,6 +45,7 @@ def many_bott(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np
     
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values))))
     return data
+
 
 def _bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, progress=False) -> float:
     """
@@ -92,6 +94,7 @@ def _bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteratio
     bott_mean = np.mean(data) if len(data) > 0 else np.nan
     return bott_mean
 
+
 def _many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:"tuple[bool, bool]"=(False, False), printparams:str=None) -> np.ndarray:
     """
     Calculuates the bott index after disorder over a range of disorder values.
@@ -119,8 +122,9 @@ def _many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
             W = W_values[i]
             bott_final = _bott_from_disorder(H, lattice, W, iterations=iterations_per_disorder, E_F=E_F, num_jobs=num_jobs, cores_per_job=cores_per_job, progress=progresses[1])
         
-            dt = time() - t0
+
             if progresses[0]:
+                dt = time() - t0
                 message_1 = f"{printparams}"
                 message_2 = f"({100*(i+1)/W_values.size}%)"
                 message_3 = f"Finished W = {W:.2f}"
@@ -134,13 +138,34 @@ def _many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
             return [np.nan]*2
 
     #compute disorder over the range of given values
-    with parallel_backend('loky', inner_max_num_threads=1):
+    with parallel_backend('loky', inner_max_num_threads=cores_per_job):
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(W_values.size))).T
     
     return data
 
+
 def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:"tuple[bool, bool, bool]"=(True,False,False)) -> np.ndarray:
     """
+    Given array ranges of M, B_tilde, and W, find the Bott Index for a given combination of (M, B_tilde). If it is non-zero, generate disorder over a specified range and find the resulting Bott Index.
+
+    Parameters: 
+    method (str): Which method to use. WARNING: 'renorm' is currently not functioning properly
+    order (int): order of the Sierpinski carpet
+    pad_width (int): width of padding of the lattice
+    pbc (bool): periodic boundary conditions
+    n (int): maximum hop distance (for method of symmetry)
+    M_values (ndarray): range of values for M
+    B_tilde_values (ndarray): range of values for B_tilde
+    W_values (ndarray): range of values for disorder strength
+    iterations_per_disorder (int): number of times to compute a given disorder strength (then average across all)
+    E_F (float): fermi energy
+    num_jobs (int): number of jobs to run
+    cores_per_job (int): number of cores per job
+    sparse (bool): Whether to generate as a sparse matrix WARNING: not currently functional
+    progresses (tuple[bool, bool, bool]): Whether to report progress. Index 0 is for primary function, index 1 is for _many_disorder(), index 2 is for _bott_from_disorder()
+
+    Returns:
+    data (ndarray): Array of data, of shape (M_values.size * B_tilde_values.size, 2, W_values.size + 1). First column is [[0],[bott_init]], where bott_init is the Bott Index without disorder.
     """
 
     _init_environment(cores_per_job)
@@ -191,22 +216,17 @@ def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:
             print(f"Error occured at M, B_tilde = {parameters[i]}: {e}")
             return np.full((2, W_values.size + 1), np.nan)
         
-    with parallel_backend('loky', inner_max_num_threads=1):
+    with parallel_backend('loky', inner_max_num_threads=cores_per_job):
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(len(parameters))))
     
     return data
 
 
-            
-
-
-
-
-
-
-
+#----------main function implementation----------
+def main():
+    pass
 
 if __name__ == "__main__":
-    pass
+    main()
 
 
