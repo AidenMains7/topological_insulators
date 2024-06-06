@@ -14,6 +14,9 @@ from os import walk
 #plt.style.use([]'science', 'pgf])
 
 def timely_filename() -> str:
+    """
+    Current date and time in string format
+    """
     now = datetime.now()
     year = now.year
     month = now.month
@@ -58,8 +61,8 @@ def _phase_plot(filename:str, doShow:bool, doSave:bool) -> None:
 
         for i in range(num):
             if data[i][0,1] is not np.nan:
-                x = data[i][0]
-                y = data[i][1]
+                x = data[i][0] #disorder value
+                y = data[i][1] #bott index after disorder
 
                 ax.plot(x, y)
 
@@ -70,38 +73,6 @@ def _phase_plot(filename:str, doShow:bool, doSave:bool) -> None:
         if doShow:
             plt.show()
     
-
-def run_computation(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bool=True) -> None:
-    """
-    Will run computation with specified parameters and save to a .npz file
-
-    Parameters:
-    filename (str): Base filename to save data, with extension
-    doPhase (bool): Whether to plot the phase diagram
-
-    """
-
-    #set parameters
-    method = "symmetry"
-    order = 3
-    pad_w = 0
-    pbc=True
-    n=10
-    M_values = np.linspace(-2,12,5)
-    B_tilde_values = np.linspace(0,2,1)
-    W_values = np.linspace(0.5,7.5,20)
-    iter_p_d = 1
-
-    #run the computation
-    data = computation(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_values, iter_p_d, E_F=0.0, progresses=(True, True, False))
-
-    #save the data to a .npz file
-    np.savez(filename, data)
-
-    #do phase diagram
-    if doPhase:
-        _phase_plot(filename, doShow, doSave)
-
 
 def run_profile() -> None:
     pass
@@ -121,18 +92,44 @@ def make_figures_dir(dir:str="."):
             _phase_plot(file, False, True)
 
 
+def run_computation(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bool=True) -> None:
+    """
+    Will run computation with specified parameters and save to a .npz file
+
+    Parameters:
+    filename (str): Base filename to save data, with extension
+    doPhase (bool): Whether to plot the phase diagram
+
+    """
+
+    #set parameters
+    method = "symmetry"
+    order = 3
+    pad_w = 0
+    pbc=True
+    n=10
+    M_values = np.linspace(6,12,50)
+    B_tilde_values = np.linspace(1,2,50)
+    W_values = np.linspace(0.5,7.5,20)
+    iter_p_d = 20
+    num_jobs=4 #28 if on workstation
+
+    #run the computation
+    data = computation(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_values, iter_p_d, num_jobs=num_jobs, E_F=0.0, progresses=(True, True, False))
+
+    #save the data to a .npz file
+    np.savez(filename, data)
+
+    #do phase diagram
+    if doPhase:
+        _phase_plot(filename, doShow, doSave)
 
 
-def main1():
+#-------------main function implementation-------------------------
+def main():
     filename = f"bott_disorder_{timely_filename()}.npz"
     run_computation(filename)
 
-def main2():
-    filename = f"bott_disorder_{timely_filename()}.npz"
-    cProfile.run(f'run_computation("{filename}")')
-
-
-
 if __name__ == "__main__":
-    main1()
+    main()
 

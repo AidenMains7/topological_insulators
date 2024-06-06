@@ -68,6 +68,7 @@ def sierpinski_lattice(order:int, pad_width:int) -> tuple:
 
     return square_lat, fractal_lat, holes, filled
 
+
 def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
     """
     Finds the distance between sites, the angles, and principal and diagonal masks.
@@ -105,6 +106,7 @@ def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
 
     return d_r, d_cos, d_sin, mask_principal, mask_diagonal
 
+
 def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
 
     d_r, d_cos, d_sin, mask_principal, mask_diagonal = geometry(lattice, pbc, n)
@@ -127,6 +129,7 @@ def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
     CxCy = F_d / 4
 
     return I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy
+
 
 def wannier_fourier(lattice:np.ndarray, pbc:bool) -> tuple:
     """
@@ -191,6 +194,7 @@ def wannier_fourier(lattice:np.ndarray, pbc:bool) -> tuple:
 
     return I, Sx, Sy, Cx + Cy, CxSy, SxCy, CxCy
 
+
 def Hamiltonian_components(wannier:tuple, t1:float=1., t2:float=1., B:float=1., sparse:bool=True) -> tuple:
     """
     Constructs the components of the  Hamiltonian without dependencey on M or B_tilde
@@ -230,6 +234,7 @@ def Hamiltonian_components(wannier:tuple, t1:float=1., t2:float=1., B:float=1., 
         return csr_matrix(H_0), csr_matrix(M_hat), csr_matrix(B_tilde_hat)
 
     return H_0, M_hat, B_tilde_hat
+
 
 def decompose(H:np.ndarray, fills:np.ndarray, holes:np.ndarray) -> tuple:
     """
@@ -271,6 +276,7 @@ def decompose(H:np.ndarray, fills:np.ndarray, holes:np.ndarray) -> tuple:
 
     return H_aa, H_bb, H_ab, H_ba
 
+
 def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
     """
     Decompose the components of the Hamiltonian
@@ -293,6 +299,7 @@ def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
 
     return H_0_parts, M_hat_parts, B_tilde_hat_parts
 
+
 def mat_inv(matrix:np.ndarray, hermitian:bool=True, alt:bool=True, overwrite_a:bool=True, tol:float=1e-10) -> np.ndarray:
 
     if not alt:
@@ -313,6 +320,7 @@ def mat_inv(matrix:np.ndarray, hermitian:bool=True, alt:bool=True, overwrite_a:b
             D_inv = np.diag(D_inv)
             return np.dot(P_right, np.dot(D_inv, P_left.conj().T))
 
+
 def mat_solve_iterative(matrix:np.ndarray, tol:float=1e-5):
     def solve(b):
         x, info = cg(csr_matrix(matrix), b, tol=tol)
@@ -320,6 +328,7 @@ def mat_solve_iterative(matrix:np.ndarray, tol:float=1e-5):
             raise np.linalg.LinAlgError("Conjugate gradient solver did not converge")
         return x
     return solve
+
 
 def H_renorm(H_parts:tuple) -> np.ndarray:
     H_aa, H_bb, H_ab, H_ba = H_parts
@@ -332,6 +341,7 @@ def H_renorm(H_parts:tuple) -> np.ndarray:
         H_eff = H_aa - H_ab @ mat_inv(H_bb) @ H_ba
 
     return H_eff
+
 
 def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, sparse:bool=True) -> tuple:
     """
@@ -367,6 +377,7 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, sparse:boo
         parts_groups = decompose_parts(wannier, holes, fills)
         return parts_groups, frac_lat
 
+
 def Hamiltonian_reconstruct(method:str, precomputed_data:tuple, M:float, B_tilde:float, sparse:bool=True) -> np.ndarray:
     """
     
@@ -392,6 +403,7 @@ def Hamiltonian_reconstruct(method:str, precomputed_data:tuple, M:float, B_tilde
             H = H.toarray()
     
     return H
+
 
 def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str='uniform') -> np.ndarray:
     '''
@@ -429,6 +441,7 @@ def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str
     disorder_operator = np.diag(disorder_array).astype(np.complex128) if not sparse else diags(disorder_array, dtype=np.complex128, format='csr')
     return disorder_operator
 
+
 def projector(H:np.ndarray, E_F:float) -> np.ndarray:
     '''
     Constructs the projector of the Hamiltonian onto the states below the Fermi energy
@@ -451,6 +464,7 @@ def projector(H:np.ndarray, E_F:float) -> np.ndarray:
     P = eigvecs @ D_dagger
 
     return P
+
 
 def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     '''
@@ -481,6 +495,7 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     return bott
 
 
+#-------main function implementation-----------------
 def main():
     pass
 
