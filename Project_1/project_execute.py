@@ -69,30 +69,27 @@ def _bott_from_disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iteratio
 
     #get the bott index from disorder a single time
     def do_iter(i):
-        try:
-            disorder_operator = mass_disorder(strength=W, system_size=system_size, df=2, sparse=False)
-            H_new = H_init + disorder_operator
-            P = projector(H_new, E_F)
-            bott = bott_index(P, lattice)
+        disorder_operator = mass_disorder(strength=W, system_size=system_size, df=2, sparse=False)
+        H_new = H_init + disorder_operator
+        P = projector(H_new, E_F)
+        bott = bott_index(P, lattice)
 
+
+        if progress:
             dt = time() - t0
-            if progress:
-                print(f'W = {W:.2f}: {100*(i+1)/iterations:.2f}%, {round(dt)}s')
+            print(f'W = {W:.2f}: {100*(i+1)/iterations:.2f}%, {round(dt)}s')
 
-            return bott
-        except Exception as e:
-            print(f"An error occurred for W={W:.2f}: {e}")
-            return np.nan
+        return bott
 
     #do for the number of iterations
-    with parallel_backend('loky', inner_max_num_threads=1):
+    with parallel_backend('loky', inner_max_num_threads=cores_per_job):
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
     
     #remove incomplete data
     data = data[~np.isnan(data)]
 
     #find the average
-    bott_mean = np.mean(data)
+    bott_mean = np.mean(data) if len(data) > 0 else np.nan
     return bott_mean
 
 def _many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float, num_jobs:int, cores_per_job:int, progresses:"tuple[bool, bool]"=(False, False), printparams:str=None) -> np.ndarray:
@@ -124,7 +121,11 @@ def _many_disorder(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
         
             dt = time() - t0
             if progresses[0]:
-                print(f"Finished W={W}, {printparams}; {round(dt,1)}s")
+                message_1 = f"{printparams}"
+                message_2 = f"({100*(i+1)/W_values.size}%)"
+                message_3 = f"Finished W = {W:.2f}"
+
+                print(f"{message_1.ljust(10)} {message_2.ljust(15)} {message_3.rjust(5)}")
     
             return W, bott_final
         
@@ -160,8 +161,9 @@ def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:
 
             bott_array = np.array([[0.0], [bott]])
 
-            dt = time() - t0
+
             if progresses[0]:
+                dt = time() - t0
                 percent_str = f"{100*(i+1)/len(parameters):.2f}%"
                 bott_str = f"bott = {bott:+.2f}"
                 time_str = f"{dt:.0f}s"
@@ -169,7 +171,7 @@ def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:
 
             #If nonzero, disorder over the range
             if bott != 0:
-                disorder_array = _many_disorder(H, frac_lat, W_values, iterations_per_disorder, E_F, num_jobs, cores_per_job, (progresses[1], progresses[2]), printparams=None)
+                disorder_array = _many_disorder(H, frac_lat, W_values, iterations_per_disorder, E_F, num_jobs, cores_per_job, (progresses[1], progresses[2]), printparams=f"D: {100*(i+1)/len(parameters):.2f}%")
                 
                 disorder_array = np.concatenate((bott_array, disorder_array), axis=1)
 
@@ -183,11 +185,11 @@ def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:
             else:
                 disorder_array = np.concatenate((bott_array, np.full((2, W_values.size), np.nan)), axis=1)
 
-            return disorder_array.T
+            return disorder_array
 
         except Exception as e:
             print(f"Error occured at M, B_tilde = {parameters[i]}: {e}")
-            return np.full((2, W_values.size + 1), np.nan).T
+            return np.full((2, W_values.size + 1), np.nan)
         
     with parallel_backend('loky', inner_max_num_threads=1):
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(len(parameters))))
