@@ -57,16 +57,33 @@ def _phase_plot(filename:str, doShow:bool, doSave:bool) -> None:
         ax.set_title("Bott Index vs. Disorder Strength")
         ax.set_xlabel("Disorder Strength (W)")
         ax.set_ylabel("Bott Index")
-        ax.set_ylim([-2, 2])
+        ax.set_ylim([-3, 3])
 
+
+
+        color_list = ['#845B97', '#0C5DA5', '#00B945', '', '#FF9500', '#FF2C00', '#474747']
+        ax.hlines(0, 0, 8, colors='k', ls='--')
         for i in range(num):
             if data[i][0,1] is not np.nan:
                 x = data[i][0] #disorder value
                 y = data[i][1] #bott index after disorder
 
-                ax.plot(x, y, label=f"{i}")
+                if True:
+                    if y[0] not in [-3, -2, -1, 1, 2, 3]:
+                        print(f"Initial bott index is not in [-3, -2, -1, 1, 2, 3]. Value is {y[0]}")
+                        ax.plot(x, y, label=f"{i}", c='black')
+                    
+                    try:
+                        ax.plot(x, y, label=f"{i}", c=color_list[int(y[0]+3)])
 
-        ax.legend(loc="upper right")
+                    except Exception as e:
+                        print(f"Caught exception: {e}")
+
+                else:
+                    ax.plot(x, y, label=f"{i}")
+
+        if False:
+            ax.legend(True)
 
         if doSave and filename.endswith(".npz"):
             figname = filename[:-4]+".png"
@@ -91,6 +108,7 @@ def make_figures_dir(dir:str="."):
 
     for file in f:
         if file.endswith(".npz"):
+            print(file)
             _phase_plot(file, False, True)
 
 
@@ -112,8 +130,8 @@ def run_computation(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bo
     n=10
     M_values =       np.linspace(6.0, 12.0, 5)
     B_tilde_values = np.linspace(1.0, 2.0,  1)
-    W_values =       np.linspace(0.5, 7.5,  3)
-    iter_p_d = 1
+    W_values =       np.linspace(0.5, 7.5,  5)
+    iter_p_d = 5
     num_jobs = 4 #28 if on workstation
 
 
@@ -147,5 +165,4 @@ def main2():
 
 
 if __name__ == "__main__":
-    main()
-
+    main2()

@@ -48,8 +48,8 @@ def _many_bott(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:n
         if progress:
             dt = time() - t0
             percent_message = f"{(100*(i+1)/len(parameter_values)):.2f}%"
-            message_2 = f"Completed: (M, B_tilde, bott) = ({M:.2f}, {B_tilde:.2f}, {bott:.2f})"
-            message_3 = f"{dt:.1f}s"
+            message_2 = f"Completed: (M, B_tilde, bott) = ({M:.2f}, {B_tilde:.2f}, {bott:+.0f})"
+            message_3 = f"{dt:.0f}s"
 
             print(f"{percent_message.ljust(10)} {message_2.ljust(15)} {message_3.rjust(5)}")
 
@@ -96,9 +96,14 @@ def _disorder(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_
         return bott
 
     #do for the number of iterations
+    if False:
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
 
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
-    
+    else:
+        data = np.empty(iterations)
+        for j in range(iterations):
+            data[j] = do_iter(j)
+
     #remove incomplete data
     data = data[~np.isnan(data)]
 
@@ -271,6 +276,12 @@ def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_val
     mask = all_bott_array[2, :] != 0
     nonzero_bott = all_bott_array[:, mask]
 
+    #provide amount of nonzero bott statistic
+    total_num = M_values.size*B_tilde_values.size
+    nonzero_num = nonzero_bott.shape[1]
+    percent = 100*nonzero_num/total_num
+    print(f"Of {total_num} total lattices, {nonzero_num} have a nonzero Bott Index ({percent:.2f}%).")
+
     #precompute
     pre_data, frac_lat = precompute(method, order, pad_width, pbc, n, sparse)
     t0 = time()
@@ -301,7 +312,13 @@ def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_val
 
         return disorder_array
 
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(nonzero_bott.shape[1])))
+    if False:
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(nonzero_bott.shape[1])))
+    else:
+        data = np.empty((nonzero_bott.shape[1], 2, W_values.size+1))
+        for j in range(nonzero_bott.shape[1]):
+            data[j,:,:] = worker(j)
+
     return data
 
 
