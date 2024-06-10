@@ -1,31 +1,38 @@
 """
 
+Functions:
+timely_filename() : gets the current date/time as string format
+_read_npz_data()  : read data from a npz file into array, only for use within here
+_phase_plot()     : plot phase data 
+make_figures_dir(): will run _phase_plot() for all .npz files in current working directory
+run_computation() : run the computation and create phase plot for specified parameters
 """
 
 import numpy as np
 from project_execute import computation, computation_alt
 from datetime import datetime
 import matplotlib.pyplot as plt
-import cProfile
-from os import walk
+import os
 
 import latex
 import scienceplots
 plt.style.use(['science', 'pgf'])
 
+def _save_npz_data(filename:str, data:np.ndarray, iter:int=0) -> str:
+    """
+    Saves data to the specified filename with "_{iter}" appended before extension. If file of iter exists, will increment by one.
+    """
+    filename = filename[:-4]+f"_{iter}.npz"
+    try:
+        if os.path.isfile(filename):
+            filename = _save_npz_data(f"{filename[:-4]}_{iter+1}.npz", data)
+        else:
+            np.savez(filename, data)
+        return filename
 
-def timely_filename() -> str:
-    """
-    Current date and time in string format
-    """
-    now = datetime.now()
-    year = now.year
-    month = now.month
-    day = now.day
-    hr = now.hour
-    minute = now.minute
-    time_string=f"{month}_{day}_{year}__{hr}_{minute}"
-    return time_string
+    except Exception as e:
+        print(f"Exception: {e}")
+        return None
 
 
 def _read_npz_data(filename:str) -> np.ndarray:
@@ -40,7 +47,7 @@ def _read_npz_data(filename:str) -> np.ndarray:
     return data
 
 
-def _phase_plot(filename:str, doShow:bool, doSave:bool) -> None:
+def _phase_plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
     """
     Will read data from a specifed .npz file and plot for which has non-zero inital Bott Index.
     """
@@ -93,26 +100,23 @@ def _phase_plot(filename:str, doShow:bool, doSave:bool) -> None:
             plt.show()
     
 
-def run_profile() -> None:
-    pass
-
-
 def make_figures_dir(dir:str="."):
     """
     Will make a figure using phase_plot() and save it as a png for all .npz files in the directory.
     """
     f = []
-    for (dirpath, dirnames, filenames) in walk(dir):
+    for (dirpath, dirnames, filenames) in os.walk(dir):
         f.extend(filenames)
         break
 
     for file in f:
         if file.endswith(".npz"):
-            print(file)
-            _phase_plot(file, False, True)
+            if file.startswith("bott_disorder"):
+                print(file)
+                _phase_plot_disorder(file, False, True)
 
 
-def run_computation(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bool=True, alternate:bool=False) -> None:
+def run_computation_disorder(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bool=True, alternate:bool=False) -> None:
     """
     Will run computation with specified parameters and save to a .npz file
 
@@ -144,25 +148,33 @@ def run_computation(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bo
 
 
     #save the data to a .npz file
-    np.savez(filename, data)
+    filename = _save_npz_data(filename, data)
 
     #do phase diagram
     if doPhase:
-        _phase_plot(filename, doShow, doSave)
+        _phase_plot_disorder(filename, doShow, doSave)
 
 
+def compare_data(f1:str, f2:str):
+    """
+    Compare the data between two .npz files. For the same parameter values, one would expect the average to be 0.
     
+    """
+    data1 = _read_npz_data(f1)
+    data2 = _read_npz_data(f2)
 
-
+    diff = data1-data2
+    avg = np.average(diff)
+    print(avg)
 
 #-------------main function implementation-------------------------
 def main():
-    filename = f"bott_disorder_{timely_filename()}.npz"
-    run_computation(filename, alternate=True)
+    filename = f"disorder.npz"
+    run_computation_disorder(filename, alternate=True)
 
 def main2():
     make_figures_dir()
 
 
 if __name__ == "__main__":
-    main2()
+    main()
