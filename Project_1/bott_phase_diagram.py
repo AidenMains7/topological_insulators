@@ -1,5 +1,5 @@
 from project_execute import _many_bott
-from disorder_phase_diagram import _read_npz_data, _save_npz_data, compare_data
+from disorder_phase_diagram import _read_npz_data, _save_npz_data, compare_data, get_all_npz
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -28,9 +28,12 @@ def run_computation_bott(filename:str) -> None:
     filename = _save_npz_data(filename, bott_array)
 
 
-def plot_bott(filename:str) -> None:
+def plot_bott(filename:str, doShow:bool=True, doSave:bool=True) -> None:
 
     bott_arr = _read_npz_data(filename)
+
+    if bott_arr.shape[0] != 3:
+        raise Exception(f"The array from the {filename} is not of proper shape. The first dimension must have size 3. ")
 
     M = bott_arr[0]
     B_tilde = bott_arr[1]
@@ -52,9 +55,26 @@ def plot_bott(filename:str) -> None:
     ax.set_xlabel('B_tilde')
     ax.set_zlabel('Bott Index')      
 
-    plt.show()
+
+    if doSave and filename.endswith(".npz"):
+        figname = filename[:-4]+".png"
+        plt.savefig(figname)
+
+    if doShow:
+        plt.show()
 
 
+
+def plot_all_npz_bott(dir:str=".") -> None:
+    """
+    Plots all .npz files in current directory which start with "bott"
+    """
+    files = get_all_npz(dir)
+
+    for f in files:
+        if f.startswith("disorder"):
+            print(f)
+            plot_bott(f, False, True)
 
 
 #---------main func implementation---------
@@ -66,15 +86,13 @@ def main():
 
 
 def main2():
-    filename = "bott_0.npz"
-    plot_bott(filename)
+    try:
+        plot_all_npz_bott()
+    except Exception as e:
+        print(f"Caught exception: {e}")
 
 def main3():
-    file1 = "bott_0.npz"
-    file2 = "bott_1.npz"
-
-    v = compare_data(file1, file2)
-    print(v)
+    plot_bott("bott_1.npz")
 
 if __name__ == "__main__":
-    main2()
+    main3()
