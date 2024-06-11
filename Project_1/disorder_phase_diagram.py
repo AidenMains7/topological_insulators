@@ -22,11 +22,13 @@ def _save_npz_data(filename:str, data:np.ndarray, iter:int=0) -> str:
     """
     Saves data to the specified filename with "_{iter}" appended before extension. If file of iter exists, will increment by one.
     """
-    filename = filename[:-4]+f"_{iter}.npz"
+
     try:
-        if os.path.isfile(filename):
-            filename = _save_npz_data(f"{filename[:-4]}_{iter+1}.npz", data)
+        temp_fname = filename[:-4]+f"_{iter}.npz"
+        if os.path.isfile(temp_fname):
+            filename = _save_npz_data(filename, data, iter+1)
         else:
+            filename = filename[:-4]+f"_{iter}.npz"
             np.savez(filename, data)
         return filename
 
@@ -47,7 +49,7 @@ def _read_npz_data(filename:str) -> np.ndarray:
     return data
 
 
-def _phase_plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
+def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
     """
     Will read data from a specifed .npz file and plot for which has non-zero inital Bott Index.
     """
@@ -100,20 +102,34 @@ def _phase_plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
             plt.show()
     
 
-def make_figures_dir(dir:str="."):
+def get_all_npz(dir:str=".") -> list:
     """
-    Will make a figure using phase_plot() and save it as a png for all .npz files in the directory.
+    Gets a list of all .npz files in the provided directory
+    
     """
-    f = []
+    all_files = []
     for (dirpath, dirnames, filenames) in os.walk(dir):
-        f.extend(filenames)
+        all_files.extend(filenames)
         break
 
-    for file in f:
-        if file.endswith(".npz"):
-            if file.startswith("bott_disorder"):
-                print(file)
-                _phase_plot_disorder(file, False, True)
+    files = []
+    for f in all_files:
+        if f.endswith(".npz"):
+            files.append(f)
+
+    return files
+
+
+def plot_all_npz_disorder(dir:str=".") -> None:
+    """
+    Plots all .npz files in current directory which start with "disorder"
+    """
+    files = get_all_npz(dir)
+
+    for f in files:
+        if f.startswith("disorder"):
+            print(f)
+            plot_disorder(f, False, True)
 
 
 def run_computation_disorder(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bool=True, alternate:bool=False) -> None:
@@ -152,10 +168,10 @@ def run_computation_disorder(filename:str, doPhase:bool=True, doShow:bool=True, 
 
     #do phase diagram
     if doPhase:
-        _phase_plot_disorder(filename, doShow, doSave)
+        plot_disorder(filename, doShow, doSave)
 
 
-def compare_data(f1:str, f2:str):
+def compare_data(f1:str, f2:str) -> float:
     """
     Compare the data between two .npz files. For the same parameter values, one would expect the average to be 0.
     
@@ -165,7 +181,7 @@ def compare_data(f1:str, f2:str):
 
     diff = data1-data2
     avg = np.average(diff)
-    print(avg)
+    return avg
 
 #-------------main function implementation-------------------------
 def main():
@@ -173,7 +189,7 @@ def main():
     run_computation_disorder(filename, alternate=True)
 
 def main2():
-    make_figures_dir()
+    plot_all_npz_disorder()
 
 
 if __name__ == "__main__":
