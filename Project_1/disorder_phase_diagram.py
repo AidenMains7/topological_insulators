@@ -19,7 +19,7 @@ import scienceplots
 plt.style.use(['science', 'pgf'])
 
 
-def _save_npz_data(filename:str, data:np.ndarray, iter:int=0) -> str:
+def _save_npz_data(filename:str, data:np.ndarray, parameters:dict, iter:int=0) -> str:
     """
     Saves data to the specified filename with "_{iter}" appended before extension. If file of iter exists, will increment by one.
     """
@@ -27,10 +27,10 @@ def _save_npz_data(filename:str, data:np.ndarray, iter:int=0) -> str:
     try:
         temp_fname = filename[:-4]+f"_{iter}.npz"
         if os.path.isfile(temp_fname):
-            filename = _save_npz_data(filename, data, iter+1)
+            filename = _save_npz_data(filename, data=data, parameters=parameters, iter=iter+1)
         else:
             filename = filename[:-4]+f"_{iter}.npz"
-            np.savez(filename, data)
+            np.savez(filename, data=data, parameters=parameters)
         return filename
 
     except Exception as e:
