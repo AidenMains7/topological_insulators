@@ -18,6 +18,7 @@ import latex
 import scienceplots
 plt.style.use(['science', 'pgf'])
 
+
 def _save_npz_data(filename:str, data:np.ndarray, iter:int=0) -> str:
     """
     Saves data to the specified filename with "_{iter}" appended before extension. If file of iter exists, will increment by one.
@@ -37,16 +38,26 @@ def _save_npz_data(filename:str, data:np.ndarray, iter:int=0) -> str:
         return None
 
 
-def _read_npz_data(filename:str) -> np.ndarray:
+def _read_npz_data(filename:str) -> 'tuple[np.ndarray, dict]':
     """
     Will read .npz file
 
     Parameters:
     filename (str): Base filename with .npz extension
     """
-    file_data = np.load(filename)
-    data = file_data['arr_0']
-    return data
+    file_data = np.load(filename, allow_pickle=True)
+    
+    #if .npz file is of first form
+    if file_data.get('arr_0') is not None:
+        data = file_data['arr_0']
+        parameters = None
+
+    #if .npz file has parameters (second form)
+    else:
+        data = file_data['data']
+        parameters = file_data['parameters']
+
+    return data, parameters
 
 
 def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
@@ -54,7 +65,7 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
     Will read data from a specifed .npz file and plot for which has non-zero inital Bott Index.
     """
     try:
-        data = _read_npz_data(filename)
+        data, params = _read_npz_data(filename)
     except Exception as e:
         print(f"Error with {filename}: {e}")
         data = None
@@ -143,28 +154,33 @@ def run_computation_disorder(filename:str, doPhase:bool=True, doShow:bool=True, 
     """
 
     #set parameters
-    method = "symmetry"
-    order = 3
-    pad_w = 0
-    pbc=True
-    n=10
-    M_values =       np.linspace(6.0, 12.0, 5)
-    B_tilde_values = np.linspace(1.0, 2.0,  1)
-    W_values =       np.linspace(0.5, 7.5,  5)
-    iter_p_d = 5
-    num_jobs = 4 #28 if on workstation
-
+    parameters = dict(
+        method = "symmetry",
+        order = 3,
+        pad_width = 0,
+        pbc = True,
+        n = 0,
+        M_values =         np.linspace(-2.0, 12.0, 10),
+        B_tilde_values =   np.linspace(0.0, 2.0, 10),
+        W_values =         np.linspace(0.5, 10, 28),
+        iterations_per_disorder = 10,
+        E_F = 0.0,
+        num_jobs = 4,
+        cores_per_job = 1,
+        sparse = False,
+        progresses = (True, False, False)
+    )
 
 
     #run the computation
     if not alternate:
-        data = computation(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_values, iter_p_d, num_jobs=num_jobs, E_F=0.0, progresses=(True, True, False))
+        data = computation(**parameters)
     else:
-        data = computation_alt(method, order, pad_w, pbc, n, M_values, B_tilde_values, W_values, iter_p_d, num_jobs=num_jobs, E_F=0.0, progresses=(True, True, False, True))
+        data = computation_alt(**parameters)
 
 
     #save the data to a .npz file
-    filename = _save_npz_data(filename, data)
+    filename = _save_npz_data(filename, data=data, parameters=parameters)
 
     #do phase diagram
     if doPhase:
@@ -176,8 +192,8 @@ def compare_data(f1:str, f2:str) -> float:
     Compare the data between two .npz files. For the same parameter values, one would expect the average to be 0.
     
     """
-    data1 = _read_npz_data(f1)
-    data2 = _read_npz_data(f2)
+    data1, p = _read_npz_data(f1)
+    data2, p = _read_npz_data(f2)
 
     diff = data1-data2
     avg = np.average(diff)
@@ -193,4 +209,4 @@ def main2():
 
 
 if __name__ == "__main__":
-    main()
+    main2()

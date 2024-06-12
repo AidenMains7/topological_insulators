@@ -240,7 +240,7 @@ def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:
     return data
 
 
-def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:"tuple[bool, bool, bool]"=(False, False, False, True)) -> np.ndarray:
+def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:"tuple[bool, bool, bool]"=(False, False, True)) -> np.ndarray:
     """
     First, computes the Bott Index of each lattice for all combinations of M_values and B_tilde_values. Then, for those which have nonzero Bott Index, compute the disorder over the specified range.
 
@@ -260,7 +260,7 @@ def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_val
     num_jobs (int): number of jobs to run
     cores_per_job (int): number of cores per job
     sparse (bool): Whether to generate as a sparse matrix WARNING: not currently functional
-    progresses (tuple[bool, bool, bool, bool]): Whether to report progress. Index 0 is for _many_boott(), index 1 is for _many_disorder(), index 2 is for _bott_from_disorder(), index 3 is for primary function.
+    progresses (tuple[bool, bool, bool, bool]): Whether to report progress. Index 0 is for _many_bott(), index 1 is for _many_disorder(), index 2 is for primary function.
 
     Returns:
     data (ndarray): Array of data, of shape (M_values.size * B_tilde_values.size, 2, W_values.size + 1). First column is [[0],[bott_init]], where bott_init is the Bott Index without disorder.
