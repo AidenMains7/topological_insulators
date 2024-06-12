@@ -54,7 +54,7 @@ def _read_npz_data(filename:str) -> 'tuple[np.ndarray, dict]':
     return data, parameters
 
 
-def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
+def plot_disorder(filename:str, doShow:bool, doSave:bool, title:str=None) -> None:
     """
     Will read data from a specifed .npz file and plot for which has non-zero inital Bott Index.
     """
@@ -68,7 +68,7 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
         num = data.shape[0]
 
         fig, ax = plt.subplots(1,1,figsize=(16,9))
-        ax.set_title("Bott Index vs. Disorder Strength")
+        ax.set_title(title)
         ax.set_xlabel("Disorder Strength (W)")
         ax.set_ylabel("Bott Index")
         ax.set_ylim([-3, 3])
@@ -107,53 +107,60 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
             plt.show()
     
 
-def plot_bott(filename:str, doShow:bool=True, doSave:bool=True) -> None:
+def plot_bott(filename:str, doShow:bool=True, doSave:bool=True, title:str=None) -> None:
     """
     Plot the data from given filename; data from _many_bott()
     """
 
     #read array from file
-    bott_arr, params = _read_npz_data(filename)
+    try:
+        data, params = _read_npz_data(filename)
+    except Exception as e:
+        print(f"Error with {filename}: {e}")
+        data = None
 
-    #check that array is of proper shape
-    if bott_arr.shape[0] != 3:
-        raise Exception(f"The array from the {filename} is not of proper shape. The first dimension must have size 3. ")
+    if data is not None:
+
+        #check that array is of proper shape
+        if data.shape[0] != 3:
+            raise Exception(f"The array from the {filename} is not of proper shape. The first dimension must have size 3. ")
 
 
-    #values
-    M = bott_arr[0]
-    B_tilde = bott_arr[1]
-    bott = bott_arr[2]
+        #values
+        M = data[0]
+        B_tilde = data[1]
+        bott = data[2]
 
-    #meshgrid of  M and B_tilde
-    Y, X = np.meshgrid(np.unique(M), np.unique(B_tilde))
+        #meshgrid of  M and B_tilde
+        Y, X = np.meshgrid(np.unique(M), np.unique(B_tilde))
 
-    #number of unique values
-    N = np.unique(M).size
+        #number of unique values
+        N = np.unique(M).size
 
-    #organize the bott array into a surface over the meshgrid
-    arrs = np.split(bott, N)
-    Z0 = np.stack(arrs, axis=0)
+        #organize the bott array into a surface over the meshgrid
+        arrs = np.split(bott, N)
+        Z0 = np.stack(arrs, axis=0)
 
-    #create figure
-    fig = plt.figure(figsize=(10,10))
-    ax = fig.add_subplot(projection='3d')
-    ax.plot_surface(X, Y, Z0.T, cmap='viridis')
+        #create figure
+        fig = plt.figure(figsize=(10,10))
+        ax = fig.add_subplot(projection='3d')
+        ax.plot_surface(X, Y, Z0.T, cmap='viridis')
 
-    ax.set_ylabel('M')
-    ax.set_xlabel('B_tilde')
-    ax.set_zlabel('Bott Index')      
+        ax.set_ylabel('M')
+        ax.set_xlabel('B_tilde')
+        ax.set_zlabel('Bott Index')
+        ax.set_title(title)      
 
-    #check proper filename format
-    if doSave and filename.endswith(".npz"):
-        figname = filename[:-4]+".png"
-        plt.savefig(figname)
-    elif not filename.endswith(".npz"):
-        raise Exception("Filename does not end in '.npz'; trying to save figure as '.png'")
+        #check proper filename format
+        if doSave and filename.endswith(".npz"):
+            figname = filename[:-4]+".png"
+            plt.savefig(figname)
+        elif not filename.endswith(".npz"):
+            raise Exception("Filename does not end in '.npz'; trying to save figure as '.png'")
 
-    #whether to plot
-    if doShow:
-        plt.show()
+        #whether to plot
+        if doShow:
+            plt.show()
 
 
 def get_all_npz(dir:str=".") -> list:
