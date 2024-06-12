@@ -313,6 +313,8 @@ def mat_inv(matrix:np.ndarray, hermitian:bool=True, alt:bool=True, overwrite_a:b
             D, P = eigh(matrix, overwrite_a=overwrite_a)
             D_inv = np.where(np.abs(D) > tol, 1 / D, 0. + 0.j)
             D_inv = np.diag(D_inv)
+
+
             return np.dot(P, np.dot(D_inv, P.T.conj()))
         else:
             D, P_right, P_left = eig(matrix, left=True, right=True, overwrite_a=overwrite_a)
