@@ -30,7 +30,10 @@ def _many_bott(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:n
     Returns: 
     data (ndarray): array of shape (3, M_values.size*B_tilde_values.size)
     """
-    
+
+    _init_environment(cores_per_job)
+
+    #precompute data
     pre_data, frac_lat = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
     parameter_values = tuple(product(M_values, B_tilde_values))
 
@@ -161,93 +164,14 @@ def _disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, itera
     return data
 
 
-def computation(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:"tuple[bool, bool, bool]"=(True,False,False)) -> np.ndarray:
-    """
-    Given array ranges of M, B_tilde, and W, find the Bott Index for a given combination of (M, B_tilde). If it is non-zero, generate disorder over a specified range and find the resulting Bott Index.
-
-    Parameters: 
-    method (str): Which method to use. WARNING: 'renorm' is currently not functioning properly
-    order (int): order of the Sierpinski carpet
-    pad_width (int): width of padding of the lattice
-    pbc (bool): periodic boundary conditions
-    n (int): maximum hop distance (for method of symmetry)
-    M_values (ndarray): range of values for M
-    B_tilde_values (ndarray): range of values for B_tilde
-    W_values (ndarray): range of values for disorder strength
-    iterations_per_disorder (int): number of times to compute a given disorder strength (then average across all)
-    E_F (float): fermi energy
-    num_jobs (int): number of jobs to run
-    cores_per_job (int): number of cores per job
-    sparse (bool): Whether to generate as a sparse matrix WARNING: not currently functional
-    progresses (tuple[bool, bool, bool]): Whether to report progress. Index 0 is for primary function, index 1 is for _many_disorder(), index 2 is for _bott_from_disorder()
-
-    Returns:
-    data (ndarray): Array of data, of shape (M_values.size * B_tilde_values.size, 2, W_values.size + 1). First column is [[0],[bott_init]], where bott_init is the Bott Index without disorder.
-    """
-
-    _init_environment(cores_per_job)
-
-    pre_data, frac_lat = precompute(method, order, pad_width, pbc, n, sparse)
-    parameters = tuple(product(M_values, B_tilde_values))
-
-    t0 = time()
-
-    def worker(i:int) -> np.ndarray:
-        try: 
-            #Compute bott values for parameter
-            M, B_tilde = parameters[i]
-
-            H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse)
-            P = projector(H, E_F)
-            bott = bott_index(P, frac_lat)
-
-            bott_array = np.array([[0.0], [bott]])
-
-
-            if progresses[0]:
-                dt = time() - t0
-                percent_str = f"{100*(i+1)/len(parameters):.2f}%"
-                bott_str = f"bott = {bott:+.2f}"
-                time_str = f"{dt:.0f}s"
-                print(f"{percent_str.ljust(10)} {bott_str.ljust(15)} {time_str.rjust(5)}")
-
-            #If nonzero, disorder over the range
-            if bott != 0:
-                disorder_array = _disorder_range(H, frac_lat, W_values, iterations_per_disorder, E_F, num_jobs, cores_per_job, (progresses[1], progresses[2]), printparams=f"D: {100*(i+1)/len(parameters):.2f}%")
-                
-                disorder_array = np.concatenate((bott_array, disorder_array), axis=1)
-
-
-                if progresses[0]:
-                    dt = time() - t0
-                    percent_str = f"{100*(i+1)/len(parameters):.2f}%"
-                    message_str = "Completed disorder calculation."
-                    time_str = f"{dt:.0f}s"
-                    print(f"{percent_str.ljust(10)} {message_str.ljust(15)} {time_str.rjust(5)}")
-
-            else:
-                disorder_array = np.concatenate((bott_array, np.full((2, W_values.size), np.nan)), axis=1)
-
-            return disorder_array
-
-        except Exception as e:
-            print(f"Error occured at M, B_tilde = {parameters[i]}: {e}")
-            return np.full((2, W_values.size + 1), np.nan)
-        
-
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(len(parameters))))
-    
-    return data
-
-
-def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progresses:"tuple[bool, bool, bool]"=(False, False, True)) -> np.ndarray:
+def _many_disorder(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, W_values:np.ndarray, iterations_per_disorder:int, E_F:float=0.0, num_jobs:int=4, cores_per_job:int=1, sparse:bool=False, progress_disorder_range:bool=True, progress_disorder_iter:bool=False) -> np.ndarray:
     """
     First, computes the Bott Index of each lattice for all combinations of M_values and B_tilde_values. Then, for those which have nonzero Bott Index, compute the disorder over the specified range.
 
     In comparison to computation(), we split to avoid three layers of Parallelization (here, we use two)
     
     Parameters: 
-    method (str): Which method to use. WARNING: 'renorm' is currently not functioning properly
+    method (str): Which method to use.
     order (int): order of the Sierpinski carpet
     pad_width (int): width of padding of the lattice
     pbc (bool): periodic boundary conditions
@@ -260,7 +184,8 @@ def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_val
     num_jobs (int): number of jobs to run
     cores_per_job (int): number of cores per job
     sparse (bool): Whether to generate as a sparse matrix WARNING: not currently functional
-    progresses (tuple[bool, bool, bool, bool]): Whether to report progress. Index 0 is for _many_bott(), index 1 is for _many_disorder(), index 2 is for primary function.
+    progress_disorder_range (bool): Whether to report progress for the disorcer calculation over the range of W values
+    progress_disorder_iter (bool): Whether to report progress for each disorder iteration
 
     Returns:
     data (ndarray): Array of data, of shape (M_values.size * B_tilde_values.size, 2, W_values.size + 1). First column is [[0],[bott_init]], where bott_init is the Bott Index without disorder.
@@ -269,44 +194,41 @@ def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_val
 
     _init_environment(cores_per_job)
 
-    #First, compute the Bott index of all lattices for the specified values.
-    all_bott_array = _many_bott(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F, num_jobs, cores_per_job, sparse, progresses[0])
+    # Find only the columns where the Bott Index is nonzero.
+    mask = bott_arr[2, :] != 0
+    nonzero_bott_arr = bott_arr[:, mask]
 
-    #Find only the columns where the Bott Index is nonzero.
-    mask = all_bott_array[2, :] != 0
-    nonzero_bott = all_bott_array[:, mask]
+    # Provide statistic on nonzero Bott Index data
+    num_lattices = M_values.size*B_tilde_values.size
+    nonzero_num = nonzero_bott_arr.shape[1]
+    percent_nonzero = 100*nonzero_num/num_lattices
+    print(f"Of {num_lattices} total lattices, {nonzero_num} have a nonzero Bott Index ({percent_nonzero:.2f}%).")
 
-    #provide amount of nonzero bott statistic
-    total_num = M_values.size*B_tilde_values.size
-    nonzero_num = nonzero_bott.shape[1]
-    percent = 100*nonzero_num/total_num
-    print(f"Of {total_num} total lattices, {nonzero_num} have a nonzero Bott Index ({percent:.2f}%).")
-
-    #precompute
+    # Precompute data
     pre_data, frac_lat = precompute(method, order, pad_width, pbc, n, sparse)
     t0 = time()
 
 
     def worker(i):
         #get parameters
-        M, B_tilde, bott_init = nonzero_bott[0,i], nonzero_bott[1,i], nonzero_bott[2,i]
-        bott_array = np.array([[0],[bott_init]])
+        M, B_tilde, bott_init = nonzero_bott_arr[0,i], nonzero_bott_arr[1,i], nonzero_bott_arr[2,i]
+        init_arr = np.array([[0],[bott_init]])
         param_array = np.array([[M],[B_tilde]])
 
         #create Hamiltonian
         H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse)
         
         #disorder over the range
-        disorder_array = _disorder_range(H, frac_lat, W_values, iterations_per_disorder, E_F, num_jobs, cores_per_job, (progresses[1], progresses[2]), printparams=f"D: {100*(i+1)/nonzero_bott.shape[1]:.2f}%")
+        disorder_array = _disorder_range(H, frac_lat, W_values, iterations_per_disorder, E_F, num_jobs, cores_per_job, (progress_disorder_range, progress_disorder_range), printparams=f"D: {100*(i+1)/nonzero_bott_arr.shape[1]:.2f}%")
     
         #add initial bott and 'disorder=0'
-        disorder_array = np.concatenate((bott_array, disorder_array), axis=1)
+        disorder_array = np.concatenate((init_arr, disorder_array), axis=1)
 
         #Print progress
-        if progresses[3]:
+        if True:
             dt = time() - t0
-            percent_str = f"{100*(i+1)/nonzero_bott.shape[1]:.2f}%"
-            message_str = "Completed disorder calculation."
+            percent_str = f"{100*(i+1)/nonzero_bott_arr.shape[1]:.2f}%"
+            message_str = "Completed disorder range calculation."
             time_str = f"{dt:.0f}s"
             print(f"{percent_str.ljust(10)} {message_str.ljust(15)} {time_str.rjust(5)}")
 
@@ -315,12 +237,11 @@ def computation_alt(method:str, order:int, pad_width:int, pbc:bool, n:int, M_val
     if False:
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(nonzero_bott.shape[1])))
     else:
-        data = np.empty((nonzero_bott.shape[1], 2, W_values.size+1))
-        for j in range(nonzero_bott.shape[1]):
+        data = np.empty((nonzero_bott_arr.shape[1], 2, W_values.size+1))
+        for j in range(nonzero_bott_arr.shape[1]):
             data[j,:,:] = worker(j)
 
     return data
-
 
 
 

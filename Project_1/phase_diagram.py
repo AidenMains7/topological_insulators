@@ -1,22 +1,16 @@
 """
-
-Functions:
-timely_filename() : gets the current date/time as string format
-_read_npz_data()  : read data from a npz file into array, only for use within here
-_phase_plot()     : plot phase data 
-make_figures_dir(): will run _phase_plot() for all .npz files in current working directory
-run_computation() : run the computation and create phase plot for specified parameters
+Handles saving and displaying data via .npz files.
 """
 
 import numpy as np
-from project_execute import computation, computation_alt
 from datetime import datetime
 import matplotlib.pyplot as plt
-import os
+import os, sys
 
-import latex
-import scienceplots
-plt.style.use(['science', 'pgf'])
+# Check to use latex style as the workstation pc does not have latex installed; workstation pc is in python 3.9
+if sys.version_info[1] > 9:
+    import latex, scienceplots
+    plt.style.use(['science', 'pgf'])
 
 
 def _save_npz_data(filename:str, data:np.ndarray, parameters:dict, iter:int=0) -> str:
@@ -91,10 +85,10 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
                 if True:
                     if y[0] not in [-3, -2, -1, 1, 2, 3]:
                         print(f"Initial bott index is not in [-3, -2, -1, 1, 2, 3]. Value is {y[0]}")
-                        ax.plot(x, y, label=f"{i}", c='black')
+                        ax.plot(x, y, label=f"{i}", c='black', marker='.')
                     
                     try:
-                        ax.plot(x, y, label=f"{i}", c=color_list[int(y[0]+3)])
+                        ax.plot(x, y, label=f"{i}", c=color_list[int(y[0]+3)], marker='.')
 
                     except Exception as e:
                         print(f"Caught exception: {e}")
@@ -112,6 +106,55 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool) -> None:
         if doShow:
             plt.show()
     
+
+def plot_bott(filename:str, doShow:bool=True, doSave:bool=True) -> None:
+    """
+    Plot the data from given filename; data from _many_bott()
+    """
+
+    #read array from file
+    bott_arr, params = _read_npz_data(filename)
+
+    #check that array is of proper shape
+    if bott_arr.shape[0] != 3:
+        raise Exception(f"The array from the {filename} is not of proper shape. The first dimension must have size 3. ")
+
+
+    #values
+    M = bott_arr[0]
+    B_tilde = bott_arr[1]
+    bott = bott_arr[2]
+
+    #meshgrid of  M and B_tilde
+    Y, X = np.meshgrid(np.unique(M), np.unique(B_tilde))
+
+    #number of unique values
+    N = np.unique(M).size
+
+    #organize the bott array into a surface over the meshgrid
+    arrs = np.split(bott, N)
+    Z0 = np.stack(arrs, axis=0)
+
+    #create figure
+    fig = plt.figure(figsize=(10,10))
+    ax = fig.add_subplot(projection='3d')
+    ax.plot_surface(X, Y, Z0.T, cmap='viridis')
+
+    ax.set_ylabel('M')
+    ax.set_xlabel('B_tilde')
+    ax.set_zlabel('Bott Index')      
+
+    #check proper filename format
+    if doSave and filename.endswith(".npz"):
+        figname = filename[:-4]+".png"
+        plt.savefig(figname)
+    elif not filename.endswith(".npz"):
+        raise Exception("Filename does not end in '.npz'; trying to save figure as '.png'")
+
+    #whether to plot
+    if doShow:
+        plt.show()
+
 
 def get_all_npz(dir:str=".") -> list:
     """
@@ -131,9 +174,9 @@ def get_all_npz(dir:str=".") -> list:
     return files
 
 
-def plot_all_npz_disorder(dir:str=".") -> None:
+def plot_all_npz(dir:str=".") -> None:
     """
-    Plots all .npz files in current directory which start with "disorder"
+    Plots all .npz files in current directory, save image as .png
     """
     files = get_all_npz(dir)
 
@@ -141,72 +184,16 @@ def plot_all_npz_disorder(dir:str=".") -> None:
         if f.startswith("disorder"):
             print(f)
             plot_disorder(f, False, True)
+        elif f.startswith("bott"):
+            print(f)
+            plot_bott(f, False, True)
 
 
-def run_computation_disorder(filename:str, doPhase:bool=True, doShow:bool=True, doSave:bool=True, alternate:bool=False) -> None:
-    """
-    Will run computation with specified parameters and save to a .npz file
-
-    Parameters:
-    filename (str): Base filename to save data, with extension
-    doPhase (bool): Whether to plot the phase diagram
-
-    """
-
-    #set parameters
-    parameters = dict(
-        method = "symmetry",
-        order = 3,
-        pad_width = 0,
-        pbc = True,
-        n = 0,
-        M_values =         np.linspace(-2.0, 12.0, 10),
-        B_tilde_values =   np.linspace(0.0, 2.0, 10),
-        W_values =         np.linspace(0.5, 10, 28),
-        iterations_per_disorder = 10,
-        E_F = 0.0,
-        num_jobs = 4,
-        cores_per_job = 1,
-        sparse = False,
-        progresses = (True, False, False)
-    )
-
-
-    #run the computation
-    if not alternate:
-        data = computation(**parameters)
-    else:
-        data = computation_alt(**parameters)
-
-
-    #save the data to a .npz file
-    filename = _save_npz_data(filename, data=data, parameters=parameters)
-
-    #do phase diagram
-    if doPhase:
-        plot_disorder(filename, doShow, doSave)
-
-
-def compare_data(f1:str, f2:str) -> float:
-    """
-    Compare the data between two .npz files. For the same parameter values, one would expect the average to be 0.
-    
-    """
-    data1, p = _read_npz_data(f1)
-    data2, p = _read_npz_data(f2)
-
-    diff = data1-data2
-    avg = np.average(diff)
-    return avg
 
 #-------------main function implementation-------------------------
 def main():
-    filename = f"disorder.npz"
-    run_computation_disorder(filename, alternate=True)
-
-def main2():
-    plot_all_npz_disorder()
+    pass
 
 
 if __name__ == "__main__":
-    main2()
+    main()
