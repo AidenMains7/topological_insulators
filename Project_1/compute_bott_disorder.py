@@ -45,7 +45,7 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
 
     # Plot Bott Index data
     if plotBott:
-        plot_bott(end_filename_bott, False, True)
+        plot_bott(end_filename_bott, False, True, f"Bott Index, Method of {parameters["method"]}, Order = {parameters["order"]}")
 
 
     # Compute disorder
@@ -63,7 +63,7 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
 
         # Plot the disorder data
         if plotDisorder:
-            plot_disorder(end_filename_disorder, False, True)
+            plot_disorder(end_filename_disorder, False, True, f"Bott Index vs. Disorder, Method of {parameters["method"]}, Order = {parameters["order"]}")
 
 
 
