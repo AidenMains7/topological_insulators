@@ -3,29 +3,6 @@ from disorder_phase_diagram import _read_npz_data, _save_npz_data, compare_data,
 import matplotlib.pyplot as plt
 import numpy as np
 
-def run_computation_bott(filename:str) -> None:
-    """
-    Run _many_bott() with specified parameters; save file with given filename.
-    """
-
-    #set parameters
-    parameters = dict(
-        method = "symmetry",
-        order = 3,
-        pad_width = 0,
-        pbc = True,
-        n = 0,
-        M_values =         np.linspace(-2.0, 12.0, 10),
-        B_tilde_values =   np.linspace(0.0, 2.0, 10),
-        E_F = 0.0,
-        num_jobs = 4,
-        cores_per_job = 1,
-        sparse = False,
-        progresses = True
-    )
-
-    bott_array = _many_bott(**parameters)
-    filename = _save_npz_data(filename, data=bott_array, parameters=parameters)
 
 
 def plot_bott(filename:str, doShow:bool=True, doSave:bool=True) -> None:
@@ -89,12 +66,40 @@ def plot_all_npz_bott(dir:str=".") -> None:
             plot_bott(f, False, True)
 
 
+def run_computation_bott(filename:str, doPlot:bool=True, doShow:bool=True, doSave:bool=True) -> None:
+    """
+    Run _many_bott() with specified parameters; save file with given filename.
+    """
+
+    #set parameters
+    parameters = dict(
+        method = "symmetry",
+        order = 3,
+        pad_width = 0,
+        pbc = True,
+        n = 0,
+        M_values =         np.linspace(-2.0, 12.0, 1),
+        B_tilde_values =   np.linspace(0.0, 2.0, 1),
+        E_F = 0.0,
+        num_jobs = 4,
+        cores_per_job = 1,
+        sparse = False,
+        progress = True
+    )
+
+    bott_array = _many_bott(**parameters)
+    end_f = _save_npz_data(filename, data=bott_array, parameters=parameters)
+    
+    if doPlot:
+        plot_bott(end_f, doShow, doSave)
+
+
 #---------main func implementation---------
 
 def main():
     filename = f"bott.npz"
     run_computation_bott(filename)
-    plot_bott(filename)
+
 
 
 def main2():
@@ -107,4 +112,4 @@ def main3():
     plot_bott("bott_3.npz")
 
 if __name__ == "__main__":
-    main3()
+    main()
