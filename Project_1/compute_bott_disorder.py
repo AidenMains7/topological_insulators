@@ -1,6 +1,6 @@
 import numpy as np
 from project_execute import _init_environment, _many_bott, _many_disorder
-from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz
+from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz, plot_bott_imshow
 
 import inspect
 
@@ -15,13 +15,13 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
         order = 3,
         pad_width = 0,
         pbc = True,
-        n = 12,
+        n = 1,
         M_values =         np.linspace(-2.0, 12.0, 2),
         B_tilde_values =   np.linspace(0.0, 2.0, 2),
-        W_values =         np.linspace(0.5, 10, 5),
+        W_values =         np.linspace(0.0, 12.5, 28, endpoint=False) + (12.5/28),
         iterations_per_disorder = 10,
         E_F = 0.0,
-        num_jobs = 4,
+        num_jobs = 28,
         cores_per_job = 1,
         sparse = False,
         progress_bott = True,
@@ -45,7 +45,7 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
 
     # Plot Bott Index data
     if plotBott:
-        plot_bott(end_filename_bott, False, True, f"Bott Index, Method of {parameters["method"]}, Order = {parameters["order"]}")
+        plot_bott_imshow(end_filename_bott, False, True, f"Bott Index, Method of {parameters['method']}, Order = {parameters['order']}")
 
 
     # Compute disorder
@@ -63,7 +63,7 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
 
         # Plot the disorder data
         if plotDisorder:
-            plot_disorder(end_filename_disorder, False, True, f"Bott Index vs. Disorder, Method of {parameters["method"]}, Order = {parameters["order"]}")
+            plot_disorder(end_filename_disorder, False, True, f"Bott Index vs. Disorder, Method of {parameters['method']}, Order = {parameters['order']}")
 
 
 
@@ -78,4 +78,4 @@ def main2():
 
 
 if __name__ == "__main__":
-    main()
+    main2()
