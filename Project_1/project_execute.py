@@ -196,7 +196,7 @@ def _many_disorder(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pb
 
     # Separate into different arrays for each index
     bott_separation = [bott_arr[:, mask] for mask in [bott_arr[2, :] == bott for bott in list(np.unique(bott_arr[2]))]]
-    bott_separation = [arr[:,5] for arr in bott_separation]
+    bott_separation = [arr[:, :5] for arr in bott_separation]
     
     # Take at most five entries from each unique intial Bott Index
     nonzero_bott_arr = np.empty((3, 0))
