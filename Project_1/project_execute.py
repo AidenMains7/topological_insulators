@@ -194,9 +194,16 @@ def _many_disorder(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pb
 
     _init_environment(cores_per_job)
 
-    # Find only the columns where the Bott Index is nonzero.
-    mask = bott_arr[2, :] != 0
-    nonzero_bott_arr = bott_arr[:, mask]
+    # Separate into different arrays for each index
+    bott_separation = [bott_arr[:, mask] for mask in [bott_arr[2, :] == bott for bott in list(np.unique(bott_arr[2]))]]
+    bott_separation = [arr[:,5] for arr in bott_separation]
+    
+    # Take at most five entries from each unique intial Bott Index
+    nonzero_bott_arr = np.empty((3, 0))
+    for arr in bott_separation:
+        if arr.shape[1] > 0:
+            if arr[2,0] != 0:
+                nonzero_bott_arr = np.append(nonzero_bott_arr, arr, axis=1)
 
     # Provide statistic on nonzero Bott Index data
     num_lattices = M_values.size*B_tilde_values.size
