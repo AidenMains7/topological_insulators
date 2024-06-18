@@ -9,7 +9,7 @@ import os, sys
 
 # Check to use latex style as the workstation pc does not have latex installed; workstation pc is in python 3.9
 if sys.version_info[1] > 9:
-    import latex, scienceplots
+    import scienceplots
     plt.style.use(['science', 'pgf'])
 
 
@@ -49,7 +49,7 @@ def _read_npz_data(filename:str) -> 'tuple[np.ndarray, dict]':
     #if .npz file has parameters (second form)
     else:
         data = file_data['data']
-        parameters = file_data['parameters']
+        parameters = file_data['parameters'][()]
 
     return data, parameters
 
@@ -60,8 +60,6 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool, title:str=None) -> Non
     """
     try:
         data, params = _read_npz_data(filename)
-        if params is not None:
-            params = params[()]
 
     except Exception as e:
         print(f"Error with {filename}: {e}")
@@ -104,10 +102,10 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool, title:str=None) -> Non
                 if True:
                     if y[0] not in bott_vals:
                         print(f"Initial bott index is not in [-3, -2, -1, 1, 2, 3]. Value is {y[0]}")
-                        ax.scatter(x, y, c='black', marker='.')
+                        ax.plot(x, y, c='black', marker='.')
                     
                     try:
-                        ax.scatter(x, y, c=colors[int(y[0]+3)], marker='.')
+                        ax.plot(x, y, c=colors[int(y[0]+3)], marker='.')
 
                     except Exception as e:
                         print(f"Caught exception: {e}")
@@ -139,8 +137,6 @@ def plot_bott(filename:str, doShow:bool=True, doSave:bool=True, title:str=None) 
     #read array from file
     try:
         data, params = _read_npz_data(filename)
-        if params is not None:
-            params = params[()]
 
     except Exception as e:
         print(f"Error with {filename}: {e}")
@@ -197,8 +193,6 @@ def plot_bott_imshow(filename:str, doShow:bool=True, doSave:bool=True, title:str
     #read array from file
     try:
         data, params = _read_npz_data(filename)
-        if params is not None:
-            params = params[()]
 
     except Exception as e:
         print(f"Error with {filename}: {e}")
@@ -299,4 +293,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    plot_all_npz()
