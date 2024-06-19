@@ -1,13 +1,17 @@
 import numpy as np
 from project_execute import _init_environment, _many_bott, _many_disorder
-from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz, plot_bott_imshow
+from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz, plot_bott_imshow, _read_npz_data
 
 import inspect
 
-def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False) -> None:
+def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None) -> None:
     """
     Will run disorder computation with parameters specified in internal dictionary. Will save data from both Bott Index calculation and disorder calculation. May plot.
     """
+
+    if not computeBott and bottFile == None:
+        raise ValueError()
+    
 
     # Define parameters
     parameters = dict(
@@ -18,10 +22,10 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
         n = 1,
         M_values =         np.linspace(-2.0, 12.0, 2),
         B_tilde_values =   np.linspace(0.0, 2.0, 2),
-        W_values =         np.linspace(0.0, 12.5, 3, endpoint=False) + (12.5/28),
-        iterations_per_disorder = 1,
+        W_values =         np.linspace(0.0, 12.5, 5, endpoint=False) + (12.5/28),
+        iterations_per_disorder = 10,
         E_F = 0.0,
-        num_jobs = 4,
+        num_jobs = 28,
         cores_per_job = 1,
         sparse = False,
         progress_bott = True,
@@ -36,16 +40,20 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
     bott_params = inspect.signature(_many_bott).parameters
     filtered_dict = {k: v for k, v in parameters.items() if k in bott_params}
 
-    # Compute the Bott Index [USES PARALLELIZATION]
-    bott_arr = _many_bott(**filtered_dict, progress=parameters['progress_bott'])
+    if computeBott:
+        # Compute the Bott Index [USES PARALLELIZATION]
+        bott_arr = _many_bott(**filtered_dict, progress=parameters['progress_bott'])
 
-    # Save the Bott Index data
-    end_filename_bott = _save_npz_data("bott.npz", data=bott_arr, parameters=parameters)
-    print(f"Bott Index data saved as {end_filename_bott}")
+        # Save the Bott Index data
+        end_filename_bott = _save_npz_data("bott.npz", data=bott_arr, parameters=parameters)
+        print(f"Bott Index data saved as {end_filename_bott}")
 
-    # Plot Bott Index data
-    if plotBott:
-        plot_bott_imshow(end_filename_bott, False, True, f"Bott Index, Method of {parameters['method']}, Order = {parameters['order']}")
+        # Plot Bott Index data
+        if plotBott:
+            plot_bott_imshow(end_filename_bott, False, True, f"Bott Index, Method of {parameters['method']}, Order = {parameters['order']}")
+    else:
+        bott_arr, parameters = _read_npz_data(bottFile)
+
 
 
     # Compute disorder
@@ -70,7 +78,7 @@ def run_computation(doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool
 #----------main function implementation--------
 
 def main():
-    run_computation()
+    run_computation(False, True, False, True, "bott_0.npz")
 
 
 def main2():
@@ -78,4 +86,4 @@ def main2():
 
 
 if __name__ == "__main__":
-    main2()
+    main()

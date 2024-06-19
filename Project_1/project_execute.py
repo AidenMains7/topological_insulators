@@ -198,6 +198,12 @@ def _many_disorder(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pb
     bott_separation = [bott_arr[:, mask] for mask in [bott_arr[2, :] == bott for bott in list(np.unique(bott_arr[2]))]]
     bott_separation = [arr[:, :5] for arr in bott_separation]
     
+    # Provide statistic on nonzero Bott Index data
+    num_nonzero = [arr.shape[1] for arr in bott_separation if (arr.shape[1] > 0 and arr[2,0] != 0)] 
+    num_total = bott_arr.shape[1]
+    percent_nonzero = 100*sum(num_nonzero)/num_total
+    print(f"Of {num_total} total lattices, {num_nonzero} have a nonzero Bott Index ({percent_nonzero:.2f}%).")
+
     # Take at most five entries from each unique intial Bott Index
     nonzero_bott_arr = np.empty((3, 0))
     for arr in bott_separation:
@@ -205,11 +211,7 @@ def _many_disorder(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pb
             if arr[2,0] != 0:
                 nonzero_bott_arr = np.append(nonzero_bott_arr, arr, axis=1)
 
-    # Provide statistic on nonzero Bott Index data
-    num_lattices = M_values.size*B_tilde_values.size
-    nonzero_num = nonzero_bott_arr.shape[1]
-    percent_nonzero = 100*nonzero_num/num_lattices
-    print(f"Of {num_lattices} total lattices, {nonzero_num} have a nonzero Bott Index ({percent_nonzero:.2f}%).")
+    print(nonzero_bott_arr)
 
     # Precompute data
     pre_data, frac_lat = precompute(method, order, pad_width, pbc, n, sparse)
