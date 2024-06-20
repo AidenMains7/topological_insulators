@@ -17,14 +17,14 @@ def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=F
 
     # Define parameters
     parameters = dict(
-        method = "symmetry",
+        method = "renorm",
         order = 3,
         pad_width = 0,
         pbc = True,
         n = 3,
-        M_values =         np.linspace(-2.0, 12.0, 2),
-        B_tilde_values =   np.linspace(0.0, 2.0, 2),
-        W_values =         np.linspace(0.0, 12.5, 1, endpoint=False) + (12.5/28),
+        M_values =         np.linspace(-2.0, 50.0, 4),
+        B_tilde_values =   np.linspace(0.0, 10.0, 4),
+        W_values =         np.linspace(0.0, 12.5, 2, endpoint=False) + (12.5/2),
         iterations = 1,
         E_F = 0.0,
         amount_per_idx = 5,
@@ -43,7 +43,7 @@ def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=F
 
     if computeBott:
         # Compute the Bott Index [USES PARALLELIZATION]
-        bott_arr = bott_many(**filtered_dict, progress=parameters['progress_bott'])
+        bott_arr = bott_many(**filtered_dict)
 
         # Save the Bott Index data
         end_filename_bott = _save_npz_data("bott.npz", data=bott_arr, parameters=parameters)
@@ -90,11 +90,11 @@ def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=F
 #----------main function implementation--------
 
 def main():
-    run_computation(False, True, False, True, "bott_0.npz")
+    run_computation(plotBott=True, plotDisorder=True)
 
 
 def main2():
-    plot_all_npz()
+    plot_bott_imshow("bott_3.npz")
 
 
 if __name__ == "__main__":
