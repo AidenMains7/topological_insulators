@@ -6,10 +6,19 @@ import numpy as np
 from itertools import product
 from joblib import Parallel, delayed
 from time import time
+import os
 
 from project_dependencies import mass_disorder, projector, bott_index, precompute, Hamiltonian_reconstruct
-from mechanics import init_environment, monitor_cpu
 
+
+
+def init_environment(cores_per_job=1):
+    ncore = str(int(cores_per_job))
+    os.environ["OMP_NUM_THREADS"] = ncore
+    os.environ["OPENBLAS_NUM_THREADS"] = ncore
+    os.environ["MKL_NUM_THREADS"] = ncore
+    os.environ["VECLIB_MAXIMUM_THREADS"] = ncore
+    os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
 
 # Parallel
