@@ -5,10 +5,11 @@
 import numpy as np
 from itertools import product
 from joblib import Parallel, delayed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
 
-from project_dependencies import mass_disorder, projector, bott_index, precompute, Hamiltonian_reconstruct
+from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
 
 
 
@@ -21,8 +22,19 @@ def init_environment(cores_per_job=1):
     os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
 
+def task_with_timeout(task_func, timeout, return_shape, *args, **kwargs):
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(task_func, *args, **kwargs)
+        try: 
+            result = future.result(timeout=timeout)
+        except TimeoutError:
+            result = np.full(return_shape, np.nan)
+    
+    return result
+
+
 # Parallel
-def bott_many(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F, num_jobs, cores_per_job, progress_bott=True, sparse=False):
+def bott_many(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F=0.0, num_jobs=28, cores_per_job=1, progress_bott=True, KPM=False, N=1024, task_timeout=None):
     """
     Computes the Bott Index for every combination of M and B_tilde
 
@@ -48,17 +60,23 @@ def bott_many(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F, n
     init_environment(cores_per_job)
 
     #precompute data
-    pre_data, lattice = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n, sparse=sparse)
+    pre_data, lattice = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n)
     parameter_values = tuple(product(M_values, B_tilde_values))
     t0 = time()
 
-    def do_single(i):
+    def worker(i):
         # Parameters for single lattice
         M, B_tilde = parameter_values[i]
 
-        # Construct hamiltonian, projector, compute bott index
-        H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse)
-        P = projector(H, E_F)
+        # Construct hamiltonian and projector
+        if KPM:
+            H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=True)
+            P = projector_KPM(H, E_F, N)
+        else:
+            H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=False)
+            P = projector_exact(H, E_F)
+
+        # Compute Bott Index
         bott = bott_index(P, lattice)
 
         # Provide progress update
@@ -70,11 +88,21 @@ def bott_many(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F, n
 
         return np.array([M, B_tilde, bott])
     
-    bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(do_single)(j) for j in range(len(parameter_values)))).T
+    # Function to implement timeout
+    def worker_timeout(i):
+        return task_with_timeout(worker, task_timeout, (3, ),  i)
+
+    # Whether to use timeout
+    if task_timeout is None:
+        bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(len(parameter_values)))).T
+    else: 
+        bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(worker_timeout)(j) for j in range(len(parameter_values)))).T
+
+    bott_arr = bott_arr[:, ~np.isnan(bott_arr).any(axis=0)]
     return bott_arr
 
 
-def disorder_avg(H_init, lattice, W, iterations, E_F, progress=False, sparse=False):
+def disorder_avg(H_init, lattice, W, iterations, E_F, progress=False, KPM=False, N=1024, **kwargs):
     """
     Will calculate the average Bott Index from disorder for the specified number of iterations.
 
@@ -99,14 +127,23 @@ def disorder_avg(H_init, lattice, W, iterations, E_F, progress=False, sparse=Fal
 
 
     def do_iter(i):
-        # Calculate a disorder operator
-        disorder_operator = mass_disorder(W, system_size, 2, sparse)
-        
-        # Add disorder to the Hamiltonian
-        H_new = H_init + disorder_operator
 
-        # Compute projector, bott index
-        P = projector(H_new, E_F)
+        if KPM:
+            # Calculate a disorder operator
+            disorder_operator = mass_disorder(W, system_size, 2, sparse=True)
+            # Add disorder to the Hamiltonian
+            H_new = H_init + disorder_operator
+            # Compute projector
+            P = projector_KPM(H_new, E_F, N)
+        else: 
+            # Calculate a disorder operator
+            disorder_operator = mass_disorder(W, system_size, 2, sparse=False)
+            # Add disorder to the Hamiltonian
+            H_new = H_init + disorder_operator
+            # Compute projector
+            P = projector_exact(H_new, E_F)
+
+        # Compute bott index
         bott = bott_index(P, lattice)
 
         # Provide progress update
@@ -123,7 +160,7 @@ def disorder_avg(H_init, lattice, W, iterations, E_F, progress=False, sparse=Fal
 
 
 # Parallel
-def disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_job, progress_disorder_iter=False, progress_disorder_range=True, sparse=False):
+def disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_job, progress_disorder_iter=False, progress_disorder_range=True, KPM=False, N=1024, task_timeout=None):
     """
 
     Will find the Bott Index after disorder for each value in the provided range. 
@@ -151,9 +188,9 @@ def disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_jo
     # Initial time
     t0 = time()
 
-    def do_single(i):
+    def worker(i):
         W = W_values[i]
-        bott_final = disorder_avg(H, lattice, W, iterations, E_F, progress_disorder_iter, sparse)
+        bott_final = disorder_avg(H, lattice, W, iterations, E_F, progress_disorder_iter, KPM, N)
 
         if progress_disorder_range:
             dt = time() - t0
@@ -162,14 +199,24 @@ def disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_jo
             time_message = f"{dt:.0f}s"
             print(f"{value_message.ljust(len(value_message))} {percent_message.ljust(10)} {time_message.rjust(0)}")
 
-        return W, bott_final
+        return np.array([W, bott_final])
     
+    # Timeout implementation
+    def worker_timeout(i):
+        return task_with_timeout(worker, task_timeout, (2, ), i)
+
+
     # Parallelization
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_single)(j) for j in range(W_values.size))).T
+    if task_timeout is None:
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(W_values.size))).T
+    else:
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker_timeout)(j) for j in range(W_values.size))).T
+    
+    data = data[:, ~np.isnan(data).any(axis=0)]
     return data
 
 
-def disorder_many(bott_arr, method, order, pad_width, pbc, n, W_values, iterations, E_F, num_jobs, cores_per_job, amount_per_idx=None, progress_disorder_iter=False, progress_disorder_range=True, progress_disorder_many=True, doStatistic=True, sparse=False):
+def disorder_many(bott_arr, method, order, pad_width, pbc, n, W_values, iterations, E_F, num_jobs, cores_per_job, amount_per_idx=None, progress_disorder_iter=False, progress_disorder_range=True, progress_disorder_many=True, doStatistic=True, KPM=False, N=1024, task_timeout=None, **kwargs):
     """
     Will find the resultant Bott Index from disorder over the provided range for all provided (M, B_tilde, bott_init) values.
 
@@ -239,7 +286,7 @@ def disorder_many(bott_arr, method, order, pad_width, pbc, n, W_values, iteratio
         print(f"Of {num_total} total lattices, {num_nonzero} have a nonzero Bott Index ({percent:.2f}%).")
 
     # Precompute data
-    pre_data, lattice = precompute(method, order, pad_width, pbc, n, sparse)
+    pre_data, lattice = precompute(method, order, pad_width, pbc, n)
     t0 = time()
 
     # Disorder over given range for a single lattice
@@ -247,11 +294,15 @@ def disorder_many(bott_arr, method, order, pad_width, pbc, n, W_values, iteratio
         # Get values of lattice
         M, B_tilde, bott_init = tuple(nonzero_arr[:, i])
 
+
         # Construct the Hamiltonian
-        H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse)
+        if KPM:
+            H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=True)
+        else: 
+            H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=False)
 
         # Calculate the bott after disorder over the range
-        disorder_arr = disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_job, progress_disorder_iter, progress_disorder_range, sparse)
+        disorder_arr = disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_job, progress_disorder_iter, progress_disorder_range, KPM, N, task_timeout)
 
         # Add the initial to the array
         disorder_arr = np.concatenate((np.array([[0], [bott_init]]), disorder_arr), axis=1)

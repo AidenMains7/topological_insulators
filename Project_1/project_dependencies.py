@@ -6,9 +6,10 @@ import sys
 sys.path.append(".")
 
 import numpy as np
+import scipy.sparse as sparse
 from scipy.sparse import csr_matrix, diags, dok_matrix
 from scipy.linalg import eigh, logm, eig, eigvals
-from scipy.sparse.linalg import cg
+from scipy.sparse.linalg import cg, eigsh
 
 def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     """
@@ -346,7 +347,7 @@ def H_renorm(H_parts:tuple) -> np.ndarray:
     return H_eff
 
 
-def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, sparse:bool=True) -> tuple:
+def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int) -> tuple:
     """
     Precomputes the lattice and the parts of its Hamiltonian
     """
@@ -445,7 +446,7 @@ def mass_disorder(strength:float, system_size:int, df:int, sparse:bool, type:str
     return disorder_operator
 
 
-def projector(H:np.ndarray, E_F:float) -> np.ndarray:
+def projector_exact(H:np.ndarray, E_F:float) -> np.ndarray:
     '''
     Constructs the projector of the Hamiltonian onto the states below the Fermi energy
 
@@ -465,6 +466,60 @@ def projector(H:np.ndarray, E_F:float) -> np.ndarray:
 
     #projector given by matrix multiplaction of eigenvectors and D_dagger
     P = eigvecs @ D_dagger
+
+    return P
+
+
+def _rescaling_factors(H, epsilon=0.01, k=12):
+
+    eigenvals = eigsh(H, which='LM', k=k)[0]
+    E_min, E_max = np.min(eigenvals), np.max(eigenvals)
+
+    a = (E_max - E_min)/(2-epsilon)
+    b = (E_max + E_min)/2
+
+    return a, b
+
+
+def _jackson_kernel_coefficients(N):
+    n = np.arange(N)
+
+    return (1 / (N + 1)) * ((N - n + 1) * np.cos(np.pi * n / (N + 1)) +
+                            np.sin(np.pi * n / (N + 1)) / np.tan(np.pi / (N + 1))).astype(np.complex128)
+
+
+def _projector_moments(E_tilde, N):
+
+    n = np.arange(1, N).astype(np.complex128)
+    moments = np.empty(N, dtype=np.complex128)
+    moments[0] = 1 - np.arccos(E_tilde)/np.pi
+    moments[1:] = -2*np.sin(n*np.arccos(E_tilde))/(n*np.pi)
+
+    return moments
+
+
+def projector_KPM(H, E_F, N):
+
+    a, b = _rescaling_factors(H)
+    H_tilde = (H - b*sparse.eye(H.shape[0], dtype=np.complex128, format='csr'))/a
+    E_tilde = (E_F-b)/a
+
+    jack_coefs = _jackson_kernel_coefficients(N)
+    proj_moments = _projector_moments(E_tilde, N)
+    moments = jack_coefs * proj_moments
+
+    P = np.zeros(H_tilde.shape, dtype=np.complex128)
+
+    Tn_2 = np.eye(H_tilde.shape[0], dtype=np.complex128)
+    Tn_1 = H_tilde.toarray()
+
+    P += moments[0]*Tn_2
+    P += moments[1]*Tn_1
+
+    for n in range(2, N):
+        Tn = 2*H_tilde.dot(Tn_1)-Tn_2
+        P += moments[n] * Tn
+        Tn_2, Tn_1 = Tn_1, Tn
 
     return P
 

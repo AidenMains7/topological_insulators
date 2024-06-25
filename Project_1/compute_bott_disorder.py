@@ -17,24 +17,26 @@ def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=F
 
     # Define parameters
     parameters = dict(
-        method = "renorm",
+        method = "symmetry",
         order = 3,
         pad_width = 0,
         pbc = True,
-        n = 3,
-        M_values =         np.linspace(-2.0, 50.0, 4),
-        B_tilde_values =   np.linspace(0.0, 10.0, 4),
-        W_values =         np.linspace(0.0, 12.5, 2, endpoint=False) + (12.5/2),
+        n = 2,
+        M_values =         np.linspace(-2.0, 12.0, 3),
+        B_tilde_values =   np.linspace(0.0, 2.0, 3),
+        W_values =         np.linspace(0.0, 12.5, 1, endpoint=False) + (12.5),
         iterations = 1,
         E_F = 0.0,
         amount_per_idx = 5,
         num_jobs = 4,
         cores_per_job = 1,
-        sparse = False,
         progress_bott = True,
         progress_disorder_iter = False,
         progress_disorder_range = False,
         progress_disorder_many = True,
+        KPM = False,
+        N = 1024,
+        task_timeout = None
     )
 
     # Use applicable **kwargs

@@ -1,14 +1,25 @@
 import numpy as np
 
+from joblib import Parallel, delayed
 
 
 
+val1 = [0, 1]
 
-arr = np.linspace(0, 12.5, 10, endpoint=False)
+val2 = np.array([0, 1])
 
-print(arr)
 
-d = arr[1]-arr[0]
+def func1():
+    return val1
 
-arr2 = arr + d
-print(arr2)
+
+def func2():
+    return val2
+
+
+arr1 = np.array(Parallel(n_jobs=1)(delayed(func1)() for _ in range(10))).T
+arr2 = np.array(Parallel(n_jobs=1)(delayed(func2)() for _ in range(10))).T
+
+
+print(arr1.shape)
+print(arr2.shape)
