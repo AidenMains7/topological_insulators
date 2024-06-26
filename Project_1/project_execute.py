@@ -8,10 +8,8 @@ from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
-from numba import jit
 
 from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
-
 
 
 def init_environment(cores_per_job:int=1) -> None:

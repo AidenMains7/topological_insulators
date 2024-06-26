@@ -1,11 +1,11 @@
 import numpy as np
 import inspect 
 from time import time
+import sys
 
 from project_execute import bott_many, disorder_many
 from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz, plot_bott_imshow, _read_npz_data
-
-
+from system_functions import profile_print_save
 
 def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None) -> None:
     """
@@ -97,7 +97,7 @@ def main():
         task_timeout = None
     )
 
-    run_computation(parameters, plotBott=True, computeDisorder=False) 
+    profile_print_save([run_computation], True, dict(parameters=parameters, plotBott=True, computeDisorder=False))
 
 
 if __name__ == "__main__":
