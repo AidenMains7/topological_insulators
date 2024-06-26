@@ -1,43 +1,23 @@
 import numpy as np
+import inspect 
+from time import time
+
 from project_execute import bott_many, disorder_many
 from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz, plot_bott_imshow, _read_npz_data
 
-import inspect
 
-def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None) -> None:
+
+def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None) -> None:
     """
     Will run disorder computation with parameters specified in internal dictionary. Will save data from both Bott Index calculation and disorder calculation. May plot.
     """
-    if not computeBott and not doDisorder:
-        raise ValueError("There is no point if both computeBott and doDisorder are False.")
+    if not computeBott and not computeDisorder:
+        raise ValueError("There is no point if both computeBott and computeDisorder are False.")
     
     if not computeBott and bottFile == None:
         raise ValueError("If computeBott=False, then a filename must be specified to read from")
-    
 
-    # Define parameters
-    parameters = dict(
-        method = "symmetry",
-        order = 3,
-        pad_width = 0,
-        pbc = True,
-        n = 2,
-        M_values =         np.linspace(-2.0, 12.0, 3),
-        B_tilde_values =   np.linspace(0.0, 2.0, 3),
-        W_values =         np.linspace(0.0, 12.5, 1, endpoint=False) + (12.5),
-        iterations = 1,
-        E_F = 0.0,
-        amount_per_idx = 5,
-        num_jobs = 4,
-        cores_per_job = 1,
-        progress_bott = True,
-        progress_disorder_iter = False,
-        progress_disorder_range = False,
-        progress_disorder_many = True,
-        KPM = False,
-        N = 1024,
-        task_timeout = None
-    )
+    t0 = time()
 
     # Use applicable **kwargs
     bott_params = inspect.signature(bott_many).parameters
@@ -71,7 +51,7 @@ def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=F
 
         
     # Compute disorder
-    if doDisorder:
+    if computeDisorder:
         # Use applicable **kwargs
         disorder_params = inspect.signature(disorder_many).parameters
         filtered_dict_2 = {k: v for k, v in parameters.items() if k in disorder_params}
@@ -86,17 +66,38 @@ def run_computation(computeBott:bool=True, doDisorder:bool=True, plotBott:bool=F
         # Plot the disorder data
         if plotDisorder:
             plot_disorder(end_filename_disorder, False, True, f"Bott Index vs. Disorder, Method of {parameters['method']}, Order = {parameters['order']}")
+    
+    print(f"Total time taken: {time()-t0:.0f}s")
 
 
 
 #----------main function implementation--------
 
 def main():
-    run_computation(plotBott=True, plotDisorder=True)
+    parameters = dict(
+        method = "symmetry",
+        order = 3,
+        pad_width = 0,
+        pbc = True,
+        n = 2,
+        M_values =         np.linspace(-2.0, 12.0, 3),
+        B_tilde_values =   np.linspace(0.0, 2.0, 1),
+        W_values =         np.linspace(0.0, 12.5, 3, endpoint=False) + (12.5/3),
+        iterations = 5,
+        E_F = 0.0,
+        amount_per_idx = None,
+        num_jobs = 28,
+        cores_per_job = 1,
+        progress_bott = True,
+        progress_disorder_iter = False, 
+        progress_disorder_range = False,
+        progress_disorder_many = True,
+        KPM = False,
+        N = 1024,
+        task_timeout = None
+    )
 
-
-def main2():
-    plot_bott_imshow("bott_3.npz")
+    run_computation(parameters, plotBott=True, computeDisorder=False) 
 
 
 if __name__ == "__main__":

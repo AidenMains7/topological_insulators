@@ -209,10 +209,10 @@ def phase_diagram_data(order, method, M_values, B_tilde_values, n=None, E_F=0., 
 
 def main():
     order = 3
-    M_val = np.linspace(-2, 10, dtype=int)
-    B_til_val = np.linspace(0,1,5, dtype=float)
-    n = int(10)
-    data = phase_diagram_data(order, "symmetry", M_val, B_til_val, n=n, num_jobs=4)
+    M_val = np.linspace(-2, 12, 3)
+    B_til_val = np.linspace(0, 2, 3)
+    n = 2
+    data = phase_diagram_data(order, "symmetry", M_val, B_til_val, n=n, num_jobs=4, KPM=True, N=2048)
     print(data)
 
 

@@ -8,12 +8,13 @@ from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
+from numba import jit
 
 from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
 
 
 
-def init_environment(cores_per_job=1):
+def init_environment(cores_per_job:int=1) -> None:
     ncore = str(int(cores_per_job))
     os.environ["OMP_NUM_THREADS"] = ncore
     os.environ["OPENBLAS_NUM_THREADS"] = ncore
@@ -22,7 +23,7 @@ def init_environment(cores_per_job=1):
     os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
 
-def task_with_timeout(task_func, timeout, return_shape, *args, **kwargs):
+def task_with_timeout(task_func:object, timeout:float, return_shape:tuple, *args, **kwargs):
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(task_func, *args, **kwargs)
         try: 
@@ -34,7 +35,7 @@ def task_with_timeout(task_func, timeout, return_shape, *args, **kwargs):
 
 
 # Parallel
-def bott_many(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F=0.0, num_jobs=28, cores_per_job=1, progress_bott=True, KPM=False, N=1024, task_timeout=None):
+def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, num_jobs:int=28, cores_per_job:int=1, progress_bott:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None) -> np.ndarray:
     """
     Computes the Bott Index for every combination of M and B_tilde
 
@@ -102,7 +103,7 @@ def bott_many(method, order, pad_width, pbc, n, M_values, B_tilde_values, E_F=0.
     return bott_arr
 
 
-def disorder_avg(H_init, lattice, W, iterations, E_F, progress=False, KPM=False, N=1024, **kwargs):
+def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float, progress:bool=False, KPM:bool=False, N:int=1024, **kwargs) -> np.ndarray:
     """
     Will calculate the average Bott Index from disorder for the specified number of iterations.
 
@@ -160,7 +161,7 @@ def disorder_avg(H_init, lattice, W, iterations, E_F, progress=False, KPM=False,
 
 
 # Parallel
-def disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_job, progress_disorder_iter=False, progress_disorder_range=True, KPM=False, N=1024, task_timeout=None):
+def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None) -> np.ndarray:
     """
 
     Will find the Bott Index after disorder for each value in the provided range. 
@@ -216,7 +217,7 @@ def disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_jo
     return data
 
 
-def disorder_many(bott_arr, method, order, pad_width, pbc, n, W_values, iterations, E_F, num_jobs, cores_per_job, amount_per_idx=None, progress_disorder_iter=False, progress_disorder_range=True, progress_disorder_many=True, doStatistic=True, KPM=False, N=1024, task_timeout=None, **kwargs):
+def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, amount_per_idx:int=None, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, progress_disorder_many:bool=True, doStatistic:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None, **kwargs) -> np.ndarray:
     """
     Will find the resultant Bott Index from disorder over the provided range for all provided (M, B_tilde, bott_init) values.
 

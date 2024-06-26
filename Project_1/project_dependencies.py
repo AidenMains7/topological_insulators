@@ -10,6 +10,7 @@ import scipy.sparse as sparse
 from scipy.sparse import csr_matrix, diags, dok_matrix
 from scipy.linalg import eigh, logm, eig, eigvals
 from scipy.sparse.linalg import cg, eigsh
+from numba import jit
 
 def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     """
@@ -470,7 +471,7 @@ def projector_exact(H:np.ndarray, E_F:float) -> np.ndarray:
     return P
 
 
-def _rescaling_factors(H, epsilon=0.01, k=12):
+def _rescaling_factors(H:np.ndarray, epsilon:float=0.01, k:int=12) -> "tuple[float, float]":
 
     eigenvals = eigsh(H, which='LM', k=k)[0]
     E_min, E_max = np.min(eigenvals), np.max(eigenvals)
@@ -481,14 +482,14 @@ def _rescaling_factors(H, epsilon=0.01, k=12):
     return a, b
 
 
-def _jackson_kernel_coefficients(N):
+def _jackson_kernel_coefficients(N:int) -> np.ndarray:
     n = np.arange(N)
 
     return (1 / (N + 1)) * ((N - n + 1) * np.cos(np.pi * n / (N + 1)) +
                             np.sin(np.pi * n / (N + 1)) / np.tan(np.pi / (N + 1))).astype(np.complex128)
 
 
-def _projector_moments(E_tilde, N):
+def _projector_moments(E_tilde:float, N:int) -> np.ndarray:
 
     n = np.arange(1, N).astype(np.complex128)
     moments = np.empty(N, dtype=np.complex128)
@@ -498,7 +499,7 @@ def _projector_moments(E_tilde, N):
     return moments
 
 
-def projector_KPM(H, E_F, N):
+def projector_KPM(H:np.ndarray, E_F:float, N:int) -> np.ndarray:
 
     a, b = _rescaling_factors(H)
     H_tilde = (H - b*sparse.eye(H.shape[0], dtype=np.complex128, format='csr'))/a
