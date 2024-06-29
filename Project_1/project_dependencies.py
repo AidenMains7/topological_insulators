@@ -548,8 +548,10 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     A = np.eye(P.shape[0], dtype=np.complex128) - P + P.dot(UxP).dot(UyP).dot(Ux_daggerP).dot(Uy_daggerP)
    
     #Tr(logm(A)) = sum of log of eigvals of A
-    #bott = round(np.imag(np.sum(np.log(eigvals(A)))) / (2 * np.pi))
-    bott = round(np.imag(np.trace(logm(A))) / (2 * np.pi))
+    bott = round(np.imag(np.sum(np.log(eigvals(A)))) / (2 * np.pi))
+    
+    # Old, slower method.
+    #bott = round(np.imag(np.trace(logm(A))) / (2 * np.pi))
 
     return bott
 
