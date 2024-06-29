@@ -1,16 +1,18 @@
 import cProfile
 import pstats
 import sys
+import inspect
 
 import psutil
 from time import time, perf_counter
 
 
-def profile_print_save(funcs:"list[object]", saveFile:bool=True, **kwargs:dict):
+def profile_print_save(func:object, saveFile:bool=True, **kwargs):
 
     with cProfile.Profile() as profile:
-        for func in funcs:
-            func(**kwargs)
+        func_params = inspect.signature(func).parameters
+        filtered_dict = {k: v for k, v in kwargs.items() if k in func_params}
+        func(**filtered_dict)
         
 
     if saveFile:
@@ -23,12 +25,12 @@ def profile_print_save(funcs:"list[object]", saveFile:bool=True, **kwargs:dict):
 
 
 
-if sys.version_info >= 11:
+if sys.version_info[1] >= 11:
 
     def display_pstats_file(filename:str='profile.pstats'):
         results = pstats.Stats(filename)
         results.sort_stats(pstats.SortKey.TIME)
-        results.print_stats()
+        results.print_stats(50)
         
 
 
@@ -38,7 +40,7 @@ if sys.version_info >= 11:
 
 
 def main():
-    pass
+    display_pstats_file()
 
 if __name__ == "__main__":
     main()

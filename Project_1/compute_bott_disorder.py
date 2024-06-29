@@ -40,7 +40,7 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
 
         # If read from file, will use the parameters specified above, barring what is necessary to maintain correctness.
         print("Reading from file:")
-        for kw in ['method', 'order', 'pad_width', 'pbc', 'n', 'M_values', 'B_tilde_values', 'sparse']:
+        for kw in ['method', 'order', 'pad_width', 'pbc', 'n', 'M_values', 'B_tilde_values']:
             parameters[f"{kw}"] = file_params[f"{kw}"]
 
             if kw in ['M_values', 'B_tilde_values']:
@@ -76,17 +76,17 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
 def main():
     parameters = dict(
         method = "symmetry",
-        order = 3,
+        order = 4,
         pad_width = 0,
         pbc = True,
         n = 2,
         M_values =         np.linspace(-2.0, 12.0, 3),
-        B_tilde_values =   np.linspace(0.0, 2.0, 1),
+        B_tilde_values =   np.linspace(0.0, 2.0, 1)+1.0,
         W_values =         np.linspace(0.0, 12.5, 3, endpoint=False) + (12.5/3),
-        iterations = 5,
+        iterations = 1,
         E_F = 0.0,
-        amount_per_idx = None,
-        num_jobs = 28,
+        amount_per_idx = 1,
+        num_jobs = 3,
         cores_per_job = 1,
         progress_bott = True,
         progress_disorder_iter = False, 
@@ -97,7 +97,7 @@ def main():
         task_timeout = None
     )
 
-    profile_print_save([run_computation], True, dict(parameters=parameters, plotBott=True, computeDisorder=False))
+    run_computation(plotBott=False, parameters=parameters, computeBott=True, computeDisorder=True, plotDisorder=True)
 
 
 if __name__ == "__main__":

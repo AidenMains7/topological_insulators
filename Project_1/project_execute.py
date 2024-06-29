@@ -205,14 +205,21 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
         return task_with_timeout(worker, task_timeout, (2, ), i)
 
 
-    # Parallelization
-    if task_timeout is None:
-        data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(W_values.size))).T
+    if False:
+        # Parallelization
+        if task_timeout is None:
+            data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(W_values.size))).T
+        else:
+            data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker_timeout)(j) for j in range(W_values.size))).T
     else:
-        data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker_timeout)(j) for j in range(W_values.size))).T
+        data = [worker(j) for j in range(W_values.size)]
+        data = np.array(data).T
     
     data = data[:, ~np.isnan(data).any(axis=0)]
     return data
+
+
+
 
 
 def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, amount_per_idx:int=None, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, progress_disorder_many:bool=True, doStatistic:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None, **kwargs) -> np.ndarray:
