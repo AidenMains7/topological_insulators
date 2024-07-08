@@ -80,13 +80,13 @@ def main():
         pad_width = 0,
         pbc = True,
         n = 2,
-        M_values =         np.linspace(-2.0, 12.0, 3),
-        B_tilde_values =   np.linspace(0.0, 2.0, 1)+1.0,
-        W_values =         np.linspace(0.0, 12.5, 3, endpoint=False) + (12.5/3),
+        M_values =         np.linspace(-2.0, 12.0, 51),
+        B_tilde_values =   np.linspace(0.0, 2.0, 51),
+        W_values =         np.linspace(0.0, 12.5, 1, endpoint=False) + (12.5/1),
         iterations = 1,
         E_F = 0.0,
         amount_per_idx = 1,
-        num_jobs = 3,
+        num_jobs = 28,
         cores_per_job = 1,
         progress_bott = True,
         progress_disorder_iter = False, 
@@ -97,7 +97,8 @@ def main():
         task_timeout = None
     )
 
-    run_computation(plotBott=False, parameters=parameters, computeBott=True, computeDisorder=True, plotDisorder=True)
+    run_computation(parameters, True, False, True, False)
+
 
 
 if __name__ == "__main__":

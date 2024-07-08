@@ -302,7 +302,7 @@ def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
 
     return H_0_parts, M_hat_parts, B_tilde_hat_parts
 
-
+@jit
 def mat_inv(matrix:np.ndarray, hermitian:bool=True, alt:bool=True, overwrite_a:bool=True, tol:float=1e-10) -> np.ndarray:
 
     if not alt:

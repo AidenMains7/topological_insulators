@@ -3,11 +3,10 @@ import pstats
 import sys
 import inspect
 
-import psutil
 from time import time, perf_counter
 
 
-def profile_print_save(func:object, saveFile:bool=True, **kwargs):
+def profile_print_save(func:object, saveFile:bool=True, filename:str='profile.pstats', **kwargs):
 
     with cProfile.Profile() as profile:
         func_params = inspect.signature(func).parameters
@@ -16,7 +15,6 @@ def profile_print_save(func:object, saveFile:bool=True, **kwargs):
         
 
     if saveFile:
-        filename = 'profile.pstats'
         profile.dump_stats(filename)
     else: 
         results = pstats.Stats(profile)
@@ -40,7 +38,8 @@ if sys.version_info[1] >= 11:
 
 
 def main():
-    display_pstats_file()
+    display_pstats_file('o4_default_profile.pstats')
+    display_pstats_file('profile_jit_o4.pstats')
 
 if __name__ == "__main__":
     main()
