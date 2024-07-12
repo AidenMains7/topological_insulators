@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
 
-from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
+from project_dependencies import mass_disorder, projector_exact, projector_KPM, projector_KPM_C, bott_index, precompute, Hamiltonian_reconstruct
 
 
 def init_environment(cores_per_job:int=1) -> None:
@@ -70,7 +70,7 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np
         # Construct hamiltonian and projector
         if KPM:
             H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=True)
-            P = projector_KPM(H, E_F, N)
+            P = projector_KPM_C(H, E_F, N)
         else:
             H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=False)
             P = projector_exact(H, E_F)
@@ -217,8 +217,6 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
     
     data = data[:, ~np.isnan(data).any(axis=0)]
     return data
-
-
 
 
 
