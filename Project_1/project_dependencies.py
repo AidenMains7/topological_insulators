@@ -7,10 +7,10 @@ sys.path.append(".")
 
 import numpy as np
 import scipy.sparse as sparse
-from scipy.sparse import csr_matrix, diags, dok_matrix
+from scipy.sparse import csr_matrix, diags, dok_matrix, eye
 from scipy.linalg import eigh, logm, eig, eigvals
 from scipy.sparse.linalg import cg, eigsh
-from numba import jit
+
 
 def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     """
@@ -72,14 +72,8 @@ def sierpinski_lattice(order:int, pad_width:int) -> tuple:
     return square_lat, fractal_lat, holes, filled
 
 
-def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
+def geometry(lattice:np.ndarray, pbc:bool, n:int):
     """
-    Finds the distance between sites, the angles, and principal and diagonal masks.
-
-    Parameters:
-
-    Returns: 
-
     """
     side_length = lattice.shape[0]
 
@@ -88,15 +82,87 @@ def geometry(lattice:np.ndarray, pbc:bool, n:int) -> tuple:
     
     filled = np.argwhere(lattice >= 0)
 
-
     diff = filled[None, :, :] - filled[:, None, :]
     dy, dx = diff[...,0], diff[...,1]
 
     if pbc:
         dx = np.where(np.abs(dx) > side_length / 2, dx - np.sign(dx) * side_length, dx)
         dy = np.where(np.abs(dy) > side_length / 2, dy - np.sign(dy) * side_length, dy)
-    
+
+    # Previous methods are used in the previous iteration of the geometry function.------------------------
+    # Create a mask which does not cross over a vacancy
+    def hop_mask(idx):
+        row, col = tuple(idx)
+        rows = [i%side_length for i in range(row-n, row+n+1)]
+        cols = [i%side_length for i in range(col-n, col+n+1)]
+
+        square = lattice[np.ix_(rows, cols)]
+
+        # A direction and the value to move in that direction
+        direction = {
+            "LEFT": np.array([-1,0]),
+            "RIGHT": np.array([1,0]),
+            "UP": np.array([0,-1]),
+            "DOWN": np.array([0,1]),
+            "UP_LEFT": np.array([-1,-1]),
+            "UP_RIGHT": np.array([1, -1]),
+            "DOWN_LEFT": np.array([-1, 1]),
+            "DOWN_RIGHT": np.array([1,1])
+        }
+
+        # Dictionary to control whether a vacancy has been encountered in a certain direction
+        direction_flag = {
+            "LEFT": True,
+            "RIGHT": True,
+            "UP": True,
+            "DOWN": True,
+            "UP_LEFT": True,
+            "UP_RIGHT": True,
+            "DOWN_LEFT": True,
+            "DOWN_RIGHT": True
+        }      
+
+        # Center of the square
+        center = np.array([square.shape[0]//2]*2)
+        square_mask = np.empty(square.shape, dtype=bool)
+
+        # For each 'ring' around the center
+        for dist in range(n):
+            for dir in direction:
+                hop = tuple(center + direction[dir]*(dist+1))
+
+                # If vacant, false
+                if square[hop] == -1:
+                    val = False
+                    direction_flag[dir] = False
+
+                # Controls whether there has been a vacancy in this direction
+                elif direction_flag[dir] == False:
+                    val = False
+                # Otherwise, true
+                else:
+                    val = True
+                
+                # Update value
+                # Values not attempted to hop to are automatically false.
+                square_mask[hop] = val
+
+        
+        return square.flatten(), square_mask.flatten()
+
+
+    # Original method to determine cutoff
     mask_dist = np.maximum(np.abs(dx), np.abs(dy)) <= n
+
+
+    # Calculate for all sites
+    for site in range(np.max(lattice)+1):
+        square, square_mask = hop_mask(filled[site])
+        non_vacant = np.argwhere(square >= 0)
+        square, square_mask = square[non_vacant], square_mask[non_vacant]
+        mask_dist[site, square] = square_mask
+
+    # Following methods are used in previous iteration of the geometry function.----------------------
 
     mask_principal = (((dx == 0) & (dy != 0))    | ((dx != 0) & (dy == 0))) & mask_dist
     mask_diagonal  = ((np.abs(dx) == np.abs(dy)) & ((dx != 0) & (dy != 0))) & mask_dist
@@ -525,6 +591,36 @@ def projector_KPM(H:np.ndarray, E_F:float, N:int) -> np.ndarray:
     return P
 
 
+def projector_KPM_C(H, E_F, N):
+    """
+    Approximate the projector onto the states below Fermi energy using KPM.
+
+    Parameters:
+    H (csr_matrix): The Hamiltonian matrix.
+    E_F (float): Fermi energy.
+    N (int): Number of moments in the Chebyshev expansion.
+
+    Returns:
+    ndarray: Projector matrix.
+    """
+    # Rescale the Hamiltonian and Fermi energy
+    a, b = _rescaling_factors(H)
+    H_tilde = (H - b * eye(H.shape[0], dtype=np.complex128, format='csr')) / a
+    E_tilde = (E_F - b) / a
+
+    if not (-1 < E_tilde < 1):
+        raise ValueError('Rescaled E_F not within range (-1, 1).')
+
+    # Compute Jackson kernel coefficients and projector moments
+    jack_coefs = _jackson_kernel_coefficients(N)
+    proj_mnts = _projector_moments(E_tilde, N)
+    moments = jack_coefs * proj_mnts
+
+    # Compute and return the projector using the imported Cython function
+    return ckpm._projector_KPM_cython(H.shape[0], H_tilde.data, H_tilde.indices, H_tilde.indptr, moments)
+
+
+
 def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     '''
     Computes the Bott Index for a given lattice and projector
@@ -558,8 +654,13 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
 
 #-------main function implementation-----------------
 def main():
-    pass
+    sq, frac, holes, fills = sierpinski_lattice(2, 0)
+    d_r, d_cos, d_sin, mask_principal, mask_diagonal = geometry(frac, False, 2)
+
+    print(frac)
+    print(mask_principal[10])
 
 if __name__ == "__main__":
+    np.set_printoptions(threshold=np.inf)
     main()
 
