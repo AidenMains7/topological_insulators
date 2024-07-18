@@ -34,7 +34,7 @@ def print_params_nice(params:dict):
 
 def main():
     #Specify filename
-    filename = 'disorder_symmetry.npz'
+    filename = 'Data/disorder_symmetry.npz'
 
     data, params = _read_npz_data(filename)
     print_params_nice(params)
