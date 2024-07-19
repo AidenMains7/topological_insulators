@@ -8,7 +8,7 @@ sys.path.append(".")
 import numpy as np
 import scipy.sparse as sparse
 from scipy.sparse import csr_matrix, diags, dok_matrix, eye
-from scipy.linalg import eigh, logm, eig, eigvals
+from scipy.linalg import eigh, logm, eig, eigvalsh, eigvals
 from scipy.sparse.linalg import cg, eigsh
 import matplotlib.pyplot as plt
 
@@ -347,7 +347,7 @@ def decompose(H:np.ndarray, fills:np.ndarray, holes:np.ndarray) -> tuple:
     return H_aa, H_bb, H_ab, H_ba
 
 
-def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
+def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray , t1:float=1.0, t2:float=1.0, B:float=1.0) -> tuple:
     """
     Decompose the components of the Hamiltonian
 
@@ -362,7 +362,7 @@ def decompose_parts(wannier:tuple, holes:np.ndarray, fills:np.ndarray) -> tuple:
     B_tilde_parts
     """
 
-    H_0, M_hat, B_tilde_hat = Hamiltonian_components(wannier, sparse=False)
+    H_0, M_hat, B_tilde_hat = Hamiltonian_components(wannier, t1, t2, B, sparse=False)
     H_0_parts         = decompose(H_0,         fills, holes)
     M_hat_parts       = decompose(M_hat,       fills, holes)
     B_tilde_hat_parts = decompose(B_tilde_hat, fills, holes)
@@ -438,7 +438,7 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1
         return H_components, sq_lat
     elif method == "site_elim":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
-        parts_groups = decompose_parts(wannier, holes, fills)
+        parts_groups = decompose_parts(wannier, holes, fills, t1=t1, t2=t2, B=B)
         H_components = []
         for parts_group in parts_groups:
             H_components.append(csr_matrix(parts_group[0]))
@@ -446,7 +446,7 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1
         return H_components, frac_lat
     elif method == "renorm":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
-        parts_groups = decompose_parts(wannier, holes, fills)
+        parts_groups = decompose_parts(wannier, holes, fills, t1=t1, t2=t2, B=B)
         return parts_groups, frac_lat
 
 
@@ -652,20 +652,51 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     return bott
 
 
-def LDOS(Hamiltonian:np.ndarray, eig_index:int=0) -> np.ndarray:
+def LDOS(Hamiltonian:np.ndarray) -> np.ndarray:
 
-    eigvals, eigvecs = eig(Hamiltonian)
+    # Get eigenvalues, eigenvectors
+    eigvals, eigvecs = eigh(Hamiltonian)
 
-    eigvec = eigvecs[eig_index, :]
+    # Index of lowest eigenvalue
+    idx = np.argmin(np.abs(eigvals))
+
+    # Respective eigenvalue
+    eigvec = eigvecs[:, idx]
+    
+    # |v|^2
     eigvec = np.power(np.abs(eigvec), 2)
 
-    summed_pairwise = np.empty(eigvec.size//2)
+    # Sum pairwise
+    local_density = eigvec[0::2] + eigvec[1::2]
 
-    summed_pairwise = eigvec[::2] + eigvec[1::2]
-
-    return summed_pairwise
+    return local_density
 
 
+def spectral_gap(Hamiltonian):
+    
+    eigvals = eigvalsh(Hamiltonian, overwrite_a=True)
+
+    idxs = np.argsort(np.abs(eigvals))
+    first, second = eigvals[idxs[0]], eigvals[idxs[1]]
+    G = first - second
+    return np.abs(G)
+
+
+    
+
+
+def remap_LDOS(local_density, lattice):
+    
+    if np.max(lattice)+1 != local_density.size:
+        raise ValueError(f'Sizes of inputs do not match. Sizes {np.max(lattice)+1} and {local_density.size}')
+    
+
+    fig = plt.figure(figsize=(10, 10))
+
+
+    
+    
+    
 
 
 #-------main function implementation-----------------
@@ -681,7 +712,7 @@ def main():
 
     number = pairwise.size
 
-    plt.plot(np.linspace(0, number, number), pairwise)
+    plt.scatter(np.linspace(0, number, number), pairwise)
     plt.show()
 
 
