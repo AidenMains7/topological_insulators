@@ -10,6 +10,7 @@ import scipy.sparse as sparse
 from scipy.sparse import csr_matrix, diags, dok_matrix, eye
 from scipy.linalg import eigh, logm, eig, eigvals
 from scipy.sparse.linalg import cg, eigsh
+import matplotlib.pyplot as plt
 
 
 def sierpinski_lattice(order:int, pad_width:int) -> tuple:
@@ -414,7 +415,7 @@ def H_renorm(H_parts:tuple) -> np.ndarray:
     return H_eff
 
 
-def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int) -> tuple:
+def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1, B=1) -> tuple:
     """
     Precomputes the lattice and the parts of its Hamiltonian
     """
@@ -429,11 +430,11 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int) -> tuple:
 
     if method == "symmetry":
         wannier = wannier_symmetry(frac_lat, pbc=pbc, n=n)
-        H_components = Hamiltonian_components(wannier=wannier)
+        H_components = Hamiltonian_components(wannier=wannier, t1=t1, t2=t2, B=B)
         return H_components, frac_lat
     elif method == "square":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
-        H_components = Hamiltonian_components(wannier=wannier)
+        H_components = Hamiltonian_components(wannier=wannier, t1=t1, t2=t2, B=B)
         return H_components, sq_lat
     elif method == "site_elim":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
@@ -591,7 +592,7 @@ def projector_KPM(H:np.ndarray, E_F:float, N:int) -> np.ndarray:
     return P
 
 
-def projector_KPM_C(H, E_F, N):
+'''def projector_KPM_C(H, E_F, N):
     """
     Approximate the projector onto the states below Fermi energy using KPM.
 
@@ -617,8 +618,7 @@ def projector_KPM_C(H, E_F, N):
     moments = jack_coefs * proj_mnts
 
     # Compute and return the projector using the imported Cython function
-    return ckpm._projector_KPM_cython(H.shape[0], H_tilde.data, H_tilde.indices, H_tilde.indptr, moments)
-
+    return ckpm._projector_KPM_cython(H.shape[0], H_tilde.data, H_tilde.indices, H_tilde.indptr, moments)'''
 
 
 def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
@@ -652,13 +652,39 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     return bott
 
 
+def LDOS(Hamiltonian:np.ndarray, eig_index:int=0) -> np.ndarray:
+
+    eigvals, eigvecs = eig(Hamiltonian)
+
+    eigvec = eigvecs[eig_index, :]
+    eigvec = np.power(np.abs(eigvec), 2)
+
+    summed_pairwise = np.empty(eigvec.size//2)
+
+    summed_pairwise = eigvec[::2] + eigvec[1::2]
+
+    return summed_pairwise
+
+
+
+
 #-------main function implementation-----------------
 def main():
-    sq, frac, holes, fills = sierpinski_lattice(2, 0)
-    d_r, d_cos, d_sin, mask_principal, mask_diagonal = geometry(frac, False, 2)
+    method = 'symmetry'
+    M = 1
+    B_tilde = 1
+    pre_data, lattice = precompute(method, 3, 0, True, 2)
+    H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
 
-    print(frac)
-    print(mask_principal[10])
+    print(H.shape)
+    pairwise = LDOS(H)
+
+    number = pairwise.size
+
+    plt.plot(np.linspace(0, number, number), pairwise)
+    plt.show()
+
+
 
 if __name__ == "__main__":
     np.set_printoptions(threshold=np.inf)
