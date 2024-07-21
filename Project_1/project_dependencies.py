@@ -672,10 +672,13 @@ def LDOS(Hamiltonian:np.ndarray) -> np.ndarray:
     return local_density
 
 
-def spectral_gap(Hamiltonian):
+def spectral_gap(Hamiltonian:np.ndarray, onlyPos:bool=False) -> float:
     
     eigvals = eigvalsh(Hamiltonian, overwrite_a=True)
 
+    if onlyPos:
+        eigvals = eigvals[np.where(eigvals >= 0)]
+        
     idxs = np.argsort(np.abs(eigvals))
     first, second = eigvals[idxs[0]], eigvals[idxs[1]]
     G = first - second

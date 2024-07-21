@@ -154,7 +154,7 @@ def plot_FIG2(data_a, data_b, data_c, data_d):
     plt.show()
 
 
-def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4):
+def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4, onlyPos:bool=False):
 
     params = tuple(product(M_vals, B_tilde_vals))
 
@@ -162,7 +162,7 @@ def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1
 
         pre_data, lattice = precompute(method, order, 0, pbc, n, t1, t2, B)
         H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
-        G = spectral_gap(H)
+        G = spectral_gap(H, onlyPos)
 
         return [M, G]
 
@@ -189,9 +189,9 @@ def compute_FIG3():
 
     
     method_list = ['square', 'renorm', 'symmetry', 'site_elim']
-    title_list = ['(a)', '(b)', '(c)', '(d)']
-    order = 3; n = 2; num_jobs = 28
-    M_values = np.linspace(-2.0, 10.0, 28); B_tilde_values = [0]
+    title_list = ['(a): square', '(b) renorm', '(c) symmetry', '(d) site_elim']
+    order = 3; n = 2; num_jobs = 4
+    M_values = np.linspace(-2.0, 10.0, 8); B_tilde_values = [0]
     t1 = 1.0; t2 = 0.0; B = 1.0
 
     fig, axs = plt.subplots(2, 2, figsize=(10, 10))
@@ -262,5 +262,13 @@ def FIG3_main():
 def FIG3_main2():
     compute_FIG3()
 
+def FIG3_main3():
+    data = spectral_gap_range('renorm', np.linspace(-2.0, 10.0, 32), [0], 3, False, 2, 1.0, 2.0, 1.0, 4, False)
+
+    fig = plt.figure(figsize=(10, 10))
+    plt.xticks([-2.0, 1.0, 4.0, 7.0, 10.0])
+    plt.scatter(data[0, :], data[1, :])
+    plt.show()
+
 if __name__ == "__main__":
-    FIG3_main2()
+    FIG3_main3()
