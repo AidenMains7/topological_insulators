@@ -652,40 +652,40 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     return bott
 
 
-def LDOS(Hamiltonian:np.ndarray) -> np.ndarray:
-
-    # Get eigenvalues, eigenvectors
-    eigvals, eigvecs = eigh(Hamiltonian)
-
-    # Index of lowest eigenvalue
-    idx = np.argmin(np.abs(eigvals))
-
-    # Respective eigenvalue
-    eigvec = eigvecs[:, idx]
-    
-    # |v|^2
-    eigvec = np.power(np.abs(eigvec), 2)
-
-    # Sum pairwise
-    local_density = eigvec[0::2] + eigvec[1::2]
-
-    return local_density
-
-
+# Functions used for Paper figures 2, 3
 def spectral_gap(Hamiltonian:np.ndarray, onlyPos:bool=False) -> float:
     
     eigvals = eigvalsh(Hamiltonian, overwrite_a=True)
 
-    if onlyPos:
-        eigvals = eigvals[np.where(eigvals >= 0)]
-        
     idxs = np.argsort(np.abs(eigvals))
     first, second = eigvals[idxs[0]], eigvals[idxs[1]]
     G = first - second
     return np.abs(G)
 
 
-    
+def LDOS(Hamiltonian:np.ndarray) -> np.ndarray:
+
+    # Get eigenvalues, eigenvectors
+    eigvals, eigvecs = eigh(Hamiltonian)
+
+    # Index of lowest eigenvalue
+    idxs = np.argsort(np.abs(eigvals))
+
+    # Eigenvectors and eigenvalues for lowest energy states
+    eigva_one, eigva_two = eigvals[idxs[0]], eigvals[idxs[1]]
+    eigve_one, eigve_two = eigvecs[:, idxs[0]], eigvecs[:, idxs[1]]
+
+    # |v|^2
+    eigve_one, eigve_two = np.power(np.abs(eigve_one), 2), np.power(np.abs(eigve_two), 2)
+
+    # Sum pairwise
+    LDOS_one, LDOS_two = eigve_one[0::2] + eigve_one[1::2], eigve_two[0::2] + eigve_two[1::2]
+
+    # Spectral gap
+    gap = np.abs(eigva_one) - np.abs(eigva_two)
+
+
+    return LDOS_one, LDOS_two, gap
 
 
 def remap_LDOS(local_density, lattice):
@@ -693,8 +693,13 @@ def remap_LDOS(local_density, lattice):
     if np.max(lattice)+1 != local_density.size:
         raise ValueError(f'Sizes of inputs do not match. Sizes {np.max(lattice)+1} and {local_density.size}')
     
+    fills = np.argwhere(lattice >= 0)
 
-    fig = plt.figure(figsize=(10, 10))
+    LDOS_lattice = np.full(lattice.shape, 0.0)
+    LDOS_lattice[fills[:, 0], fills[:, 1]] = local_density
+
+    return LDOS_lattice
+
 
 
     

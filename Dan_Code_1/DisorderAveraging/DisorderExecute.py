@@ -20,7 +20,7 @@ import numpy as np
 import os
 from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from ProjectCode_1.ComputeBottIndex import projector_exact, projector_KPM, bott_index
+from Dan_Code_1.ComputeBottIndex import projector_exact, projector_KPM, bott_index
 from scipy.sparse import csr_matrix
 from time import time
 from DisorderDependencies import H_and_lattice_wrapper, uniform_mass_disorder
