@@ -3,8 +3,11 @@ from matplotlib import pyplot as plt
 from project_dependencies import bott_index, precompute, Hamiltonian_reconstruct, projector_exact, remap_LDOS, LDOS, spectral_gap
 from joblib import Parallel, delayed
 from itertools import product
-import ProjectCode_1.PhaseDiagram.PhaseDiagramDependencies as dsd
-import ProjectCode_1.ComputeBottIndex as dsb
+import Dan_Code_1.PhaseDiagram.PhaseDiagramDependencies as dsd
+import Dan_Code_1.ComputeBottIndex as dsb
+
+from datetime import date
+from time import time
 
 import sys
 if sys.version_info[1] > 9:
@@ -12,9 +15,9 @@ if sys.version_info[1] > 9:
     plt.style.use(['science', 'pgf'])
 
 
+
 def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=None, n:int=None, t1:float=1, t2:float=1, B:float=1, num_jobs:int=4) -> np.ndarray:
-
-
+    
     params = tuple(product(M_vals, B_tilde_vals))
 
     def find_bott(M:float, B_tilde:float) -> tuple:
@@ -27,25 +30,9 @@ def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=N
     
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(find_bott)(params[j][0], params[j][1]) for j in range(len(params)))).T
     return data
-    
-
-def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=None, n:int=None, t1:float=1, t2:float=1, B:float=1, num_jobs:int=4) -> np.ndarray:
 
 
-    params = tuple(product(M_vals, B_tilde_vals))
-
-    def find_bott(M:float, B_tilde:float) -> tuple:
-        pre_data, lattice = dsd.precompute_data(order, method, True, n, 0, t1, t2, B)
-        H = dsd.reconstruct_hamiltonian(method, pre_data, M, B_tilde, sparse=False)
-        P = dsb.projector_exact(H, 0.0)
-        bott = dsb.bott_index(P, lattice)
-
-        return (M, B_tilde, bott)
-    
-    data = np.array(Parallel(n_jobs=num_jobs)(delayed(find_bott)(params[j][0], params[j][1]) for j in range(len(params)))).T
-    return data
-
-
+# Parallel
 def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doSave:bool=False):
     
     # a:
@@ -80,8 +67,13 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # t1 = B = 1
     # t2 = B_tilde = 0
     # M : [-2, 10]
-    data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 3, None, 1, 0, 1, num_jobs)
-    data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 3, None, 1, 0, 1, num_jobs)
+    if doOrderFour:
+        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 4, None, 1, 0, 1, num_jobs)
+        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 4, None, 1, 0, 1, num_jobs)
+    else:
+        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 3, None, 1, 0, 1, num_jobs)
+        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 3, None, 1, 0, 1, num_jobs)
+
     data_c = (data_c_square, data_c_renorm)
     print('Finished: c')
 
@@ -91,8 +83,13 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # t2 = 1
     # M = 10
     # B : [0.7, 1.1] 
-    data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1, 1, 1, num_jobs)
-    data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1, 1, 1, num_jobs)
+    if doOrderFour:
+        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1, 1, 1, num_jobs)
+        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1, 1, 1, num_jobs)
+    else:
+        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1, 1, 1, num_jobs)
+        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1, 1, 1, num_jobs)
+
     data_d = (data_d_square, data_d_renorm)
     print('Finished: d')
 
@@ -154,15 +151,16 @@ def plot_FIG2(data_a, data_b, data_c, data_d):
     plt.show()
 
 
-def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4, onlyPos:bool=False):
+# Parallel
+def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4):
 
     params = tuple(product(M_vals, B_tilde_vals))
 
-    def do_single(M, B_tilde):
+    pre_data, lattice = precompute(method, order, 0, pbc, n, t1, t2, B)
 
-        pre_data, lattice = precompute(method, order, 0, pbc, n, t1, t2, B)
+    def do_single(M, B_tilde):
         H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
-        G = spectral_gap(H, onlyPos)
+        G = spectral_gap(H)
 
         return [M, G]
 
@@ -171,8 +169,9 @@ def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1
 
 
 
-def compute_FIG3():
+def compute_FIG3(resolution:int=112, num_jobs:int=28):
     
+    t0 = time()
 
     # t1 = B = 1
     # t2 = B_tilde = 0
@@ -189,17 +188,23 @@ def compute_FIG3():
 
     
     method_list = ['square', 'renorm', 'symmetry', 'site_elim']
-    title_list = ['(a): square', '(b) renorm', '(c) symmetry', '(d) site_elim']
-    order = 3; n = 2; num_jobs = 4
-    M_values = np.linspace(-2.0, 10.0, 8); B_tilde_values = [0]
+    title_list = ['(a) square', '(b) renorm', '(c) symmetry', '(d) site_elim']
+    order = 3; n = 2
+    B_tilde_values = [0]
     t1 = 1.0; t2 = 0.0; B = 1.0
+    M_values = np.linspace(-2.0, 10.0, resolution)
 
     fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+
+    save = []
 
     for i in range(2):
         for j in range(2):
             data_pbc = spectral_gap_range(method_list[2*i+j], M_values, B_tilde_values, order, True, n, t1, t2, B, num_jobs)
             data_obc = spectral_gap_range(method_list[2*i+j], M_values, B_tilde_values, order, False, n, t1, t2, B, num_jobs)
+
+            save.append(data_pbc)
+            save.append(data_obc)
 
             axs[i, j].scatter(data_pbc[0, :], data_pbc[1, :], label='pbc', c='black')
             axs[i, j].scatter(data_obc[0, :], data_obc[1, :], label='obc', c='red')
@@ -208,6 +213,12 @@ def compute_FIG3():
             axs[i, j].set_yticks([0.0, 2.5, 5.0])
 
             axs[i, j].set_title(title_list[2*i+j])
+
+            print(f"Completed :: {title_list[2*i+j]}")
+
+
+
+
     
     axs[0, 0].set_ylabel("G")
     axs[1, 0].set_ylabel("G")
@@ -215,12 +226,39 @@ def compute_FIG3():
     axs[1, 1].set_xlabel("M")
 
 
+    time_now = str(date.today())
+
+    np.savez(f'Data/New_Data/FIG3_{time_now}.npz', square_pbc = save[0], square_obc = save[1], 
+                                     renorm_pbc = save[2], renorm_obc = save[3], 
+                                     symmetry_pbc = save[4], symmetry_obc = save[5], 
+                                     site_elim_pbc = save[6], site_elim_obc = save[7])
+    
+    plt.savefig(f'Data/New_Data/FIG3_{time_now}.png')
+
+    print(f"{time() - t0:.0f}s")
+
+    plt.show()
+
+
+
+
+def FIG3_LDOC_image(method, order, pad, pbc, n, t1, t2, B, M, B_tilde):
+    
+
+
+    pre_data, lattice = precompute(method, order, pad, pbc, n, t1, t2, B)
+    H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
+
+
+
 
 # Main function implementation------------------
+
 
 def FIG2_main():
     data_a, data_b, data_c, data_d = compute_FIG2(28, 28, True, True)
     plot_FIG2(data_a, data_b, data_c, data_d)
+
 
 def FIG2_main2():
     file_data = np.load('FIG_2_data.npz', allow_pickle=True)
@@ -231,44 +269,41 @@ def FIG2_main2():
 
     plot_FIG2(data_a, data_b, data_c, data_d)
 
-def FIG3_main():
-    method = 'site_elim'; order = 3; pbc = True
-    pre_data, lattice = precompute(method, order, 0, pbc, 2, 1, 0, 1)
-    H = Hamiltonian_reconstruct(method, pre_data, 2.5, 0.0, False)
 
-    P = projector_exact(H, 0.0)
-    bott = bott_index(P, lattice)
-    print(f"Bott Index = {bott:.0f}")
+def lattice_density_range():
 
-    local_density = LDOS(H)
+    method = 'symmetry'
+    n = 2
+    order = 3
+    pad_width = 0
+    pbc = False
+    t1 = 1.0; t2 = 0.0; B = 1.0
 
-    fills = np.argwhere(lattice >= 0)
+    M_vals = np.linspace(-2.0, 10.0, 16)
+    B_tilde_vals = [0.0]
 
+    pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
     LDOS_lattice = np.full(lattice.shape, 0.0)
-    LDOS_lattice[fills[:, 0], fills[:, 1]] = local_density
 
 
-    fig = plt.figure(figsize=(10, 10))
-    plt.scatter(np.arange(local_density.size), local_density)
-    plt.show()
+    for i in range(M_vals.size):
+        pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
+        H = Hamiltonian_reconstruct(method, pre_data, M_vals[i], B_tilde_vals[0], False)
+
+        local_one, local_two, gap = LDOS(H)
+        local_both = local_one + local_two
+        this_LDOS_lattice = remap_LDOS(local_both, lattice)
+        LDOS_lattice += this_LDOS_lattice
 
 
-    fig = plt.figure(figsize=(10, 10))
-    plt.imshow(LDOS_lattice, cmap='jet')
+    LDOS_lattice *= 1/LDOS_lattice.max()
+
+    fig = plt.figure(figsize=(10,10))
+    plt.imshow(LDOS_lattice, label='Local Density of States', cmap='binary')
     plt.colorbar()
-    plt.title(f"{method}, order = {order}, pbc = {pbc}")
     plt.show()
 
-def FIG3_main2():
-    compute_FIG3()
 
-def FIG3_main3():
-    data = spectral_gap_range('renorm', np.linspace(-2.0, 10.0, 32), [0], 3, False, 2, 1.0, 2.0, 1.0, 4, False)
-
-    fig = plt.figure(figsize=(10, 10))
-    plt.xticks([-2.0, 1.0, 4.0, 7.0, 10.0])
-    plt.scatter(data[0, :], data[1, :])
-    plt.show()
 
 if __name__ == "__main__":
-    FIG3_main3()
+    compute_FIG3(4, 4)

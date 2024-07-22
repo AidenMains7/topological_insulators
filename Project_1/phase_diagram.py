@@ -54,6 +54,14 @@ def _read_npz_data(filename:str) -> 'tuple[np.ndarray, dict]':
     return data, parameters
 
 
+def print_params_nice(params:dict):
+    for kw in params:
+        if isinstance(params[kw], np.ndarray):
+            print(f"{kw}: np.linspace({params[kw][0]}, {params[kw][-1]}, {params[kw].size})")
+        else:
+            print(f"{kw}: {params[kw]}")
+
+
 def plot_disorder(filename:str, doShow:bool, doSave:bool, title:str=None) -> None:
     """
     Will read data from a specifed .npz file and plot for which has non-zero inital Bott Index.
