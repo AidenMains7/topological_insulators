@@ -15,13 +15,12 @@ if sys.version_info[1] > 9:
     plt.style.use(['science', 'pgf'])
 
 
-
-def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=None, n:int=None, t1:float=1, t2:float=1, B:float=1, num_jobs:int=4) -> np.ndarray:
+# Parallel
+def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=None, pbc:bool=True, n:int=None, t1:float=1, t2:float=1, B:float=1, num_jobs:int=4) -> np.ndarray:
     
     params = tuple(product(M_vals, B_tilde_vals))
-
+    pre_data, lattice = precompute(method, order, 0, pbc, n, t1, t2, B)
     def find_bott(M:float, B_tilde:float) -> tuple:
-        pre_data, lattice = precompute(method, order, 0, True, n, t1, t2, B)
         H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=False)
         P = projector_exact(H, 0.0)
         bott = bott_index(P, lattice)
@@ -32,17 +31,17 @@ def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=N
     return data
 
 
-# Parallel
-def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doSave:bool=False, n:int=1):
+
+def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doSave:bool=False, n:int=1, pbc:bool=True):
     
     # a:
     # Order 3, 4 : symmetry
     # t1 = B = 1
     # t2 = B_tilde = 0
     # M : [-1, 9]
-    data_a_3 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 3, n, 1.0, 0.0, 1.0, num_jobs)
+    data_a_3 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 3, pbc, n, 1.0, 0.0, 1.0, num_jobs)
     if doOrderFour:
-        data_a_4 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 4, n, 1.0, 0.0, 1.0, num_jobs)
+        data_a_4 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 4, pbc, n, 1.0, 0.0, 1.0, num_jobs)
         data_a = (data_a_3, data_a_4)
     else:
         data_a = (data_a_3, None)
@@ -54,9 +53,9 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # t2 = 1.0
     # M = 10
     # B_tilde : [0.7, 1.1]
-    data_b_3 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 3, n, 1.0, 1.0, 1.0, num_jobs)
+    data_b_3 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 3, pbc, n, 1.0, 1.0, 1.0, num_jobs)
     if doOrderFour:
-        data_b_4 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 4, n, 1.0, 1.0, 1.0, num_jobs)
+        data_b_4 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 4, pbc, n, 1.0, 1.0, 1.0, num_jobs)
         data_b = (data_b_3, data_b_4)
     else:
         data_b = (data_b_3, None)
@@ -68,11 +67,11 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # t2 = B_tilde = 0
     # M : [-2, 10]
     if doOrderFour:
-        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 4, None, 1.0, 0.0, 1.0, num_jobs)
-        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 4, None, 1.0, 0.0, 1.0, num_jobs)
+        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 4, pbc, None, 1.0, 0.0, 1.0, num_jobs)
+        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 4, pbc, None, 1.0, 0.0, 1.0, num_jobs)
     else:
-        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 3, None, 1.0, 0.0, 1.0, num_jobs)
-        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 3, None, 1.0, 0.0, 1.0, num_jobs)
+        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 3, pbc, None, 1.0, 0.0, 1.0, num_jobs)
+        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 3, pbc, None, 1.0, 0.0, 1.0, num_jobs)
 
     data_c = (data_c_square, data_c_renorm)
     print('Finished: c')
@@ -84,11 +83,11 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # M = 10
     # B : [0.7, 1.1] 
     if doOrderFour:
-        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1.0, 1.0, 1.0, num_jobs)
-        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1.0, 1.0, 1.0, num_jobs)
+        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 4, pbc, None, 1.0, 1.0, 1.0, num_jobs)
+        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 4, pbc, None, 1.0, 1.0, 1.0, num_jobs)
     else:
-        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1.0, 1.0, 1.0, num_jobs)
-        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1.0, 1.0, 1.0, num_jobs)
+        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 3, pbc, None, 1.0, 1.0, 1.0, num_jobs)
+        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 3, pbc, None, 1.0, 1.0, 1.0, num_jobs)
 
     data_d = (data_d_square, data_d_renorm)
     print('Finished: d')
