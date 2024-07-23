@@ -33,16 +33,16 @@ def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=N
 
 
 # Parallel
-def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doSave:bool=False):
+def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doSave:bool=False, n:int=1):
     
     # a:
     # Order 3, 4 : symmetry
     # t1 = B = 1
     # t2 = B_tilde = 0
     # M : [-1, 9]
-    data_a_3 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 3, 2, 1, 0, 1, num_jobs)
+    data_a_3 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 3, n, 1.0, 0.0, 1.0, num_jobs)
     if doOrderFour:
-        data_a_4 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 4, 2, 1, 0, 1, num_jobs)
+        data_a_4 = compute_bott_range('symmetry', np.linspace(-1, 9, resolution), [0], 4, n, 1.0, 0.0, 1.0, num_jobs)
         data_a = (data_a_3, data_a_4)
     else:
         data_a = (data_a_3, None)
@@ -50,13 +50,13 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
 
     # b:
     # Order 3, 4 : symmetry
-    # t1 = B = 1
-    # t2 = 1
+    # t1 = B = 1.0
+    # t2 = 1.0
     # M = 10
     # B_tilde : [0.7, 1.1]
-    data_b_3 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 3, 2, 1, 1, 1, num_jobs)
+    data_b_3 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 3, n, 1.0, 1.0, 1.0, num_jobs)
     if doOrderFour:
-        data_b_4 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 4, 2, 1, 1, 1, num_jobs)
+        data_b_4 = compute_bott_range('symmetry', [10], np.linspace(0.7, 1.1, resolution), 4, n, 1.0, 1.0, 1.0, num_jobs)
         data_b = (data_b_3, data_b_4)
     else:
         data_b = (data_b_3, None)
@@ -68,11 +68,11 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # t2 = B_tilde = 0
     # M : [-2, 10]
     if doOrderFour:
-        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 4, None, 1, 0, 1, num_jobs)
-        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 4, None, 1, 0, 1, num_jobs)
+        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 4, None, 1.0, 0.0, 1.0, num_jobs)
+        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 4, None, 1.0, 0.0, 1.0, num_jobs)
     else:
-        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 3, None, 1, 0, 1, num_jobs)
-        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 3, None, 1, 0, 1, num_jobs)
+        data_c_renorm = compute_bott_range('renorm', np.linspace(-2, 10, resolution), [0], 3, None, 1.0, 0.0, 1.0, num_jobs)
+        data_c_square = compute_bott_range('square', np.linspace(-2, 10, resolution), [0], 3, None, 1.0, 0.0, 1.0, num_jobs)
 
     data_c = (data_c_square, data_c_renorm)
     print('Finished: c')
@@ -84,11 +84,11 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     # M = 10
     # B : [0.7, 1.1] 
     if doOrderFour:
-        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1, 1, 1, num_jobs)
-        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1, 1, 1, num_jobs)
+        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1.0, 1.0, 1.0, num_jobs)
+        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 4, None, 1.0, 1.0, 1.0, num_jobs)
     else:
-        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1, 1, 1, num_jobs)
-        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1, 1, 1, num_jobs)
+        data_d_renorm = compute_bott_range('renorm', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1.0, 1.0, 1.0, num_jobs)
+        data_d_square = compute_bott_range('square', [10], np.linspace(0.7, 1.1, resolution), 3, None, 1.0, 1.0, 1.0, num_jobs)
 
     data_d = (data_d_square, data_d_renorm)
     print('Finished: d')
@@ -142,12 +142,14 @@ def plot_FIG2(data_a, data_b, data_c, data_d):
     axs[1, 1].set_title("(d)")
     axs[1, 1].set_yticks([-2, -1, 0])
 
+    plt.set_title('n=1')
+
     for i in range(2):
         for j in range(2):
             axs[i, j].legend(frameon=True)
 
 
-    plt.savefig('FIGURE_2.png')
+    plt.savefig('Data/New_Data/FIG_2.png')
     plt.show()
 
 
@@ -188,13 +190,10 @@ def compute_FIG3(resolution:int=112, num_jobs:int=28):
 
     
     method_list = ['square', 'renorm', 'symmetry', 'site_elim']
-    title_list = ['(a) square', '(b) renorm', '(c) symmetry', '(d) site_elim']
     order = 3; n = 2
     B_tilde_values = [0]
     t1 = 1.0; t2 = 0.0; B = 1.0
     M_values = np.linspace(-2.0, 10.0, resolution)
-
-    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
 
     save = []
 
@@ -205,6 +204,36 @@ def compute_FIG3(resolution:int=112, num_jobs:int=28):
 
             save.append(data_pbc)
             save.append(data_obc)
+            print(f"Completed :: {method_list[2*i+j]}")
+
+    time_now = str(date.today())
+    output_filename = f'Data/New_Data/FIG3_{time_now}.npz'
+    np.savez(output_filename, square_pbc = save[0], square_obc = save[1], 
+                                     renorm_pbc = save[2], renorm_obc = save[3], 
+                                     symmetry_pbc = save[4], symmetry_obc = save[5], 
+                                     site_elim_pbc = save[6], site_elim_obc = save[7])
+    
+    print(f"{time() - t0:.0f}s")
+
+    return output_filename
+
+
+
+def plot_FIG3(filepath:str):
+
+    title_list = ['(a) square', '(b) renorm', '(c) symmetry', '(d) site_elim']
+    name_list = ['square', 'renorm', 'symmetry', 'site_elim']
+
+    fig, axs = plt.subplots(2, 2, figsize=(10, 10))
+
+    file_data = np.load(filepath, allow_pickle=True)
+
+
+    for i in range(2):
+        for j in range(2):
+
+            data_pbc = file_data[name_list[2*i+j]+'_pbc']
+            data_obc = file_data[name_list[2*i+j]+'_obc']
 
             axs[i, j].scatter(data_pbc[0, :], data_pbc[1, :], label='pbc', c='black')
             axs[i, j].scatter(data_obc[0, :], data_obc[1, :], label='obc', c='red')
@@ -214,29 +243,13 @@ def compute_FIG3(resolution:int=112, num_jobs:int=28):
 
             axs[i, j].set_title(title_list[2*i+j])
 
-            print(f"Completed :: {title_list[2*i+j]}")
-
-
-
-
-    
     axs[0, 0].set_ylabel("G")
     axs[1, 0].set_ylabel("G")
     axs[1, 0].set_xlabel("M")
     axs[1, 1].set_xlabel("M")
 
-
     time_now = str(date.today())
-
-    np.savez(f'Data/New_Data/FIG3_{time_now}.npz', square_pbc = save[0], square_obc = save[1], 
-                                     renorm_pbc = save[2], renorm_obc = save[3], 
-                                     symmetry_pbc = save[4], symmetry_obc = save[5], 
-                                     site_elim_pbc = save[6], site_elim_obc = save[7])
-    
     plt.savefig(f'Data/New_Data/FIG3_{time_now}.png')
-
-    print(f"{time() - t0:.0f}s")
-
     plt.show()
 
 
@@ -256,12 +269,12 @@ def FIG3_LDOC_image(method, order, pad, pbc, n, t1, t2, B, M, B_tilde):
 
 
 def FIG2_main():
-    data_a, data_b, data_c, data_d = compute_FIG2(28, 28, True, True)
+    data_a, data_b, data_c, data_d = compute_FIG2(28, 28, False, True)
     plot_FIG2(data_a, data_b, data_c, data_d)
 
 
 def FIG2_main2():
-    file_data = np.load('FIG_2_data.npz', allow_pickle=True)
+    file_data = np.load('Data/Paper_Figures/FIG_2_n=1.npz', allow_pickle=True)
     data_a = (file_data['data_a_3'], file_data['data_a_4'])
     data_b = (file_data['data_b_3'], file_data['data_b_4'])
     data_c = (file_data['data_c_square'], file_data['data_c_renorm'])
@@ -272,38 +285,41 @@ def FIG2_main2():
 
 def lattice_density_range():
 
-    method = 'symmetry'
-    n = 2
+    method = 'square'
+    n = 3
     order = 3
     pad_width = 0
-    pbc = False
+    pbc = True
     t1 = 1.0; t2 = 0.0; B = 1.0
 
     M_vals = np.linspace(-2.0, 10.0, 16)
     B_tilde_vals = [0.0]
 
+    # Pre compute
     pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
     LDOS_lattice = np.full(lattice.shape, 0.0)
 
 
     for i in range(M_vals.size):
-        pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
         H = Hamiltonian_reconstruct(method, pre_data, M_vals[i], B_tilde_vals[0], False)
+        P = projector_exact(H, 0.0)
+        bott = bott_index(P, lattice)
 
+        # Compute LDOS for two closest to 0 eigenstates
         local_one, local_two, gap = LDOS(H)
         local_both = local_one + local_two
-        this_LDOS_lattice = remap_LDOS(local_both, lattice)
-        LDOS_lattice += this_LDOS_lattice
 
+        # Remap to shape of lattice
+        LDOS_lattice = remap_LDOS(local_both, lattice)
 
-    LDOS_lattice *= 1/LDOS_lattice.max()
-
-    fig = plt.figure(figsize=(10,10))
-    plt.imshow(LDOS_lattice, label='Local Density of States', cmap='binary')
-    plt.colorbar()
-    plt.show()
+        # Create figure
+        fig = plt.figure(figsize=(10,10))
+        plt.imshow(LDOS_lattice, label='Local Density of States', cmap='Purples')
+        plt.title(f'M={M_vals[i]:.1f} :: B={B_tilde_vals[0]:.1f} :: BI={bott}')
+        plt.colorbar()
+        plt.savefig(f'Data/LDOS/Square_Range/{method}_{M_vals[i]:.1f}_{B_tilde_vals[0]:.1f}_{bott}.png')
 
 
 
 if __name__ == "__main__":
-    compute_FIG3(4, 4)
+    FIG2_main()
