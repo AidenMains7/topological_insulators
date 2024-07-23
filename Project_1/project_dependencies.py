@@ -183,8 +183,6 @@ def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
 
     num_sites = np.max(lattice) + 1
 
-    I = np.eye(num_sites, dtype=np.complex128)
-
     # Exponential decay function for principal and diagonal directions
     F_p = np.where(mask_principal, np.exp(1 - d_r / r0), 0. + 0.j)
     F_d = np.where(mask_diagonal,  np.exp(1 - d_r / r0), 0. + 0.j)
@@ -197,6 +195,8 @@ def wannier_symmetry(lattice:np.ndarray, pbc:bool, n:int, r0:float=1.) -> tuple:
     CxSy = 1j * d_sin * F_d / (2 * np.sqrt(2))
     SxCy = 1j * d_cos * F_d / (2 * np.sqrt(2))
     CxCy = F_d / 4
+
+    I = np.eye(num_sites, dtype=np.complex128)
 
     return I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy
 
@@ -429,7 +429,7 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1
 
 
     if method == "symmetry":
-        wannier = wannier_symmetry(frac_lat, pbc=pbc, n=n)
+        wannier = wannier_symmetry(frac_lat, pbc, n)
         H_components = Hamiltonian_components(wannier=wannier, t1=t1, t2=t2, B=B)
         return H_components, frac_lat
     elif method == "square":
@@ -653,7 +653,7 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
 
 
 # Functions used for Paper figures 2, 3
-def spectral_gap(Hamiltonian:np.ndarray, onlyPos:bool=False) -> float:
+def spectral_gap(Hamiltonian:np.ndarray) -> float:
     
     eigvals = eigvalsh(Hamiltonian, overwrite_a=True)
 
@@ -693,12 +693,13 @@ def remap_LDOS(local_density, lattice):
     if np.max(lattice)+1 != local_density.size:
         raise ValueError(f'Sizes of inputs do not match. Sizes {np.max(lattice)+1} and {local_density.size}')
     
-    fills = np.argwhere(lattice >= 0)
+    fills = np.argwhere(lattice.flatten() >= 0).flatten()
 
-    LDOS_lattice = np.full(lattice.shape, 0.0)
-    LDOS_lattice[fills[:, 0], fills[:, 1]] = local_density
+    LDOS_lattice = np.full(lattice.size, 0.0)
 
-    return LDOS_lattice
+    LDOS_lattice[fills] = local_density
+
+    return LDOS_lattice.reshape(lattice.shape)
 
 
 
