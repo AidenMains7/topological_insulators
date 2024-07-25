@@ -3,8 +3,10 @@ from matplotlib import pyplot as plt
 from project_dependencies import bott_index, precompute, Hamiltonian_reconstruct, projector_exact, remap_LDOS, LDOS, spectral_gap
 from joblib import Parallel, delayed
 from itertools import product
-import Dan_Code_1.PhaseDiagram.PhaseDiagramDependencies as dsd
+import Dan_Code_1.PhaseDiagram.PhaseDiagramDependencies as dan_dep
 import Dan_Code_1.ComputeBottIndex as dsb
+
+from scipy.linalg import eigvalsh
 
 from datetime import date
 from time import time
@@ -141,14 +143,14 @@ def plot_FIG2(data_a, data_b, data_c, data_d):
     axs[1, 1].set_title("(d)")
     axs[1, 1].set_yticks([-2, -1, 0])
 
-    plt.set_title('n=1')
+    plt.suptitle('n=1')
 
     for i in range(2):
         for j in range(2):
             axs[i, j].legend(frameon=True)
 
 
-    plt.savefig('Data/New_Data/FIG_2.png')
+    plt.savefig('Data/Paper_Figures/FIG_2_n=1.png')
     plt.show()
 
 
@@ -170,7 +172,7 @@ def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1
 
 
 
-def compute_FIG3(resolution:int=112, num_jobs:int=28):
+def compute_FIG3(resolution:int=112, num_jobs:int=28) -> str:
     
     t0 = time()
 
@@ -189,7 +191,7 @@ def compute_FIG3(resolution:int=112, num_jobs:int=28):
 
     
     method_list = ['square', 'renorm', 'symmetry', 'site_elim']
-    order = 3; n = 2
+    order = 3; n = 1
     B_tilde_values = [0]
     t1 = 1.0; t2 = 0.0; B = 1.0
     M_values = np.linspace(-2.0, 10.0, resolution)
@@ -206,7 +208,7 @@ def compute_FIG3(resolution:int=112, num_jobs:int=28):
             print(f"Completed :: {method_list[2*i+j]}")
 
     time_now = str(date.today())
-    output_filename = f'Data/New_Data/FIG3_{time_now}.npz'
+    output_filename = f'FIG3_{time_now}.npz'
     np.savez(output_filename, square_pbc = save[0], square_obc = save[1], 
                                      renorm_pbc = save[2], renorm_obc = save[3], 
                                      symmetry_pbc = save[4], symmetry_obc = save[5], 
@@ -319,6 +321,91 @@ def lattice_density_range():
         plt.savefig(f'Data/LDOS/Square_Range/{method}_{M_vals[i]:.1f}_{B_tilde_vals[0]:.1f}_{bott}.png')
 
 
+def test(M):
+    method = 'square'
+    pre_data, lattice = precompute(method, 3, 0, True, 1, 1.0, 1.0, 1.0)
+    H = Hamiltonian_reconstruct(method, pre_data, M, 0.0, False)
+    print('num sites: ', np.max(lattice)+1)
+    print('lattice shape: ', lattice.shape)
+    print('H shape: ', H.shape)
+
+    d_pre_data, d_lattice = dan_dep.precompute_data(3, method, True, 1, 0)
+    d_H = dan_dep.reconstruct_hamiltonian(method, d_pre_data, M, 0.0, False)
+    print('num sites: ', np.max(d_lattice)+1)
+    print('lattice shape: ', d_lattice.shape)
+    print('H shape: ', d_H.shape)
+
+    return H, d_H
+
+
+
+def compare_LDOS(Hamiltonians:list[np.ndarray]):
+    def plot_single(ax, H):
+        print(H.shape)
+        one, two, gap = LDOS(H)
+
+        x = np.arange(one.size)
+        ax.scatter(x, one, c='r', label='one')
+        ax.scatter(x, two, c='k', label='two')
+
+
+
+    fig, axs = plt.subplots(len(Hamiltonians), 1, figsize=(10, 10))
+
+    if len(Hamiltonians) == 1:
+        plot_single(axs, Hamiltonians[0])
+    else:
+        for i in range(len(Hamiltonians)):
+            plot_single(axs[i], Hamiltonians[i])
+    
+    plt.show()
+
+
+def compare_eigvals(Hamiltonians:list|tuple):
+    fig, axs = plt.subplots(1, 1, figsize=(10, 10))
+
+    if isinstance(Hamiltonians, list) or isinstance(Hamiltonians, tuple):
+        for i in range(len(Hamiltonians)):
+            H = Hamiltonians[i]
+            eigvals = eigvalsh(H)
+
+            x = np.arange(eigvals.size)
+
+            axs.scatter(x, eigvals)
+    
+    else:
+        raise ValueError("Hamiltonians must be of type 'tuple' or 'list'")
+
+    plt.show()
+
+
+
+
+def test_spectral_gap(whichCode:str='mine'):
+    # Parallel
+    def spectral_gap_range_dans(method, M_vals, B_tilde_vals, order, pbc=True, n:int|None=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4):
+
+        params = tuple(product(M_vals, B_tilde_vals))
+
+        pre_data, lattice = dan_dep.precompute_data(order, method, pbc, n, 0)
+
+        def do_single(M, B_tilde):
+            H = dan_dep.reconstruct_hamiltonian(method, pre_data, M, B_tilde, False)
+            G = spectral_gap(H)
+
+            return [M, G]
+
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_single)(params[j][0], params[j][1]) for j in range(len(params)))).T
+        return data
+    
+    if whichCode == 'dan':
+        data = spectral_gap_range_dans('square', np.linspace(-2.0, 10.0, 32), [0.0], 3, True, 1)
+    elif whichCode == 'mine':
+        data = spectral_gap_range('square', np.linspace(-2.0, 10.0, 32), [0.0], 3, True, 1, 1.0, 0.0, 1.0)
+    plt.scatter(data[0, :], data[1, :])
+    plt.show()
+
 
 if __name__ == "__main__":
-    FIG2_main()
+    test_spectral_gap('mine')
+    test_spectral_gap('dan')

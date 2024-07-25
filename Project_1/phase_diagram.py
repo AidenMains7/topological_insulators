@@ -227,14 +227,14 @@ def plot_bott_imshow(filename:str, doShow:bool=True, doSave:bool=True, title:str
 
         #organize the bott array into a surface over the meshgrid
         arrs = np.split(bott, M_vals.size)
-        Z = np.stack(arrs, axis=0)
+        Z = np.stack(arrs, axis=0).T
 
         fig = plt.figure(figsize=(10,10))
         plt.imshow(Z, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], origin='lower', aspect='auto', cmap='viridis')
         cbar = plt.colorbar(label='Bott Index')
         cbar.set_label('Bott Index', rotation=0)
 
-        x_ticks = np.linspace(x_bounds[0], x_bounds[1], 5)
+        x_ticks = np.linspace(x_bounds[0], x_bounds[1], 8)
         y_ticks = np.linspace(y_bounds[0], y_bounds[1], 5)
         plt.xticks(ticks=x_ticks, labels=np.round(x_ticks, 2))
         plt.yticks(ticks=y_ticks, labels=np.round(y_ticks, 2))
@@ -301,4 +301,4 @@ def main():
 
 
 if __name__ == "__main__":
-    plot_all_npz()
+    main()

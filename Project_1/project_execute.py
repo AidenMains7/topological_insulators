@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
 
-from project_dependencies import mass_disorder, projector_exact, projector_KPM, projector_KPM_C, bott_index, precompute, Hamiltonian_reconstruct
+from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
 
 
 def init_environment(cores_per_job:int=1) -> None:
@@ -33,7 +33,7 @@ def task_with_timeout(task_func:object, timeout:float, return_shape:tuple, *args
 
 
 # Parallel
-def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, num_jobs:int=28, cores_per_job:int=1, progress_bott:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None) -> np.ndarray:
+def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, num_jobs:int=28, cores_per_job:int=1, progress_bott:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None) -> np.ndarray:
     """
     Computes the Bott Index for every combination of M and B_tilde
 
@@ -59,7 +59,7 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, M_values:np
     init_environment(cores_per_job)
 
     #precompute data
-    pre_data, lattice = precompute(method=method, order=order, pad_width=pad_width, pbc=pbc, n=n)
+    pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
     parameter_values = tuple(product(M_values, B_tilde_values))
     t0 = time()
 
