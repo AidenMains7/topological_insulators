@@ -107,22 +107,28 @@ def plot_disorder(filename:str, doShow:bool, doSave:bool, title:str=None) -> Non
                 x = data[i][0] #disorder value
                 y = data[i][1] #bott index after disorder
 
+                M = x[0]
+                B_tilde = y[0]
+                x, y = x[1:], y[1:]
+
                 if True:
                     if y[0] not in bott_vals:
                         print(f"Initial bott index is not in [-3, -2, -1, 1, 2, 3]. Value is {y[0]}")
                         ax.plot(x, y, c='black', marker='.')
                     
                     try:
-                        ax.plot(x, y, c=colors[int(y[0]+3)], marker='.')
+                        ax.plot(x, y, marker='.', label=f"(M, B_tilde) = ({M:.2f}, {B_tilde:.2f})")
 
                     except Exception as e:
                         print(f"Caught exception: {e}")
 
                 else:
-                    ax.plot(x, y, label=f"{i}")
+                    ax.plot(x, y, label=f"(M, B_tilde) = ({M:.2f}, {B_tilde:.2f})")
+
+        plt.legend()
 
         #Add legend
-        if True:
+        if False:
             #Dummy artists
             colors.remove('')
             bott_vals.remove(0)

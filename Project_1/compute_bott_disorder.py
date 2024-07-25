@@ -85,11 +85,11 @@ def main():
         B = 1.0,
         M_values =         [1.5, 2.0, 2.5],
         B_tilde_values =   [0.0],
-        W_values =         np.linspace(0.0, 12.5, 50, endpoint=False) + (12.5/50),
-        iterations = 20,
+        W_values =         np.linspace(0.0, 12.5, 3, endpoint=False) + (12.5/3),
+        iterations = 1,
         E_F = 0.0,
         amount_per_idx = None,
-        num_jobs = 28,
+        num_jobs = 4,
         cores_per_job = 1,
         progress_bott = True,
         progress_disorder_iter = False, 
@@ -105,4 +105,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    plot_disorder('disorder_0.npz', True, True)
