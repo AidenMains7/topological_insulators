@@ -33,7 +33,7 @@ def task_with_timeout(task_func:object, timeout:float, return_shape:tuple, *args
 
 
 # Parallel
-def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, num_jobs:int=28, cores_per_job:int=1, progress_bott:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None) -> np.ndarray:
+def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, KPM:bool=False, N:int=512, progress_bott:bool=False, num_jobs:int=28, cores_per_job:int=1) -> np.ndarray:
     """
     Computes the Bott Index for every combination of M and B_tilde
 
@@ -63,14 +63,14 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t
     parameter_values = tuple(product(M_values, B_tilde_values))
     t0 = time()
 
-    def worker(i):
+    def compute_single(i):
         # Parameters for single lattice
         M, B_tilde = parameter_values[i]
 
         # Construct hamiltonian and projector
         if KPM:
             H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=True)
-            P = projector_KPM_C(H, E_F, N)
+            P = projector_KPM(H, E_F, N)
         else:
             H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=False)
             P = projector_exact(H, E_F)
@@ -86,22 +86,15 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t
             print(f"{percent_message.ljust(10)} {bott_message.ljust(15)} {time_message.rjust(5)}")
 
         return np.array([M, B_tilde, bott])
-    
-    # Function to implement timeout
-    def worker_timeout(i):
-        return task_with_timeout(worker, task_timeout, (3, ),  i)
 
-    # Whether to use timeout
-    if task_timeout is None:
-        bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(len(parameter_values)))).T
-    else: 
-        bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(worker_timeout)(j) for j in range(len(parameter_values)))).T
-
+    # Compute
+    bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values)))).T
     bott_arr = bott_arr[:, ~np.isnan(bott_arr).any(axis=0)]
     return bott_arr
 
 
-def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float, progress:bool=False, KPM:bool=False, N:int=1024, **kwargs) -> np.ndarray:
+# May be parallel
+def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress:bool=False, doParallel:bool=False, num_jobs:int=28, cores_per_job:int=1, **kwargs) -> float:
     """
     Will calculate the average Bott Index from disorder for the specified number of iterations.
 
@@ -113,18 +106,21 @@ def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int,
     E_F (float): Fermi energy
     progress (bool): Display progress info
     sparse (bool): whether to generate as a sparse matrix
+    KPM (bool): Whether to use KPM method.
+    N (int): Used in KPM
+    doParallel (bool): Whether to parallelize this task.
 
     Returns: 
     mean_bott (float): The average Bott Index over all iterations
 
     """
+    
     # System size
     system_size = np.max(lattice) + 1
-
     # Initial time 
     t0 = time()
 
-
+    # Compute a single value
     def do_iter(i):
 
         if KPM:
@@ -143,7 +139,7 @@ def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int,
             P = projector_exact(H_new, E_F)
 
         # Compute bott index
-        bott = bott_index(P, lattice)
+        result_bott = bott_index(P, lattice)
 
         # Provide progress update
         if progress:
@@ -152,14 +148,20 @@ def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int,
             percent_message = f"({100*(i+1)/iterations:.2f}% complete)"
             print(f"{value_message.ljust(10)} {percent_message.ljust(15)} {time_message.rjust(5)}")
 
-        return bott
+        return result_bott
     
-    data = np.array([do_iter(j) for j in range(iterations)])
-    return np.average(data)
+
+    if doParallel:
+        init_environment(cores_per_job)
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_iter)(j) for j in range(iterations)))
+        return np.average(data)
+    else:
+        data = np.array([do_iter(j) for j in range(iterations)])
+        return np.average(data)
 
 
-# Parallel
-def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None) -> np.ndarray:
+# May be parallel
+def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress_disorder_iter:bool=False, progress_disorder_range:bool=False, doParallelIter:bool=False, doParallel:bool=False, num_jobs:int=28, cores_per_job:int=1) -> np.ndarray:
     """
 
     Will find the Bott Index after disorder for each value in the provided range. 
@@ -177,20 +179,18 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
     sparse (bool): whether to generate as a sparse matrix
 
     Returns: 
-    data (ndarray): Array of shape (2, N). Row 0 is disorder value, row 1 is resultant Bott Index.
+    data (ndarray): Array of shape (2, N). Row 0 is disorder value, row 1 is resultant Bott Index. The first column are the parameter values [[M], [B_tilde]]
 
     """
-    # Initialize environment to prevent cannibalization
-    init_environment(cores_per_job)
-
 
     # Initial time
     t0 = time()
 
-    def worker(i):
+    def compute_single_disorder_value(i):
         W = W_values[i]
-        bott_final = disorder_avg(H, lattice, W, iterations, E_F, progress_disorder_iter, KPM, N)
+        bott_final = disorder_avg(H, lattice, W, iterations, E_F, KPM, N, progress_disorder_iter, doParallelIter, num_jobs, cores_per_job)
 
+        # Print progress
         if progress_disorder_range:
             dt = time() - t0
             value_message = f"Disorder Range: W = {W:.2f}"
@@ -198,29 +198,20 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
             time_message = f"{dt:.0f}s"
             print(f"{value_message.ljust(len(value_message))} {percent_message.ljust(10)} {time_message.rjust(0)}")
 
-        return np.array([W, bott_final])
-    
-    # Timeout implementation
-    def worker_timeout(i):
-        return task_with_timeout(worker, task_timeout, (2, ), i)
+        return bott_final
 
-
-    if False:
-        # Parallelization
-        if task_timeout is None:
-            data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker)(j) for j in range(W_values.size))).T
-        else:
-            data = np.array(Parallel(n_jobs=num_jobs)(delayed(worker_timeout)(j) for j in range(W_values.size))).T
+    # Whether to use parallelization
+    if doParallel:
+        init_environment(cores_per_job)
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single_disorder_value)(j) for j in range(W_values.size))).T
     else:
-        data = [worker(j) for j in range(W_values.size)]
-        data = np.array(data).T
+        data = np.array([compute_single_disorder_value(j) for j in range(W_values.size)]).T
     
-    data = data[:, ~np.isnan(data).any(axis=0)]
     return data
 
 
-
-def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, amount_per_idx:int=None, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, progress_disorder_many:bool=True, doStatistic:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None, **kwargs) -> np.ndarray:
+# May be parallel
+def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress_disorder_iter:bool=False, progress_disorder_range:bool=False, progress_disorder_many:bool=False, doStatistic:bool=False, doParallelIter:bool=False, doParallelRange:bool=False, doParallelMany:bool=False, num_jobs:int=28, cores_per_job:int=1) -> np.ndarray:
     """
     Will find the resultant Bott Index from disorder over the provided range for all provided (M, B_tilde, bott_init) values.
 
@@ -241,10 +232,10 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
     progress_disorder_range (bool): Display progress info for disorder_range()
     progress_disorder_many (bool): Display progress info for disorder_many()
     doStatistic (bool): Display info regarding the percent of how many are nonzero.
-    sparse (bool): whether to generate as a sparse matrix
+
 
     Returns:
-    data (ndarray): Array of shape (N, 2, W_values.size+1), containing the result data from disorder averaging over a range. 
+    data (ndarray): Array of shape (N, 2, W_values.size+1), containing the result data from disorder averaging over a range. The first column for each [:, :, i] is the parameter values [[M], [B_tilde]]
     """
 
 
@@ -257,33 +248,10 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
     
     # Separated into a list of arrays for each unique index (without 0)
     separated_arrs = [bott_arr[:, mask] for mask in [bott_arr[2, :] == val for val in unique_values]]
-
     # List of respective sizes
     separated_sizes = [arr.shape[1] for arr in separated_arrs]
-
-    # Take only specified amount
-    if amount_per_idx is not None:
-        # Take only specified amount from each unique index; if more exist, take random ones (without replacement)
-        limited_arr = [None]*len(unique_values)
-
-        # Random number generator
-        rng = np.random.default_rng()
-
-        for i in range(len(unique_values)):
-            size = separated_sizes[i]
-            if size > amount_per_idx:
-                # Get random indices without replacement
-                random_idx = rng.choice(size, amount_per_idx, replace=False)
-                limited_arr[i] = separated_arrs[i][:, random_idx]
-            else: 
-                limited_arr[i] = separated_arrs[i][:, :5]
-
-        # Concatenate into single array
-        nonzero_arr = np.concatenate(limited_arr, axis=1)
-
-    else:
-        nonzero_arr = np.concatenate(separated_arrs, axis=1)
-
+    # Concatenate into a single array
+    nonzero_arr = np.concatenate(separated_arrs, axis=1)
 
     # Print statistic info
     if doStatistic:
@@ -297,10 +265,9 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
     t0 = time()
 
     # Disorder over given range for a single lattice
-    def do_single(i):
+    def compute_single_lattice_range(i):
         # Get values of lattice
         M, B_tilde, bott_init = tuple(nonzero_arr[:, i])
-
 
         # Construct the Hamiltonian
         if KPM:
@@ -309,12 +276,14 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
             H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, sparse=False)
 
         # Calculate the bott after disorder over the range
-        disorder_arr = disorder_range(H, lattice, W_values, iterations, E_F, num_jobs, cores_per_job, progress_disorder_iter, progress_disorder_range, KPM, N, task_timeout)
+        disorder_arr = disorder_range(H, lattice, W_values, iterations, E_F, KPM, N, progress_disorder_iter, progress_disorder_range, doParallelIter, doParallelRange, num_jobs, cores_per_job)
 
-        # Add the initial to the array
-        disorder_arr = np.concatenate((np.array([[0], [bott_init]]), disorder_arr), axis=1)
-        disorder_arr = np.concatenate((np.array([[M], [B_tilde]]), disorder_arr), axis=1)
+        # Add the initial bott index to the array, as well as parameter values (KNOW THAT THEY ARE HERE)
+        disorder_arr = np.concatenate((np.array([M, B_tilde, bott_init]), disorder_arr), axis=0)
 
+        print(disorder_arr)
+
+        # Print progress
         if progress_disorder_many:
             time_message = f"{time()-t0:.0f}s"
             percent_message = f"{100*(i+1)/nonzero_arr.shape[1]:.2f}%"
@@ -323,13 +292,21 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
         
         return disorder_arr
     
-    data = np.empty((nonzero_arr.shape[1], 2, W_values.size+2))
-    for j in range(nonzero_arr.shape[1]):
-        data[j,:,:] = do_single(j)
+    # Make the first row of the data such that it contains the x-axis (disorder) values for each bott in its column. Pertaining to M and B_tilde, make np.nan.
+    X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
+    X = X.reshape(1, X.size)
+    print(X)
 
-    return data
 
-
+    if doParallelMany:
+        init_environment(cores_per_job=cores_per_job)
+        data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single_lattice_range)(j) for j in range(nonzero_arr.shape[1])))
+        return np.concatenate((X, data), axis=0)
+    else:
+        data = np.empty((nonzero_arr.shape[1], 1, W_values.size+3))
+        for j in range(nonzero_arr.shape[1]):
+            data[j,:,:] = compute_single_lattice_range(j)
+        return np.concatenate((X, data), axis=0)
 
 #---------------------
 def main():

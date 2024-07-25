@@ -1,6 +1,6 @@
 import numpy as np
-import os, sys
 from pathlib import Path
+
 
 def generate_filenames(base_filename:str, extensions:list[str]) -> list:
     """
@@ -13,7 +13,7 @@ def generate_filenames(base_filename:str, extensions:list[str]) -> list:
     return [base_filename+ext for ext in extensions]
 
 
-def generate_save_filename(filenames:str|list) -> "tuple[bool, str]":
+def generate_save_filename(filenames:str|list) -> "list[str]":
     """
     Will check if a file name of the same exists. 
 
@@ -71,13 +71,25 @@ def return_all_file_type(directory:str, extension:str) -> list:
     return files
 
 
-
-
+def print_dict_nice(dictionary:dict):
+    for kw in dictionary:
+        if isinstance(dictionary[kw], np.ndarray):
+            print(f"{kw}: np.linspace({dictionary[kw][0]}, {dictionary[kw][-1]}, {dictionary[kw].size})")
+        else:
+            print(f"{kw}: {dictionary[kw]}")
 
 
 def main():
-    files = return_all_file_type("./Project_1", '.py')
-    print(files)
+    from plotting import plot_bott, plot_disorder
+    from phase_diagram import plot_disorder as plot_disorder_old
+    files = return_all_file_type('./Temp', '.npz')
+    for f in files:
+        if f.startswith('Temp\\disorder'):
+            try:
+                plot_disorder(f, False, True)
+            except:
+                plot_disorder_old(f, False, True)
+
 
 
 if __name__ == "__main__":
