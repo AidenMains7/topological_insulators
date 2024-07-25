@@ -220,7 +220,7 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
 
 
 
-def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, amount_per_idx:int=None, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, progress_disorder_many:bool=True, doStatistic:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None, **kwargs) -> np.ndarray:
+def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float, num_jobs:int, cores_per_job:int, amount_per_idx:int=None, progress_disorder_iter:bool=False, progress_disorder_range:bool=True, progress_disorder_many:bool=True, doStatistic:bool=True, KPM:bool=False, N:int=1024, task_timeout:float=None, **kwargs) -> np.ndarray:
     """
     Will find the resultant Bott Index from disorder over the provided range for all provided (M, B_tilde, bott_init) values.
 
@@ -250,7 +250,10 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
 
     # Unique Bott Index values, not including 0
     unique_values = list(np.unique(bott_arr[2]))
-    unique_values.remove(0)
+    try:
+        unique_values.remove(0)
+    except ValueError:
+        pass
     
     # Separated into a list of arrays for each unique index (without 0)
     separated_arrs = [bott_arr[:, mask] for mask in [bott_arr[2, :] == val for val in unique_values]]
@@ -290,7 +293,7 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
         print(f"Of {num_total} total lattices, {num_nonzero} have a nonzero Bott Index ({percent:.2f}%).")
 
     # Precompute data
-    pre_data, lattice = precompute(method, order, pad_width, pbc, n)
+    pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
     t0 = time()
 
     # Disorder over given range for a single lattice
@@ -310,6 +313,7 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
 
         # Add the initial to the array
         disorder_arr = np.concatenate((np.array([[0], [bott_init]]), disorder_arr), axis=1)
+        disorder_arr = np.concatenate((np.array([[M], [B_tilde]]), disorder_arr), axis=1)
 
         if progress_disorder_many:
             time_message = f"{time()-t0:.0f}s"
@@ -319,7 +323,7 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
         
         return disorder_arr
     
-    data = np.empty((nonzero_arr.shape[1], 2, W_values.size+1))
+    data = np.empty((nonzero_arr.shape[1], 2, W_values.size+2))
     for j in range(nonzero_arr.shape[1]):
         data[j,:,:] = do_single(j)
 
