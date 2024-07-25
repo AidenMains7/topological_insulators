@@ -261,7 +261,6 @@ def wannier_fourier(lattice:np.ndarray, pbc:bool) -> tuple:
     CxCy += CxCy.conj().T
 
     Sx, Sy, Cx, Cy, CxSy, SxCy, CxCy = [arr.toarray() for arr in [Sx, Sy, Cx, Cy, CxSy, SxCy, CxCy]]
-
     return I, Sx, Sy, Cx + Cy, CxSy, SxCy, CxCy
 
 
@@ -415,7 +414,7 @@ def H_renorm(H_parts:tuple) -> np.ndarray:
     return H_eff
 
 
-def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1, B=1) -> tuple:
+def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int | None, t1:float=1, t2:float=1, B:float=1) -> "tuple[tuple, np.ndarray]":
     """
     Precomputes the lattice and the parts of its Hamiltonian
     """
@@ -432,10 +431,12 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1
         wannier = wannier_symmetry(frac_lat, pbc, n)
         H_components = Hamiltonian_components(wannier=wannier, t1=t1, t2=t2, B=B)
         return H_components, frac_lat
+    
     elif method == "square":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
         H_components = Hamiltonian_components(wannier=wannier, t1=t1, t2=t2, B=B)
         return H_components, sq_lat
+    
     elif method == "site_elim":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
         parts_groups = decompose_parts(wannier, holes, fills, t1=t1, t2=t2, B=B)
@@ -444,6 +445,7 @@ def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int, t1=1, t2=1
             H_components.append(csr_matrix(parts_group[0]))
         H_components = tuple(H_components)
         return H_components, frac_lat
+    
     elif method == "renorm":
         wannier = wannier_fourier(sq_lat, pbc=pbc)
         parts_groups = decompose_parts(wannier, holes, fills, t1=t1, t2=t2, B=B)
@@ -663,7 +665,7 @@ def spectral_gap(Hamiltonian:np.ndarray) -> float:
     return np.abs(G)
 
 
-def LDOS(Hamiltonian:np.ndarray) -> np.ndarray:
+def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
 
     # Get eigenvalues, eigenvectors
     eigvals, eigvecs = eigh(Hamiltonian)

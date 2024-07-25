@@ -79,27 +79,30 @@ def main():
         order = 3,
         pad_width = 0,
         pbc = True,
-        n = 2,
-        M_values =         np.linspace(-2.0, 12.0, 3),
-        B_tilde_values =   np.linspace(0.0, 2.0, 3),
-        W_values =         np.linspace(0.0, 12.5, 1, endpoint=False) + (12.5/1),
-        iterations = 1,
+        n = 1,
+        t1 = 1.0,
+        t2 = 0.0,
+        B = 1.0,
+        M_values =         [1.5, 2.0, 2.5],
+        B_tilde_values =   [0.0],
+        W_values =         np.linspace(0.0, 12.5, 50, endpoint=False) + (12.5/50),
+        iterations = 20,
         E_F = 0.0,
-        amount_per_idx = 1,
-        num_jobs = 4,
+        amount_per_idx = None,
+        num_jobs = 28,
         cores_per_job = 1,
         progress_bott = True,
         progress_disorder_iter = False, 
         progress_disorder_range = False,
         progress_disorder_many = True,
-        KPM = True,
+        KPM = False,
         N = 512,
         task_timeout = None
     )
 
-    run_computation(parameters, True, False, True, False)
+    run_computation(parameters, True, True, False, False)
 
 
 
 if __name__ == "__main__":
-    plot_all_npz()
+    main()
