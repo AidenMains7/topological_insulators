@@ -1,51 +1,40 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap, BoundaryNorm
-from filesaving import return_all_file_type
-import pylab
+from matplotlib import axes, figure
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
-def plot_imshow(X:np.ndarray, Y:np.ndarray, Z:np.ndarray, xyz_labels:list[str, str, str], xy_ticks:tuple=(10,10), title:str=None, doShow:bool=True, doSave:bool=False, filename:str=None, cmap:str='viridis', doDiscreteCmap:bool=False) -> None:
+def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:np.ndarray, cmap:str='viridis', doDiscreteCmap:bool=False) -> None:
     """
     
     Parameters:
-    data (ndarray): 2D array
+
+    
+    Returns:
+    fig (Figure): The updated figure
+    ax (Axes): The updated axes
+    cbar (Colorbar): The colorbar
     
     """
-
-    if doSave and filename == None:
-        raise ValueError("When saving, a filename must be specified.")
 
     x_bounds = (X.min(), X.max())
     y_bounds = (Y.min(), Y.max())
     cbar_bounds = np.linspace(Z.min(), Z.max(), np.unique(Z).size) 
 
-    x_ticks = np.linspace(x_bounds[0], x_bounds[1], xy_ticks[0])
-    y_ticks = np.linspace(y_bounds[0], y_bounds[1], xy_ticks[1])
+
     cbar_ticks = np.linspace(cbar_bounds[0], cbar_bounds[-1], np.unique(Z).size)
 
     if doDiscreteCmap:
         cmap = plt.get_cmap(cmap, int(Z.max()-Z.min()+1))
 
+    divider = make_axes_locatable(ax)
+    cax = divider.append_axes('right', size='5%', pad=0.05)
 
-    fig = plt.figure(figsize=(10, 10))
-    plt.imshow(Z, cmap=cmap, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], aspect='auto')
+    im = ax.imshow(Z, cmap=cmap, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], aspect='auto')
 
-    plt.xticks(x_ticks, labels=np.round(x_ticks, 1))
-    plt.yticks(y_ticks, labels=np.round(y_ticks, 1))
+    cbar = fig.colorbar(im, cax=cax, ticks=cbar_ticks, spacing='uniform', cmap=cmap)
 
-    plt.xlabel(xyz_labels[0])
-    plt.ylabel(xyz_labels[1])
-
-    cbar = plt.colorbar(label=xyz_labels[2], ticks=cbar_ticks, spacing='uniform', cmap=cmap)
-
-    plt.suptitle(title)
-
-    if doSave:
-        plt.savefig(filename)
-
-    if doShow:
-        plt.show()
+    return fig, ax, cbar
 
 
 
@@ -74,7 +63,7 @@ def reshape_imshow_data(data:np.ndarray) -> np.ndarray:
 
 
 
-def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis') -> None:
+def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis', figsize:tuple=(10, 10)) -> None:
     """
     Wrapper function for reshape_imshow_data() tailored for data from computing the Bott Index of a lattice. 
     """
@@ -90,14 +79,132 @@ def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None,
         title = f"Bott Index of lattice. Method of {params['method']}, n = {params['n']:.0f}. {boundary_cond_str}. Generation {params['order']}."
 
     X, Y, Z = reshape_imshow_data(data)
-    plot_imshow(X, Y, Z, ['M', 'B_tilde', 'Bott Index'], (8, 5), title, doShow, doSave, outfile, cmap, False)
+
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+
+    fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, cmap, True)
+
+    ax.set_xticks(np.linspace(X.min(), X.max(), 8))
+    ax.set_yticks(np.linspace(Y.min(), Y.max(), 5))
+    ax.set_title(title)
+    ax.set_xlabel('M')
+    ax.set_ylabel('B_tilde')
+    cbar.set_label('Bott Index')
 
 
+    if doSave:
+        if outfile == None:
+            plt.savefig(infile[:-4]+'.png')
+        else:
+            plt.savefig(outfile)
+
+    if doShow:
+        plt.show()
+
+
+
+def plot_series(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, series_labels:list, series_colors:list, plot_type:str='scatter', marker:str=None):
+    """
+    
+    Parameters:
+    X (ndarray): A 1D or 1xN array of X values.
+    Y (ndarary): A MxN array, such that each row is a separate series. 
+    series_labels (list): A list of size M, a label for each series.
+    series_colors (list) A list of size M, a color for each series.
+    
+    """
+
+    if plot_type not in ['scatter', 'line']:
+        raise ValueError(f"plot_type must be in ['scatter', 'line']. It is currently {plot_type}")
+
+    series_list = []
+
+    if plot_type == 'scatter':
+        for i in range(Y.shape[0]):
+            s = ax.scatter(X, Y[i, :], label=series_labels[i], c=series_colors[i])
+            series_list.append(s)
+
+    elif plot_type == 'line':
+        for i in range(Y.shape[0]):
+            s = ax.plot(X, Y[i, :], label=series_labels[i], c=series_colors[i], marker=marker)
+            series_list.append(s)
+
+    return fig, ax
+
+
+
+def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis', figsize:tuple=(10, 10)) -> None:
+    filedata = np.load(infile, allow_pickle=True)
+    data, params = filedata['data'], filedata['parameters'][()]
+
+    lattice_param_vals = data[1:, 0:2]
+    disorder_vals = data[0, 2:]
+    bott_vals = data[1:, 2:]
+
+    series_labels = []
+    for i in range(lattice_param_vals.shape[0]):
+        series_labels.append(f"(M, B_tilde) = ({lattice_param_vals[i, 0]}, {lattice_param_vals[i, 1]})")
+
+
+    boundary_cond_str = 'PBC' if params['pbc'] else 'OBC'
+    if params['method'] != 'symmetry':
+        title = f"Disorder of a fractal lattice. Method of {params['method']}. {boundary_cond_str}. Generation {params['order']}."
+    else:
+        title = f"Disorder of a fractal lattice. Method of {params['method']}, n = {params['n']:.0f}. {boundary_cond_str}. Generation {params['order']}."
+
+    fig, ax = plt.subplots(1, 1, figsize=figsize)
+    fig, ax = plot_series(fig, ax, disorder_vals, bott_vals, series_labels, get_colors_from_cmap(cmap, len(series_labels)), plot_type='line', marker='.')
+
+    ax.hlines(0, 0, disorder_vals.max(), colors='k', ls='--')
+
+    x_ticks = np.linspace(disorder_vals.min(), disorder_vals.max(), 11)
+    y_ticks = [-2.0, -1.0, 0.0, 1.0, 2.0]
+    ax.set_xticks(x_ticks, labels=np.round(x_ticks, 1))
+    ax.set_yticks(y_ticks, labels=np.round(y_ticks, 0))
+    ax.set_ylim(-2.0, 2.0)
+
+    ax.set_xlabel("Disorder Strength")
+    ax.set_ylabel("Bott Index")
+    ax.set_title(title)
+    ax.legend()
+
+    if doSave:
+        if outfile == None:
+            plt.savefig(infile[:-4]+'.png')
+        else:
+            plt.savefig(outfile)
+
+    if doShow:
+        plt.show()
+
+
+
+def get_colors_from_cmap(cmap:str, amount:int):
+    return np.array([plt.cm.get_cmap(cmap)(val) for val in np.linspace(0.0, 1.0, amount)])
+
+
+
+#-------------Main Function Implementation-----------------
+
+def test_series_plot():
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+
+    x = np.linspace(0, 2*np.pi, 100)
+    
+    y = np.empty((3, x.size))
+    y[0, :] = np.sin(x)
+    y[1, :] = np.cos(x)
+    y[2, :] = np.cos(x) + np.sin(x)
+
+    colors = get_colors_from_cmap('viridis', 3)
+
+    fig, ax = plot_series(fig, ax, x, y, ['theta', 'function'], ['a', 'b', 'c'], colors, plot_type='line')
+
+    plt.show()
 
 
 def main():
-    plot_bott('bott_0.npz', True, True, 'bott_0.png')
-
+    pass
 
 if __name__ == "__main__":
     main()

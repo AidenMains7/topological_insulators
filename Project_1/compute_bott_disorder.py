@@ -1,13 +1,20 @@
 import numpy as np
 import inspect 
 from time import time
-import sys
+from filesaving import generate_filenames, generate_save_filename
 
 from project_execute import bott_many, disorder_many
-from phase_diagram import _save_npz_data, plot_disorder, plot_bott, plot_all_npz, plot_bott_imshow, _read_npz_data
+from plotting import plot_bott, plot_disorder
 from system_functions import profile_print_save
 
-def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None) -> None:
+
+def _read_from_npz(filename:str):
+    filedata = np.load(filename, allow_pickle=True)
+    data, params = filedata['data'], filedata['parameters'][()]
+    return data, params
+
+
+def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None) -> float:
     """
     Will run disorder computation with parameters specified in internal dictionary. Will save data from both Bott Index calculation and disorder calculation. May plot.
     """
@@ -28,15 +35,16 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
         bott_arr = bott_many(**filtered_dict)
 
         # Save the Bott Index data
-        end_filename_bott = _save_npz_data("bott.npz", data=bott_arr, parameters=parameters)
-        print(f"Bott Index data saved as {end_filename_bott}")
+        bott_outfile = generate_save_filename('bott.npz')[0]
+        np.savez(bott_outfile, data=bott_arr, parameters=parameters)
+        print(f"Bott Index data saved as {bott_outfile}")
 
         # Plot Bott Index data
         if plotBott:
-            plot_bott_imshow(end_filename_bott, False, True, f"Bott Index, Method of {parameters['method']}, Order = {parameters['order']}")
+            plot_bott(bott_outfile, False, True)
     else:
 
-        bott_arr, file_params = _read_npz_data(bottFile)
+        bott_arr, file_params = _read_from_npz(bottFile)
 
         # If read from file, will use the parameters specified above, barring what is necessary to maintain correctness.
         print("Reading from file:")
@@ -56,20 +64,21 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
         disorder_params = inspect.signature(disorder_many).parameters
         filtered_dict_2 = {k: v for k, v in parameters.items() if k in disorder_params}
         
-        # Compute disorder data [USES PARALLELIZATION]
+        # Compute disorder data
         disorder_arr = disorder_many(bott_arr=bott_arr, **filtered_dict_2)
 
         # Save the disorder data
-        end_filename_disorder = _save_npz_data("disorder.npz", data=disorder_arr, parameters=parameters)
-        print(f"Disorder data saved as {end_filename_disorder}")
+        disorder_outfile = generate_save_filename('disorder.npz')[0]
+        print(disorder_arr)
+        np.savez(disorder_outfile, data=disorder_arr, parameters=parameters)
+        print(f"Disorder data saved as {disorder_outfile}")
 
         # Plot the disorder data
         if plotDisorder:
-            plot_disorder(end_filename_disorder, False, True, f"Bott Index vs. Disorder, Method of {parameters['method']}, Order = {parameters['order']}")
+            plot_disorder(disorder_outfile, False, True, )
     
     print(f"Total time taken: {time()-t0:.0f}s")
-
-
+    return time()-t0
 
 #----------main function implementation--------
 
@@ -85,24 +94,25 @@ def main():
         B = 1.0,
         M_values =         [1.5, 2.0, 2.5],
         B_tilde_values =   [0.0],
-        W_values =         np.linspace(0.0, 12.5, 3, endpoint=False) + (12.5/3),
+        W_values =         np.linspace(0.0, 8.5, 4, endpoint=False) + (12.5/4),
         iterations = 1,
         E_F = 0.0,
-        amount_per_idx = None,
-        num_jobs = 4,
-        cores_per_job = 1,
+        KPM = False,
+        N = 512,
         progress_bott = True,
         progress_disorder_iter = False, 
         progress_disorder_range = False,
         progress_disorder_many = True,
-        KPM = False,
-        N = 512,
-        task_timeout = None
+        doParallelIter = False,
+        doParallelRange = False,
+        doParallelMany = True,
+        num_jobs = 4,
+        cores_per_job = 1
     )
 
-    run_computation(parameters, True, True, False, False)
+    run_computation(parameters, True, True, False, True, None)
 
 
 
 if __name__ == "__main__":
-    plot_disorder('disorder_0.npz', True, True)
+    main()
