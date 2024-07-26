@@ -38,7 +38,7 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
 
 
 
-def reshape_imshow_data(data:np.ndarray) -> np.ndarray:
+def reshape_imshow_data(data:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     Assuming a 3xN array such that row 0 is X, row 1 is Y, and row 2 is Z.
     """
@@ -79,6 +79,9 @@ def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None,
         title = f"Bott Index of lattice. Method of {params['method']}, n = {params['n']:.0f}. {boundary_cond_str}. Generation {params['order']}."
 
     X, Y, Z = reshape_imshow_data(data)
+
+    if Y.shape[0] <= 1 or X.shape[0] <= 1:
+        raise ValueError("One of either X or Y dimensions has size <= 1.")
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
 
