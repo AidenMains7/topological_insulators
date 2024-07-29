@@ -254,7 +254,7 @@ def LDOS_image():
     method = "square"
     order = 3
     pad_width = 0
-    pbc = True
+    pbc = False
     n = 1
     t1 = 1.0
     t2 = 0.0
@@ -291,7 +291,8 @@ def LDOS_image():
 # --------------
 
 def main():
-    LDOS_image()
+    f = compute_FIG3()
+    plot_FIG3(f)
 
 if __name__ == "__main__":
     main()
