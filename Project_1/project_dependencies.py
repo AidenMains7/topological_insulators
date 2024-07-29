@@ -670,11 +670,15 @@ def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray]":
     eigvals, eigvecs = eigh(Hamiltonian)
 
     # Index of lowest eigenvalue
-    idxs = np.argsort(np.abs(eigvals))
+    pos = np.argwhere(eigvals > 0)[0]
+    neg = np.argwhere(eigvals < 0)[-1]
+    idxs = [neg[0], pos[0]]
 
     # Eigenvectors and eigenvalues for lowest energy states
     eigva_one, eigva_two = eigvals[idxs[0]], eigvals[idxs[1]]
     eigve_one, eigve_two = eigvecs[:, idxs[0]], eigvecs[:, idxs[1]]
+    
+    print(eigva_one, eigva_two)
 
     # |v|^2
     eigve_one, eigve_two = np.power(np.abs(eigve_one), 2), np.power(np.abs(eigve_two), 2)
@@ -683,7 +687,7 @@ def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray]":
     LDOS_one, LDOS_two = eigve_one[0::2] + eigve_one[1::2], eigve_two[0::2] + eigve_two[1::2]
 
     # Spectral gap
-    gap = np.abs(eigva_one) - np.abs(eigva_two)
+    gap = np.abs(eigva_one - eigva_two)
 
 
     return LDOS_one + LDOS_two, gap
