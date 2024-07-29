@@ -654,18 +654,17 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     return bott
 
 
-# Functions used for Paper figures 2, 3
-def spectral_gap(Hamiltonian:np.ndarray) -> float:
-    
-    eigvals = eigvalsh(Hamiltonian, overwrite_a=True)
+def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray]":
+    """
+    Computes the spectral gap for the two lowest energy eigenvalues, and the LDOS for their respective eigenvectors, summed.
 
-    idxs = np.argsort(np.abs(eigvals))
-    first, second = eigvals[idxs[0]], eigvals[idxs[1]]
-    G = first - second
-    return np.abs(G)
+    Parameters:
+    Hamiltonian (ndarray): the Hamiltonian
 
-
-def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
+    Returns:
+    LDOS (ndarray): the summed local density of states of the lowest two eigenvalues
+    gap (float): the spectral gap
+    """
 
     # Get eigenvalues, eigenvectors
     eigvals, eigvecs = eigh(Hamiltonian)
@@ -687,7 +686,7 @@ def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     gap = np.abs(eigva_one) - np.abs(eigva_two)
 
 
-    return LDOS_one, LDOS_two, gap
+    return LDOS_one + LDOS_two, gap
 
 
 def remap_LDOS(local_density, lattice):
@@ -697,9 +696,12 @@ def remap_LDOS(local_density, lattice):
     
     fills = np.argwhere(lattice.flatten() >= 0).flatten()
 
-    LDOS_lattice = np.full(lattice.size, 0.0)
 
+
+    LDOS_lattice = np.full(lattice.size, 0.0)
     LDOS_lattice[fills] = local_density
+
+
 
     return LDOS_lattice.reshape(lattice.shape)
 
@@ -712,21 +714,10 @@ def remap_LDOS(local_density, lattice):
 
 #-------main function implementation-----------------
 def main():
-    method = 'symmetry'
-    M = 1
-    B_tilde = 1
-    pre_data, lattice = precompute(method, 3, 0, True, 2)
-    H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
-
-    print(H.shape)
-    pairwise = LDOS(H)
-
-    number = pairwise.size
-
-    plt.scatter(np.linspace(0, number, number), pairwise)
-    plt.show()
-
-
+    lat = np.arange(25).reshape(5, 5)
+    idx = np.array([[0, 1, 2], [1, 2, 3]])
+    print(lat)
+    print(lat[idx[0, :], idx[1, :]])
 
 if __name__ == "__main__":
     np.set_printoptions(threshold=np.inf)

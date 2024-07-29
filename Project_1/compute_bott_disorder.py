@@ -1,7 +1,7 @@
 import numpy as np
 import inspect 
 from time import time
-from filesaving import generate_filenames, generate_save_filename
+from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder
 
 from project_execute import bott_many, disorder_many
 from plotting import plot_bott, plot_disorder
@@ -64,18 +64,25 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
         disorder_params = inspect.signature(disorder_many).parameters
         filtered_dict_2 = {k: v for k, v in parameters.items() if k in disorder_params}
         
+        # Generate name for savefile
+        disorder_outfile = generate_save_filename('disorder.npz')[0]
+        filtered_dict_2.update({'disorder_outfile': disorder_outfile})
+
         # Compute disorder data
         disorder_arr = disorder_many(bott_arr=bott_arr, **filtered_dict_2)
 
-        # Save the disorder data
-        disorder_outfile = generate_save_filename('disorder.npz')[0]
-        print(disorder_arr)
-        np.savez(disorder_outfile, data=disorder_arr, parameters=parameters)
+
+        # Saving the disorder data
+        if parameters["saveEach"]:
+            add_to_npz_file(disorder_outfile, parameters, 'parameters')
+            reorder_npz_disorder(disorder_outfile)
+        else:
+            np.savez(disorder_outfile, data=disorder_arr, parameters=parameters)
         print(f"Disorder data saved as {disorder_outfile}")
 
         # Plot the disorder data
         if plotDisorder:
-            plot_disorder(disorder_outfile, False, True, )
+            plot_disorder(disorder_outfile, False, True)
     
     print(f"Total time taken: {time()-t0:.0f}s")
     return time()-t0
@@ -107,7 +114,8 @@ def main():
         doParallelRange = False,
         doParallelMany = True,
         num_jobs = 4,
-        cores_per_job = 1
+        cores_per_job = 1,
+        saveEach = True
     )
 
     run_computation(parameters, True, True, False, True, None)
