@@ -414,7 +414,7 @@ def H_renorm(H_parts:tuple) -> np.ndarray:
     return H_eff
 
 
-def precompute(method:str, order:int, pad_width:int, pbc:bool, n:int | None, t1:float=1, t2:float=1, B:float=1) -> "tuple[tuple, np.ndarray]":
+def precompute(method:str, order:int, pad_width:int, pbc:bool, n:"int | None", t1:float=1, t2:float=1, B:float=1) -> "tuple[tuple, np.ndarray]":
     """
     Precomputes the lattice and the parts of its Hamiltonian
     """

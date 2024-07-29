@@ -2,7 +2,7 @@ import numpy as np
 from pathlib import Path
 
 
-def generate_filenames(base_filename:str, extensions:list[str]) -> list:
+def generate_filenames(base_filename:str, extensions:"list[str]") -> list:
     """
     Will return a list of filenames such that each extension is concatenated to the base_filename.
     """
@@ -13,7 +13,7 @@ def generate_filenames(base_filename:str, extensions:list[str]) -> list:
     return [base_filename+ext for ext in extensions]
 
 
-def generate_save_filename(filenames:str|list) -> "list[str]":
+def generate_save_filename(filenames:"str|list") -> "list[str]":
     """
     Will check if a file name of the same exists. 
 
@@ -43,7 +43,7 @@ def generate_save_filename(filenames:str|list) -> "list[str]":
         return [generate_single(filename) for filename in filenames]
 
 
-def make_directories(directories:str|list) -> None:
+def make_directories(directories:"str|list") -> None:
     """
     Will check if each directory exists. 
 
