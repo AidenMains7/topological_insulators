@@ -1,6 +1,6 @@
 import numpy as np
 import inspect 
-from time import time
+from time import time, sleep
 from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder
 
 from project_execute import bott_many, disorder_many
@@ -97,12 +97,12 @@ def main():
         pbc = True,
         n = 1,
         t1 = 1.0,
-        t2 = 0.0,
+        t2 = 1.0,
         B = 1.0,
-        M_values =         [1.5, 2.0, 2.5],
-        B_tilde_values =   [0.0],
-        W_values =         np.linspace(0.0, 8.5, 4, endpoint=False) + (12.5/4),
-        iterations = 1,
+        M_values =         [10.0],
+        B_tilde_values =   [0.875, 0.9, 0.925],
+        W_values =         np.linspace(0.0, 10.0, 28, endpoint=False) + (12.5/28),
+        iterations = 20,
         E_F = 0.0,
         KPM = False,
         N = 512,
@@ -111,13 +111,14 @@ def main():
         progress_disorder_range = False,
         progress_disorder_many = True,
         doParallelIter = False,
-        doParallelRange = False,
-        doParallelMany = True,
-        num_jobs = 4,
+        doParallelRange = True,
+        doParallelMany = False,
+        num_jobs = 28,
         cores_per_job = 1,
         saveEach = True
     )
 
+    sleep(3600*2)
     run_computation(parameters, True, True, False, True, None)
 
 

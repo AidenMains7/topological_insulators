@@ -38,7 +38,7 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
 
 
 
-def reshape_imshow_data(data:np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def reshape_imshow_data(data:np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """
     Assuming a 3xN array such that row 0 is X, row 1 is Y, and row 2 is Z.
     """
