@@ -1,10 +1,10 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from project_dependencies import bott_index, precompute, Hamiltonian_reconstruct, projector_exact, remap_LDOS, LDOS, spectral_gap
+from project_dependencies import bott_index, precompute, Hamiltonian_reconstruct, projector_exact, remap_LDOS, LDOS
 from joblib import Parallel, delayed
 from itertools import product
-import Dan_Code_1.PhaseDiagram.PhaseDiagramDependencies as dan_dep
-import Dan_Code_1.ComputeBottIndex as dsb
+
+import Dan_Code_1.PhaseDiagram.PhaseDiagramDependencies as pdd
 
 from scipy.linalg import eigvalsh
 
@@ -31,7 +31,6 @@ def compute_bott_range(method:str, M_vals:float, B_tilde_vals:float, order:int=N
     
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(find_bott)(params[j][0], params[j][1]) for j in range(len(params)))).T
     return data
-
 
 
 def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doSave:bool=False, n:int=1, pbc:bool=True):
@@ -102,7 +101,6 @@ def compute_FIG2(num_jobs:int=28, resolution:int=10, doOrderFour:bool=False, doS
     return data_a, data_b, data_c, data_d
 
 
-
 def plot_FIG2(data_a, data_b, data_c, data_d):
 
     fig, axs = plt.subplots(2, 2, figsize=(10, 10))
@@ -153,7 +151,6 @@ def plot_FIG2(data_a, data_b, data_c, data_d):
     plt.savefig('Data/Paper_Figures/FIG_2_n=1.png')
     plt.show()
 
-
 # Parallel
 def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4):
 
@@ -163,13 +160,12 @@ def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1
 
     def do_single(M, B_tilde):
         H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
-        G = spectral_gap(H)
+        local, gap = LDOS(H)
 
-        return [M, G]
+        return [M, gap]
 
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_single)(params[j][0], params[j][1]) for j in range(len(params)))).T
     return data
-
 
 
 def compute_FIG3(resolution:int=112, num_jobs:int=28) -> str:
@@ -219,7 +215,6 @@ def compute_FIG3(resolution:int=112, num_jobs:int=28) -> str:
     return output_filename
 
 
-
 def plot_FIG3(filepath:str):
 
     title_list = ['(a) square', '(b) renorm', '(c) symmetry', '(d) site_elim']
@@ -254,158 +249,49 @@ def plot_FIG3(filepath:str):
     plt.show()
 
 
+def LDOS_image():
 
-
-def FIG3_LDOC_image(method, order, pad, pbc, n, t1, t2, B, M, B_tilde):
-    
-
-
-    pre_data, lattice = precompute(method, order, pad, pbc, n, t1, t2, B)
-    H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
-
-
-
-
-# Main function implementation------------------
-
-
-def FIG2_main():
-    data_a, data_b, data_c, data_d = compute_FIG2(28, 28, False, True)
-    plot_FIG2(data_a, data_b, data_c, data_d)
-
-
-def FIG2_main2():
-    file_data = np.load('Data/Paper_Figures/FIG_2_n=1.npz', allow_pickle=True)
-    data_a = (file_data['data_a_3'], file_data['data_a_4'])
-    data_b = (file_data['data_b_3'], file_data['data_b_4'])
-    data_c = (file_data['data_c_square'], file_data['data_c_renorm'])
-    data_d = (file_data['data_d_square'], file_data['data_d_renorm'])
-
-    plot_FIG2(data_a, data_b, data_c, data_d)
-
-
-def lattice_density_range():
-
-    method = 'square'
-    n = 3
+    method = "square"
     order = 3
     pad_width = 0
     pbc = True
-    t1 = 1.0; t2 = 0.0; B = 1.0
+    n = 1
+    t1 = 1.0
+    t2 = 0.0
+    B = 1.0
 
-    M_vals = np.linspace(-2.0, 10.0, 16)
-    B_tilde_vals = [0.0]
+    M = 6.0
+    B_tilde = 0.0
 
-    # Pre compute
-    pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
-    LDOS_lattice = np.full(lattice.shape, 0.0)
-
-
-    for i in range(M_vals.size):
-        H = Hamiltonian_reconstruct(method, pre_data, M_vals[i], B_tilde_vals[0], False)
-        P = projector_exact(H, 0.0)
-        bott = bott_index(P, lattice)
-
-        # Compute LDOS for two closest to 0 eigenstates
-        local_one, local_two, gap = LDOS(H)
-        local_both = local_one + local_two
-
-        # Remap to shape of lattice
-        LDOS_lattice = remap_LDOS(local_both, lattice)
-
-        # Create figure
-        fig = plt.figure(figsize=(10,10))
-        plt.imshow(LDOS_lattice, label='Local Density of States', cmap='Purples')
-        plt.title(f'M={M_vals[i]:.1f} :: B={B_tilde_vals[0]:.1f} :: BI={bott}')
-        plt.colorbar()
-        plt.savefig(f'Data/LDOS/Square_Range/{method}_{M_vals[i]:.1f}_{B_tilde_vals[0]:.1f}_{bott}.png')
-
-
-def test(M):
-    method = 'square'
-    pre_data, lattice = precompute(method, 3, 0, True, 1, 1.0, 1.0, 1.0)
-    H = Hamiltonian_reconstruct(method, pre_data, M, 0.0, False)
-    print('num sites: ', np.max(lattice)+1)
-    print('lattice shape: ', lattice.shape)
-    print('H shape: ', H.shape)
-
-    d_pre_data, d_lattice = dan_dep.precompute_data(3, method, True, 1, 0)
-    d_H = dan_dep.reconstruct_hamiltonian(method, d_pre_data, M, 0.0, False)
-    print('num sites: ', np.max(d_lattice)+1)
-    print('lattice shape: ', d_lattice.shape)
-    print('H shape: ', d_H.shape)
-
-    return H, d_H
-
-
-
-def compare_LDOS(Hamiltonians:list[np.ndarray]):
-    def plot_single(ax, H):
-        print(H.shape)
-        one, two, gap = LDOS(H)
-
-        x = np.arange(one.size)
-        ax.scatter(x, one, c='r', label='one')
-        ax.scatter(x, two, c='k', label='two')
-
-
-
-    fig, axs = plt.subplots(len(Hamiltonians), 1, figsize=(10, 10))
-
-    if len(Hamiltonians) == 1:
-        plot_single(axs, Hamiltonians[0])
+    if True:
+        pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
+        H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
     else:
-        for i in range(len(Hamiltonians)):
-            plot_single(axs[i], Hamiltonians[i])
-    
+        # t1, t2, B must be adjusted in the code
+        pre_data, lattice = pdd.precompute_data(order, method, pbc, n, pad_width)
+        H = pdd.reconstruct_hamiltonian(method, pre_data, M, B_tilde, False)
+
+    local, gap = LDOS(H)
+    remapped_LDOS = remap_LDOS(local, lattice)
+
+    remapped_LDOS[lattice < 0] = np.nan
+
+    cmap = plt.cm.jet
+    cmap.set_bad((0, 0, 0, 0))
+    fig, ax = plt.subplots(2, 1, figsize=(10, 10))
+    im = ax[0].imshow(remapped_LDOS, cmap=cmap)
+    ax[0].set_title(f"Method of {method}. Generation {order}. {'PBC' if pbc else 'OBC'}. \n(t1, t2, B) = ({t1:.2f}, {t2:.2f}, {B:.2f}). (M, B_tilde) = ({M:.2f}, {B_tilde:.2f})")
+    cbar = fig.colorbar(im, ax=ax[0], cmap=cmap)
+
+    ax[1].scatter(np.arange(local.size), local, label='LDOS')
+    ax[1].set_title("LDOS, sum of two lowest energy states.")
     plt.show()
 
 
-def compare_eigvals(Hamiltonians:list|tuple):
-    fig, axs = plt.subplots(1, 1, figsize=(10, 10))
+# --------------
 
-    if isinstance(Hamiltonians, list) or isinstance(Hamiltonians, tuple):
-        for i in range(len(Hamiltonians)):
-            H = Hamiltonians[i]
-            eigvals = eigvalsh(H)
-
-            x = np.arange(eigvals.size)
-
-            axs.scatter(x, eigvals)
-    
-    else:
-        raise ValueError("Hamiltonians must be of type 'tuple' or 'list'")
-
-    plt.show()
-
-
-
-
-def test_spectral_gap(whichCode:str='mine'):
-    # Parallel
-    def spectral_gap_range_dans(method, M_vals, B_tilde_vals, order, pbc=True, n:int|None=None, t1=1.0, t2=1.0, B=1.0, num_jobs=4):
-
-        params = tuple(product(M_vals, B_tilde_vals))
-
-        pre_data, lattice = dan_dep.precompute_data(order, method, pbc, n, 0)
-
-        def do_single(M, B_tilde):
-            H = dan_dep.reconstruct_hamiltonian(method, pre_data, M, B_tilde, False)
-            G = spectral_gap(H)
-
-            return [M, G]
-
-        data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_single)(params[j][0], params[j][1]) for j in range(len(params)))).T
-        return data
-    
-    if whichCode == 'dan':
-        data = spectral_gap_range_dans('square', np.linspace(-2.0, 10.0, 32), [0.0], 3, True, 1)
-    elif whichCode == 'mine':
-        data = spectral_gap_range('square', np.linspace(-2.0, 10.0, 32), [0.0], 3, True, 1, 1.0, 0.0, 1.0)
-    plt.scatter(data[0, :], data[1, :])
-    plt.show()
-
+def main():
+    LDOS_image()
 
 if __name__ == "__main__":
-    test_spectral_gap('mine')
-    test_spectral_gap('dan')
+    main()

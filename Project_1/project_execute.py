@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
+from filesaving import save_to_npz_intermittently
 
 from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
 
@@ -211,7 +212,7 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
 
 
 # May be parallel
-def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress_disorder_iter:bool=False, progress_disorder_range:bool=False, progress_disorder_many:bool=False, doStatistic:bool=False, doParallelIter:bool=False, doParallelRange:bool=False, doParallelMany:bool=False, num_jobs:int=28, cores_per_job:int=1) -> np.ndarray:
+def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress_disorder_iter:bool=False, progress_disorder_range:bool=False, progress_disorder_many:bool=False, doStatistic:bool=False, doParallelIter:bool=False, doParallelRange:bool=False, doParallelMany:bool=False, num_jobs:int=28, cores_per_job:int=1, saveEach:bool=True, disorder_outfile:str=None) -> np.ndarray:
     """
     Will find the resultant Bott Index from disorder over the provided range for all provided (M, B_tilde, bott_init) values.
 
@@ -281,8 +282,6 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
         # Add the initial bott index to the array, as well as parameter values (KNOW THAT THEY ARE HERE)
         disorder_arr = np.concatenate((np.array([M, B_tilde, bott_init]), disorder_arr), axis=0)
 
-        print(disorder_arr)
-
         # Print progress
         if progress_disorder_many:
             time_message = f"{time()-t0:.0f}s"
@@ -290,23 +289,32 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
             value_message = f"Completed range calculation: (M, B_tilde, Bott) = ({M:+.2f}, {B_tilde:+.2f}, {bott_init:+.2f})"
             print(f"{percent_message.ljust(10)} {value_message.ljust(len(value_message))} {time_message.rjust(5)}")
         
+        if saveEach:
+            # Make the first row of the data such that it contains the x-axis (disorder) values for each bott in its column. Pertaining to M and B_tilde, make np.nan.
+            X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
+            X = X.reshape(1, X.size)
+            disorder_arr = np.concatenate((disorder_arr.reshape(1, disorder_arr.size), X), axis=0)
+            save_to_npz_intermittently(disorder_outfile, disorder_arr, f"({M}, {B_tilde})")
+
         return disorder_arr
     
-    # Make the first row of the data such that it contains the x-axis (disorder) values for each bott in its column. Pertaining to M and B_tilde, make np.nan.
-    X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
-    X = X.reshape(1, X.size)
-    print(X)
-
-
+    # Compute 
     if doParallelMany:
         init_environment(cores_per_job=cores_per_job)
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single_lattice_range)(j) for j in range(nonzero_arr.shape[1])))
-        return np.concatenate((X, data), axis=0)
     else:
         data = np.empty((nonzero_arr.shape[1], 1, W_values.size+3))
         for j in range(nonzero_arr.shape[1]):
             data[j,:,:] = compute_single_lattice_range(j)
+    
+    if saveEach:
+        return
+    else:
+        # Make the first row of the data such that it contains the x-axis (disorder) values for each bott in its column. Pertaining to M and B_tilde, make np.nan.
+        X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
+        X = X.reshape(1, X.size)
         return np.concatenate((X, data), axis=0)
+    
 
 #---------------------
 def main():
