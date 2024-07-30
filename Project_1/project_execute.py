@@ -290,10 +290,6 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
             print(f"{percent_message.ljust(10)} {value_message.ljust(len(value_message))} {time_message.rjust(5)}")
         
         if saveEach:
-            # Make the first row of the data such that it contains the x-axis (disorder) values for each bott in its column. Pertaining to M and B_tilde, make np.nan.
-            X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
-            X = X.reshape(1, X.size)
-            disorder_arr = np.concatenate((disorder_arr.reshape(1, disorder_arr.size), X), axis=0)
             save_to_npz_intermittently(disorder_outfile, disorder_arr, f"({M}, {B_tilde})")
 
         return disorder_arr
@@ -303,16 +299,19 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
         init_environment(cores_per_job=cores_per_job)
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single_lattice_range)(j) for j in range(nonzero_arr.shape[1])))
     else:
-        data = np.empty((nonzero_arr.shape[1]*2, 1, W_values.size+3))
+        data = np.empty((nonzero_arr.shape[1], W_values.size+3))
         for j in range(nonzero_arr.shape[1]):
-            data[j,:,:] = compute_single_lattice_range(j)[0, :]
+            data[j,:] = compute_single_lattice_range(j)
     
+
+    # x-axis: the disorder strengths
+    X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
+    X = X.reshape(1, X.size)
+
     if saveEach:
+        save_to_npz_intermittently(disorder_outfile, X, f"disorder_strengths")
         return
     else:
-        # Make the first row of the data such that it contains the x-axis (disorder) values for each bott in its column. Pertaining to M and B_tilde, make np.nan.
-        X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
-        X = X.reshape(1, X.size)
         return np.concatenate((X, data), axis=0)
     
 

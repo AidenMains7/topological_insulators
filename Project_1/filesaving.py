@@ -106,17 +106,19 @@ def add_to_npz_file(filename:str, data:"np.ndarray | dict | list", data_name:str
 
 def reorder_npz_disorder(filename:str):
     with np.load(filename, allow_pickle=True) as file_data:
-        
         names = file_data.files
         arrs = [file_data[name] for name in file_data.files]
+
+
         if "parameters" in names:
-            arrs.pop(names.index("parameters"))
+            arrs.pop(names.index('parameters'))
             parameters = file_data["parameters"][()]
 
+        if "disorder_strengths" in names:
+            arrs.pop(0)
+            X = file_data["disorder_strengths"].reshape(1, arrs[0].size)
 
-        arrs = [arr.reshape(2, arr.size//2) for arr in arrs]
-        X = arrs[0][1, :].reshape(1, arrs[0].shape[1])
-        arrs = [arr[0, :] for arr in arrs]
+        arrs = [arr.flatten() for arr in arrs]
 
         full_array = np.concatenate((X, arrs), axis=0)
     

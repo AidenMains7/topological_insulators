@@ -112,7 +112,7 @@ def main():
         progress_disorder_many = True,
         doParallelIter = False,
         doParallelRange = True,
-        doParallelMany = False,
+        doParallelMany = True,
         num_jobs = 4,
         cores_per_job = 1,
         saveEach = True
