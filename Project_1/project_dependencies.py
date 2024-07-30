@@ -677,8 +677,6 @@ def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray]":
     # Eigenvectors and eigenvalues for lowest energy states
     eigva_one, eigva_two = eigvals[idxs[0]], eigvals[idxs[1]]
     eigve_one, eigve_two = eigvecs[:, idxs[0]], eigvecs[:, idxs[1]]
-    
-    print(eigva_one, eigva_two)
 
     # |v|^2
     eigve_one, eigve_two = np.power(np.abs(eigve_one), 2), np.power(np.abs(eigve_two), 2)
