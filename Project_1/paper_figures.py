@@ -291,7 +291,7 @@ def LDOS_image():
 # --------------
 
 def main():
-    f = compute_FIG3()
+    f = compute_FIG3(100, 4)
     plot_FIG3(f)
 
 if __name__ == "__main__":

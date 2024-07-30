@@ -303,9 +303,9 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
         init_environment(cores_per_job=cores_per_job)
         data = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single_lattice_range)(j) for j in range(nonzero_arr.shape[1])))
     else:
-        data = np.empty((nonzero_arr.shape[1], 1, W_values.size+3))
+        data = np.empty((nonzero_arr.shape[1]*2, 1, W_values.size+3))
         for j in range(nonzero_arr.shape[1]):
-            data[j,:,:] = compute_single_lattice_range(j)
+            data[j,:,:] = compute_single_lattice_range(j)[0, :]
     
     if saveEach:
         return

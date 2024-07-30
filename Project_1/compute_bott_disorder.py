@@ -101,8 +101,8 @@ def main():
         B = 1.0,
         M_values =         [10.0],
         B_tilde_values =   [0.875, 0.9, 0.925],
-        W_values =         np.linspace(0.0, 10.0, 28, endpoint=False) + (12.5/28),
-        iterations = 20,
+        W_values =         np.linspace(0.0, 10.0, 4, endpoint=False) + (12.5/4),
+        iterations = 1,
         E_F = 0.0,
         KPM = False,
         N = 512,
@@ -113,12 +113,11 @@ def main():
         doParallelIter = False,
         doParallelRange = True,
         doParallelMany = False,
-        num_jobs = 28,
+        num_jobs = 4,
         cores_per_job = 1,
         saveEach = True
     )
 
-    sleep(3600*2)
     run_computation(parameters, True, True, False, True, None)
 
 
