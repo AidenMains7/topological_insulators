@@ -151,9 +151,9 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
 
     boundary_cond_str = 'PBC' if params['pbc'] else 'OBC'
     if params['method'] != 'symmetry':
-        title = f"Disorder of a fractal lattice. Method of {params['method']}. {boundary_cond_str}. Generation {params['order']}.\n(t1, t2, B) = ({params['t1']}, {params['t2']}, {params['B']})"
+        title = f"Method of {params['method']}. {boundary_cond_str}. Generation {params['order']}.\n(t1, t2, B) = ({params['t1']}, {params['t2']}, {params['B']})"
     else:
-        title = f"Disorder of a fractal lattice. Method of {params['method']}, n = {params['n']:.0f}. {boundary_cond_str}. Generation {params['order']}.\n(t1, t2, B) = ({params['t1']}, {params['t2']}, {params['B']})"
+        title = f"Method of {params['method']}, n = {params['n']:.0f}. {boundary_cond_str}. Generation {params['order']}.\n(t1, t2, B) = ({params['t1']}, {params['t2']}, {params['B']})"
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
     fig, ax = plot_series(fig, ax, disorder_vals, bott_vals, series_labels, get_colors_from_cmap(cmap, len(series_labels)), plot_type='line', marker='.')

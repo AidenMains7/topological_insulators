@@ -1,7 +1,7 @@
 import numpy as np
 import inspect 
 from time import time, sleep
-from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder
+from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder, return_all_file_type
 
 from project_execute import bott_many, disorder_many
 from plotting import plot_bott, plot_disorder
@@ -123,4 +123,6 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    files = return_all_file_type('.', '.npz')
+    for file in files:
+        plot_disorder(file, False, True)
