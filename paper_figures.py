@@ -4,7 +4,7 @@ from project_dependencies import bott_index, precompute, Hamiltonian_reconstruct
 from joblib import Parallel, delayed
 from itertools import product
 
-import Dan_Code_1.PhaseDiagram.PhaseDiagramDependencies as pdd
+import Dan_Code.PhaseDiagram.PhaseDiagramDependencies as pdd
 
 from scipy.linalg import eigvalsh
 
