@@ -123,6 +123,6 @@ def main():
 
 
 if __name__ == "__main__":
-    files = return_all_file_type('.', '.npz')
+    files = return_all_file_type('./data/bott_disorder/8-15-2024', '.npz')
     for file in files:
         plot_disorder(file, False, True)
