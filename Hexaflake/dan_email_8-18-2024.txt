@@ -1,0 +1,50 @@
+8/18/2024 - Dan Salib
+
+I'm still looking for the reference paper to send you so I'll send you soon, but the most important thing for the nearest neighbor 
+hopping in this model is to identify which sites will hop to other nearest sites and what the x and y displacements will be for these 
+hops. In the square lattice, it was simply Δx = +/- 1, Δ y = +/- 1 where the lattice spacing a = 1. In the hexagon, the reason I had 
+you map all the site coordinates to discrete integers and store them in an array is so we can similarly evaluate hopping in terms of 
+integer x and y displacements.
+
+Take a look at these figures for reference. In the figure that shows the honeycomb lattice with blue and red sites, 
+there are three distinct directions for hopping from a given site to its nearest neighbors. If you recall what we did with the 
+square lattice, we only worried about Δx = +1 or Δy = +1, then the Δx = -1 or Δy = -1 hoppings were handled with, for example, 
+Sx += Sx.conj().T. We're not going to do that here. For symmetry reasons, we're going to populate all hoppings manually.
+
+Let's first  consider the hopping from red sites to blue sites in the hexagon. The three distinct directions are hopping to the left, 
+hopping up and to the right, and hopping down and to the right (so the three closest blue sites). We're working in terms of the 
+discrete x and y positions because working with integers is much more robust than floats (and because integers can be stored nicely 
+in a numpy array as site indices with discrete x and y coordinates). See the corresponding attached figure (purple background with 
+sites colored in yellow). After generating the integer array representation, and this goes for both the hexagon and hexaflake, these 
+three directions will correspond to i) Δx = -2 & Δy = 0, ii) Δx = 1 & Δy = 1, and iii) Δx = 1 & Δy = -1. Let's call these A1, A2, 
+and A3, respectively. Now, for hopping from blue sites to red sites, we have hopping to the right, hopping down and to the left, and 
+hopping up and to the left. These correspond to i) Δx = 2 & Δy = 0, ii) Δx = -1 & Δy = -1, and iii) Δx = -1 & Δy = 1. Let's call these 
+B1, B2, and B3, respectively. My advice is to make the integer array representation and, for each site, find the three directions that 
+connect it to a nearest neighbor. There are six types of hopping, but each site will only have one of these sets of three types 
+available (A or B type).
+
+Once step 1 is done with identifying all the types of hopping between nearest neighbors for each site, you'll have to assign
+hopping values for the corresponding off-diagonal elements in the hopping matrices. This will be done a bit differently than was done 
+in the square lattice. Recall, for the square lattice, we made the matrices Sx, Cx, Sy, Cy, as well as a bunch of cross terms. 
+Then, all three components of the d-vector were defined by scalar combinations of these matrices and also the identity matrix.
+In this model, we will be directly constructing d1, d2, and d3. So directly assigning the matrix values manually. In summary, 
+hopping values will depend on which d-vector component you are working on and whether the hop type is A1, A2, A3, B1, B2, or B3. 
+So for example, the hopping value for a B2 hop in the d1 matrix will not necessarily be the same as the hopping value for B2 in the 
+d2 matrix.
+
+I think the hard part here is identifying and categorizing hops by which of the six types they are. For now, work on finding every type 
+between every nearest neighbor site. Find the initial site index, the final site index, and the hop type for each pair of sites. 
+For example, if you say that a certain red site has site index 'i' and its three nearest neighbors are 'j', 'k', and 'l', you would 
+have something like [i, j, A1],  [i, k, A2],  [i, l, A3]. Find these three pieces of information for each site 'i'. After doing so, 
+we can later construct d1, d2, and d3 relatively easily, and I'll give you the specific hopping values in my next email.
+
+One last thing for you to work on before constructing the final model is periodic boundary conditions. 
+It's not going to be as simple as the square model case. My hint to you is to 'tile' the original hexagon lattice 
+with six surrounding lattices. Keep in mind that the sites in any of these six surrounding lattices have the same coordinates 
+as the original, but shifted with a constant  Δx and Δy. For periodic boundary hopping, find which of these sites an electron in the 
+original lattice hops to in the adjacent copy of the lattice, then 'unshift' that final site to get the coordinates of the equivalent 
+site within the original lattice. I have attached another figure to illustrate this. An electron is hopping from a certain green 
+colored site to a certain red colored site, which has a teal circle around it. The equivalent final site within the original lattice 
+(green) is also circled in teal.
+
+
