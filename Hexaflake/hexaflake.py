@@ -1,10 +1,13 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from time import time
-from itertools import permutations
 
 import sys
-if sys.version_info[1] > 9:
+sys.path.append(".")
+from Carpet.plotting import plot_imshow
+
+import sys
+if sys.version_info[1] > 9 and False:
     import scienceplots
     plt.style.use(['science', 'pgf'])
 
@@ -50,7 +53,7 @@ def honeycomb_lattice(side_length:int) -> np.ndarray:
     return hexagon_lattice
 
     
-def hexaflake_lattice(generation:int, honeycomb_side_length:int=14) -> tuple[tuple, tuple]:
+def hexaflake_lattice(generation:int) -> np.ndarray:
     def fractal_iteration(_gen):
         if _gen == 0:
             angles = np.array([2*np.pi*(i+1)/6 for i in range(6)])
@@ -67,48 +70,152 @@ def hexaflake_lattice(generation:int, honeycomb_side_length:int=14) -> tuple[tup
             
             new = new[:, 1:]
             return np.unique(new, axis=1)
+    return fractal_iteration(generation)
 
-    
-    def create_lattice(hexaflake):
-        hexaflake[0] *= 2.0
-        hexaflake[1] *= 2/np.sqrt(3)
 
-        hexaflake[0] -= np.min(hexaflake[0])
-        hexaflake[1] -= np.min(hexaflake[1])
+def _create_lattice(positions:np.ndarray):
+    positions[0] *= 2.0
+    positions[1] *= 2/np.sqrt(3)
 
-        hexaflake = np.round(hexaflake, 0).astype(int)
+    positions[0] -= np.min(positions[0])
+    positions[1] -= np.min(positions[1])
 
-        lattice = np.ones((np.max(hexaflake[1]).astype(int)+1, np.max(hexaflake[0]).astype(int)+1), dtype=int)*(-1)
-        lattice[hexaflake[1], hexaflake[0]] = np.arange(hexaflake.shape[1]) 
+    positions = np.round(positions, 0).astype(int)
 
-        fills = np.where(lattice >= 0)[0] 
-        holes = np.where(lattice < 0)[0]
+    lattice = np.ones((np.max(positions[1]).astype(int)+1, np.max(positions[0]).astype(int)+1), dtype=int)*(-1)
+    lattice[positions[1], positions[0]] = np.ones(positions.shape[1]) 
 
-        return hexaflake, lattice, fills, holes
+    fills = np.argwhere(lattice >= 0)
+    holes = np.argwhere(lattice < 0)
+    return positions, lattice, fills, holes
 
-    hexaflake = fractal_iteration(generation)
+
+def fractal_and_honeycomb_lattices(generation:int, honeycomb_side_length:int):
+    hexaflake = hexaflake_lattice(generation)
     honeycomb = honeycomb_lattice(honeycomb_side_length)
 
-    hexaflake_positions, fractal_lattice, fractal_fills, fractal_holes = create_lattice(hexaflake)
-    honeycomb_positions, pristine_lattice, pristine_fills, pristine_holes = create_lattice(honeycomb)
+    hexaflake_int_positions, fractal_lattice, fractal_fills, fractal_holes = _create_lattice(hexaflake)
+    honeycomb_int_positions, pristine_lattice, pristine_fills, pristine_holes = _create_lattice(honeycomb)
 
-    return hexaflake_positions, fractal_lattice, fractal_fills, fractal_holes, honeycomb_positions, pristine_lattice, pristine_fills, pristine_holes
+    return fractal_lattice, fractal_fills, fractal_holes, pristine_lattice, pristine_fills, pristine_holes
+
+def get_hopping_sites(lattice:np.ndarray, fills:np.ndarray, pbc:bool=False):
+    # List of directions (delta y, delta x):
+    # From red to blue A1, A2, A3:
+    # 0, -2 
+    # 1, 1
+    # -1, 1
+    # From blue to red B1, B2, B3:
+    # 0, 2
+    # -1, -1
+    # 1, -1
+
+    hops = [[0, -2], [1, 1],   [-1, 1], [0, 2],  [-1, -1], [1, -1]] # A1, A2, A3, B1, B2, B3
+    hop_type = [f'{l}{i}' for l in ['A', 'B'] for i in [1, 2, 3]]
+
+    full_arr_hops = []
+    for hop in hops:
+        full_arr_hops.append(fills + np.array(hop).reshape(1, 2))
+
+
+    def pbc_tile():
+        points = np.flip(fills.T, axis=0)   
+        plt.scatter(points[0], points[1])
+
+        plt.show()
+        "points (ndarray): 2xN array, such that the first row is x-positions and the second is y-positions."
+        range_y = np.max(points[1]) - np.min(points[1])
+        a = 3
+        b = range_y+1
+        theta = np.pi/2 - np.arctan(a/b)
+        r = np.sqrt(a**2 + b**2)
+
+        tile_arrs = []
+        for i in range(6):
+            new_points = points + np.array([[r*np.cos(theta+np.pi/3*i)], [r*np.sin(theta+np.pi/3*i)]])
+            tile_arrs.append(new_points)
+            
+        return tile_arrs
+    
+
+    points = np.flip(fills.T, axis=0)
+    possible_hop_locations = []
+    for hop in hops:
+        possible_hop_locations.append(points + np.array(hop).reshape(2, 1))
+
+
+    
+    tiles = pbc_tile()
+
+    site_hops = []
+    for i in range(len(possible_hop_locations)):
+        for j in range(possible_hop_locations[i].shape[1]):
+            site = possible_hop_locations[i][:, j].reshape(2, 1)
+            if any(np.equal(points, site).all(1)):
+                site_hops.append([list(fills[j, :]), list(site), hop_type[i]])
+            elif pbc:
+                for tile in tiles:
+                    print(tile)
+                    if any(np.equal(tile, site).all(1)):
+                        print('hit')
+                        found = np.all(tile == site, axis=1)
+                        
+
+                        tile[0] -= np.min(tile[0])
+                        tile[1] -= np.min(tile[1])
+
+
+
+    return
+
+    site_hops = []
+    for i in range(len(full_arr_hops)):
+        for j in range(len(full_arr_hops[i])):
+            site = full_arr_hops[i][j]
+            if site[0] < lattice.shape[0] and site[1] < lattice.shape[1]:
+                if lattice[site[0], site[1]] >= 0:
+                    site_hops.append([list(fills[j, :]), list(site), hop_type[i]])
+            elif pbc:
+                for tile in tiles:
+                    pass
+            else:
+                pass
+
+
+    for e in site_hops:
+        if e[0] == [70, 58]:
+            print(e)
+    
+    
+    
+
 
 
 if __name__ == "__main__":
+
+    #np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.3g" % x))
+
     generation = 3
     side_length = 14
-    hexaflake_positions, fractal_lattice, fractal_fills, fractal_holes, honeycomb_positions, pristine_lattice, pristine_fills, pristine_holes = hexaflake_lattice(generation, side_length)
+    fractal_lattice, fractal_fills, fractal_holes, pristine_lattice, pristine_fills, pristine_holes = fractal_and_honeycomb_lattices(generation, side_length)
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    if True:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        fig, ax, cbar = plot_imshow(fig, ax, np.arange(pristine_lattice.shape[1]), np.arange(pristine_lattice.shape[0]), pristine_lattice, doDiscreteCmap=True)
+        plt.savefig('pristine_imshow.png')
+        plt.show()
 
-    ax.scatter(hexaflake_positions[0], hexaflake_positions[1], label='hexaflake_lattice')
-    ax.set_title(f'Hexaflake - Generation {generation:.0f}')
-    plt.savefig('hexaflake_lattice.png')
-    plt.show()
+    get_hopping_sites(pristine_lattice, pristine_fills, True)
 
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    ax.scatter(honeycomb_positions[0], honeycomb_positions[1], label='honeycomb_lattice')
-    ax.set_title(f"Honeycomb Lattice - Side Length {side_length}")
-    plt.savefig('honeycomb_lattice.png')
-    plt.show()
+    if False:
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+
+
+        ax.scatter(hexaflake_positions[0], hexaflake_positions[1], label='hexaflake_lattice')
+        ax.set_title(f'Hexaflake - Generation {generation:.0f}')
+        plt.show()
+
+        fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+        ax.scatter(honeycomb_positions[0], honeycomb_positions[1], label='honeycomb_lattice')
+        ax.set_title(f"Honeycomb Lattice - Side Length {side_length}")
+        plt.show()
