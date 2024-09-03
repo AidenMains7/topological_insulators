@@ -1,6 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from time import time
+from numba import jit
 
 import sys
 sys.path.append(".")
@@ -31,7 +32,7 @@ def honeycomb_lattice(side_length:int) -> np.ndarray:
         hex_row[1] -= np.mean(hex_row[1])
 
         return hex_row
-        
+                
 
     hexagon_lattice = np.empty((2, 1))
 
@@ -73,24 +74,26 @@ def hexaflake_lattice(generation:int) -> np.ndarray:
     return fractal_iteration(generation)
 
 
-def _create_lattice(positions:np.ndarray):
-    positions[0] *= 2.0
-    positions[1] *= 2/np.sqrt(3)
-
-    positions[0] -= np.min(positions[0])
-    positions[1] -= np.min(positions[1])
-
-    positions = np.round(positions, 0).astype(int)
-
-    lattice = np.ones((np.max(positions[1]).astype(int)+1, np.max(positions[0]).astype(int)+1), dtype=int)*(-1)
-    lattice[positions[1], positions[0]] = np.ones(positions.shape[1]) 
-
-    fills = np.argwhere(lattice >= 0)
-    holes = np.argwhere(lattice < 0)
-    return positions, lattice, fills, holes
-
-
 def fractal_and_honeycomb_lattices(generation:int, honeycomb_side_length:int):
+    """
+    
+    """
+    def _create_lattice(positions:np.ndarray):
+        positions[0] *= 2.0
+        positions[1] *= 2/np.sqrt(3)
+
+        positions[0] -= np.min(positions[0])
+        positions[1] -= np.min(positions[1])
+
+        positions = np.round(positions, 0).astype(int)
+
+        lattice = np.ones((np.max(positions[1]).astype(int)+1, np.max(positions[0]).astype(int)+1), dtype=int)*(-1)
+        lattice[positions[1], positions[0]] = np.ones(positions.shape[1]) 
+
+        fills = np.argwhere(lattice >= 0)
+        holes = np.argwhere(lattice < 0)
+        return positions, lattice, fills, holes
+    
     hexaflake = hexaflake_lattice(generation)
     honeycomb = honeycomb_lattice(honeycomb_side_length)
 
@@ -99,113 +102,129 @@ def fractal_and_honeycomb_lattices(generation:int, honeycomb_side_length:int):
 
     return fractal_lattice, fractal_fills, fractal_holes, pristine_lattice, pristine_fills, pristine_holes
 
-def get_hopping_sites(lattice:np.ndarray, fills:np.ndarray, pbc:bool=False):
-    # List of directions (delta y, delta x):
-    # From red to blue A1, A2, A3:
-    # 0, -2 
-    # 1, 1
-    # -1, 1
-    # From blue to red B1, B2, B3:
-    # 0, 2
-    # -1, -1
-    # 1, -1
+def get_hopping_sites(fills:np.ndarray, pbc:bool=False):
+    """
+    
+    """
+    def _pbc_tile(init_pos:np.ndarray) -> "list[np.ndarray]":  
+        """
+        Presumes scaling such that positions are integer values. 
+        Parameters:  
+        init_lattice_positions (ndarray): 2 x N array, such that the first row is x-positions and the second is y-positions.
+        """
+        x_max, y_max = np.max(init_pos[0]), np.max(init_pos[1])
 
+        lab = ['tr', 'tl', 'br', 'bl', 't', 'b']
+        displacements = [None]*6
+        displacements[0] = [x_max*3/4+3, y_max/2-1]
+        displacements[1] = [-x_max*3/4, y_max/2+2]
+        displacements[2] = [x_max*3/4, -y_max/2-2]
+        displacements[3] = [-x_max*3/4-3, -y_max/2+1]
+        displacements[4] = [3, y_max+1]
+        displacements[5] = [-3, -y_max-1]
+        
+        tiles = []
+        for d in displacements:
+            tiles.append(init_pos+np.array(d).reshape(2, 1))
+
+        if True:
+            cmap = plt.colormaps['viridis']
+            colors = cmap(np.linspace(0, 1, 7))
+
+            fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+            for i in range(len(tiles)):
+                ax.scatter(tiles[i][0], tiles[i][1], label=lab[i], c=colors[i], alpha=1.0)
+            ax.scatter(init_pos[0], init_pos[1], label='init', c=colors[-1], alpha=1.0)
+            ax.legend()
+            plt.show()
+
+        return tiles
+    
+    def _get_mean_xy(_p):
+        # xmin, xmax, xmean, ymin, ymax, ymean
+        values = [np.min(_p[0]), np.max(_p[0]), np.mean(_p[0]),
+                  np.min(_p[1]), np.max(_p[1]), np.mean(_p[1])]
+        return [values[2], values[5]]
+
+
+    # Six hop types, labels for each hop
     hops = [[0, -2], [1, 1],   [-1, 1], [0, 2],  [-1, -1], [1, -1]] # A1, A2, A3, B1, B2, B3
     hop_type = [f'{l}{i}' for l in ['A', 'B'] for i in [1, 2, 3]]
 
-    full_arr_hops = []
+    # The integer-array positions of every point in the lattice
+    init_lattice_positions = np.flipud(fills.T)
+
+    # Six arrays of all possible hops from one lattice site to another
+    all_possible_hops = []
     for hop in hops:
-        full_arr_hops.append(fills + np.array(hop).reshape(1, 2))
+        all_possible_hops.append(init_lattice_positions + np.array(hop).reshape(2, 1))
+
+    # Create six identical lattices tiled around the initial lattice.
+    pbc_arrays = _pbc_tile(init_lattice_positions)
+    pbc_labels = ['tr', 'tl', 'br', 'bl', 't', 'b']
+
+    # Calculate the hopping for each site
+    valid_hops = []
+    pbc_hops = []
+    init_means = _get_mean_xy(init_lattice_positions)
+    for i in range(len(hops)):
+        for j in range(all_possible_hops[i].size//2):
+            init_site = init_lattice_positions[:, j].flatten()
+            site = all_possible_hops[i][:, j].reshape(2, 1)
 
 
-    def pbc_tile():
-        points = np.flip(fills.T, axis=0)   
-        plt.scatter(points[0], points[1])
-
-        plt.show()
-        "points (ndarray): 2xN array, such that the first row is x-positions and the second is y-positions."
-        range_y = np.max(points[1]) - np.min(points[1])
-        a = 3
-        b = range_y+1
-        theta = np.pi/2 - np.arctan(a/b)
-        r = np.sqrt(a**2 + b**2)
-
-        tile_arrs = []
-        for i in range(6):
-            new_points = points + np.array([[r*np.cos(theta+np.pi/3*i)], [r*np.sin(theta+np.pi/3*i)]])
-            tile_arrs.append(new_points)
-            
-        return tile_arrs
-    
-
-    points = np.flip(fills.T, axis=0)
-    possible_hop_locations = []
-    for hop in hops:
-        possible_hop_locations.append(points + np.array(hop).reshape(2, 1))
-
-
-    
-    tiles = pbc_tile()
-
-    site_hops = []
-    for i in range(len(possible_hop_locations)):
-        for j in range(possible_hop_locations[i].shape[1]):
-            site = possible_hop_locations[i][:, j].reshape(2, 1)
-            if any(np.equal(points, site).all(1)):
-                site_hops.append([list(fills[j, :]), list(site), hop_type[i]])
-            elif pbc:
-                for tile in tiles:
-                    print(tile)
-                    if any(np.equal(tile, site).all(1)):
-                        print('hit')
-                        found = np.all(tile == site, axis=1)
-                        
-
-                        tile[0] -= np.min(tile[0])
-                        tile[1] -= np.min(tile[1])
-
-
-
-    return
-
-    site_hops = []
-    for i in range(len(full_arr_hops)):
-        for j in range(len(full_arr_hops[i])):
-            site = full_arr_hops[i][j]
-            if site[0] < lattice.shape[0] and site[1] < lattice.shape[1]:
-                if lattice[site[0], site[1]] >= 0:
-                    site_hops.append([list(fills[j, :]), list(site), hop_type[i]])
-            elif pbc:
-                for tile in tiles:
-                    pass
+            if any(np.equal(init_lattice_positions, site).all(0)):
+                valid_hops.append([init_site.tolist(), site.flatten().tolist(), hop_type[i]])
             else:
                 pass
 
+            if pbc:
+                for k in range(len(pbc_arrays)):
+                    new_means = _get_mean_xy(pbc_arrays[k])
+                    if any(np.equal(pbc_arrays[k], site).all(0)):
+                        # Wrap into inital lattice
+                        displacement = np.array([init_means[0]-new_means[0], init_means[1]-new_means[1]])
+                        site_in_init = (site.flatten() + displacement.flatten()).reshape(2, 1).astype(int)
 
-    for e in site_hops:
-        if e[0] == [70, 58]:
-            print(e)
+                        # Check
+                        if any(np.equal(init_lattice_positions, site_in_init).all(0)):
+                            pass
+                        else:
+                            raise ValueError(f"Issue regarding site_in_init: init, site, site_in_init = {init_site}, {site}, {site_in_init}")
+                        
+                        pbc_hops.append([init_site.tolist(), site_in_init.flatten().tolist(), hop_type[i]])
+                        break
+                    else:
+                        pass
     
+    for e in pbc_hops:
+        print(e)
     
-    
+    if not pbc:
+        return valid_hops
+    else:
+        return valid_hops+pbc_hops
 
 
 
 if __name__ == "__main__":
 
-    #np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.3g" % x))
+    np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.3g" % x))
 
     generation = 3
     side_length = 14
+    t0 = time()
     fractal_lattice, fractal_fills, fractal_holes, pristine_lattice, pristine_fills, pristine_holes = fractal_and_honeycomb_lattices(generation, side_length)
+    print(f"time to generate lattices: {time()-t0:.3f}s")
+    get_hopping_sites(fractal_fills, True)
 
-    if True:
+
+    if False:
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-        fig, ax, cbar = plot_imshow(fig, ax, np.arange(pristine_lattice.shape[1]), np.arange(pristine_lattice.shape[0]), pristine_lattice, doDiscreteCmap=True)
-        plt.savefig('pristine_imshow.png')
-        plt.show()
 
-    get_hopping_sites(pristine_lattice, pristine_fills, True)
+        #fig, ax, cbar = plot_imshow(fig, ax, np.arange(pbc_lattice_arrs.shape[1]), np.arange(pbc_lattice_arrs.shape[0]), pbc_lattice_arrs, doDiscreteCmap=True)
+        #plt.savefig('pristine_imshow.png')
+        plt.show()
 
     if False:
         fig, ax = plt.subplots(1, 1, figsize=(10, 10))
