@@ -1,14 +1,10 @@
 import numpy as np
 
-n=20
-arr = np.arange(n).reshape(2, n//2)
+n=100
+arr = np.arange(n).reshape(10, 10)
 
 print(arr)
 
-s = np.array([[4], [14]])
-
-print(arr.shape)
-print(s.shape)
-
-if any(np.equal(arr, s).any(1)):
-    print("True")
+a = np.random.randint(0, 10, (10, 2))
+print(a)
+print(arr[a[:, 0], a[:, 1]])
