@@ -85,7 +85,7 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
             plot_disorder(disorder_outfile, False, True)
     
     print(f"Total time taken: {time()-t0:.0f}s")
-    return time()-t0
+    return disorder_outfile
 
 #----------main function implementation--------
 
@@ -123,6 +123,4 @@ def main():
 
 
 if __name__ == "__main__":
-    files = return_all_file_type('./data/bott_disorder/8-15-2024', '.npz')
-    for file in files:
-        plot_disorder(file, False, True)
+    plot_disorder('disorder_renorm.npz', True, False)

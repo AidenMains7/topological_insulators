@@ -674,6 +674,8 @@ def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray]":
     neg = np.argwhere(eigvals < 0)[-1]
     idxs = [neg[0], pos[0]]
 
+    neg = np.argsort(eigvals)
+
     # Eigenvectors and eigenvalues for lowest energy states
     eigva_one, eigva_two = eigvals[idxs[0]], eigvals[idxs[1]]
     eigve_one, eigve_two = eigvecs[:, idxs[0]], eigvecs[:, idxs[1]]
@@ -687,8 +689,7 @@ def LDOS(Hamiltonian:np.ndarray) -> "tuple[np.ndarray]":
     # Spectral gap
     gap = np.abs(eigva_one - eigva_two)
 
-
-    return LDOS_one + LDOS_two, gap
+    return (LDOS_one + LDOS_two, gap)
 
 
 def remap_LDOS(local_density, lattice):

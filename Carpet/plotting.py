@@ -2,6 +2,11 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import axes, figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+from matplotlib import colormaps
+
+from filesaving import return_all_file_type
+#import scienceplots
+#plt.style.use(['science', 'ieee'])
 
 
 def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:np.ndarray, cmap:str='viridis', doDiscreteCmap:bool=False) -> None:
@@ -25,7 +30,7 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
     cbar_ticks = np.linspace(cbar_bounds[0], cbar_bounds[-1], np.unique(Z).size)
 
     if doDiscreteCmap:
-        cmap = plt.get_cmap(cmap, int(Z.max()-Z.min()+1))
+        cmap = colormaps.get_cmap(cmap, int(Z.max()-Z.min()+1))
 
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
@@ -124,7 +129,7 @@ def plot_series(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, ser
 
     if plot_type == 'scatter':
         for i in range(Y.shape[0]):
-            s = ax.scatter(X, Y[i, :], label=series_labels[i], c=series_colors[i])
+            s = ax.scatter(X, Y[i, :], label=series_labels[i], color=series_colors[i])
             series_list.append(s)
 
     elif plot_type == 'line':
@@ -139,6 +144,13 @@ def plot_series(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, ser
 def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis', figsize:tuple=(10, 10)) -> None:
     filedata = np.load(infile, allow_pickle=True)
     data, params = filedata['data'], filedata['parameters'][()]
+
+    if True:
+        for k, v in zip(params.keys(), params.values()):
+            print(f"{k}  :  {v}")
+
+        print()
+        print(data)
 
     lattice_param_vals = data[1:, 0:2]
     disorder_vals = data[0, 2:]
@@ -156,7 +168,7 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
         title = f"Method of {params['method']}, n = {params['n']:.0f}. {boundary_cond_str}. Generation {params['order']}.\n(t1, t2, B) = ({params['t1']}, {params['t2']}, {params['B']})"
 
     fig, ax = plt.subplots(1, 1, figsize=figsize)
-    fig, ax = plot_series(fig, ax, disorder_vals, bott_vals, series_labels, get_colors_from_cmap(cmap, len(series_labels)), plot_type='line', marker='.')
+    fig, ax = plot_series(fig, ax, disorder_vals, bott_vals, series_labels, get_colors_from_cmap(cmap, len(series_labels)), plot_type='scatter', marker='.')
 
     ax.hlines(0, 0, disorder_vals.max(), colors='k', ls='--')
 
@@ -175,7 +187,7 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
         if outfile == None:
             plt.savefig(infile[:-4]+'.png')
         else:
-            plt.savefig(outfile)
+            plt.savefig(outfile, format='svg')
 
     if doShow:
         plt.show()
@@ -183,7 +195,7 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
 
 
 def get_colors_from_cmap(cmap:str, amount:int):
-    return np.array([plt.cm.get_cmap(cmap)(val) for val in np.linspace(0.0, 1.0, amount)])
+    return np.array([colormaps.get_cmap(cmap)(val) for val in np.linspace(0.0, 1.0, amount)])
 
 
 
@@ -207,7 +219,17 @@ def test_series_plot():
 
 
 def main():
-    pass
+    direc = './Data/Bott_Disorder/8-15-2024/'
+    f = 'disorder_site_elim_crystalline.npz'
+    outf = ''+'.png'
+    plot_disorder(direc+f, True, False, outf, figsize=(7.5, 7.5))
 
 if __name__ == "__main__":
-    main()
+    
+    plot_disorder('backup/disorder_renorm.npz')
+    if False:
+        files = return_all_file_type("Data/bott_disorder/8-15-2024", '.npz')
+        for f in files:
+            plot_disorder(f, False, False, outfile=f[:-4]+'.svg')
+
+    
