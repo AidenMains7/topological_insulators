@@ -2,3 +2,5 @@
 /dan_code/
 /hexaflake/dans_stuff/
 /references/
+/.venv/
+*/__pycache__/*
