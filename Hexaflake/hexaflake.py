@@ -2,11 +2,13 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.sparse import dok_matrix
 from numba import jit
+from scipy.linalg import eigvalsh
 
 import sys
 sys.path.append(".")
 from time import time
 from Carpet.plotting import plot_imshow
+from Carpet.project_dependencies import projector_exact, bott_index
 
 # naive method to prevent trying to import scienceplots on wkstn
 if sys.version_info[1] > 9:
@@ -292,7 +294,20 @@ if __name__ == "__main__":
     M = 1.0
     B = 1.0
 
+    t0 = time()
     H = construct_hamiltonian(pristine_lattice, pristine_fills, hops, t, M, B)
+    print(f"time to compute H: {(time()-t0)*1000:.3f}ms")
+
+
+    eigs = eigvalsh(H)
+    x = np.arange(eigs.size)
+    plt.scatter(x, eigs)
+    plt.show()  
+
+    P = projector_exact(H, 0.0)
+    bott = bott_index(P, pristine_lattice)
+    print(bott)
+
 
     if False:
         fractal_lattice[fractal_fills[:, 0], fractal_fills[:, 1]] = np.ones(fractal_fills.shape[0])
