@@ -113,7 +113,7 @@ def main():
         doParallelIter = True,
         doParallelRange = False,
         doParallelMany = False,
-        num_jobs = 28,
+        num_jobs = 4,
         cores_per_job = 1,
         saveEach = True
     )

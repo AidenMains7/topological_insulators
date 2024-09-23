@@ -124,6 +124,9 @@ def disorder_avg(H_init:np.ndarray, lattice:np.ndarray, W:float, iterations:int,
     # Compute a single value
     def do_iter(i):
 
+        if progress:
+            print(f"Initiaiting W = {W}, {100*(i+1)/iterations:.2f}%")
+
         if KPM:
             # Calculate a disorder operator
             disorder_operator = mass_disorder(W, system_size, 2, sparse=True)
