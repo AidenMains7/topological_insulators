@@ -97,30 +97,30 @@ def main():
         pbc = True,
         n = 1,
         t1 = 1.0,
-        t2 = 1.0,
+        t2 = 0.0,
         B = 1.0,
-        M_values =         [10.0],
-        B_tilde_values =   [0.875, 0.9, 0.925],
-        W_values =         np.linspace(0.0, 10.0, 4, endpoint=False) + (12.5/4),
-        iterations = 1,
+        M_values =         [6.5],
+        B_tilde_values =   [0.0],
+        W_values =         np.array([4.29]),
+        iterations = 25,
         E_F = 0.0,
         KPM = False,
         N = 512,
         progress_bott = True,
-        progress_disorder_iter = False, 
+        progress_disorder_iter = True, 
         progress_disorder_range = False,
-        progress_disorder_many = True,
-        doParallelIter = False,
-        doParallelRange = True,
-        doParallelMany = True,
-        num_jobs = 4,
+        progress_disorder_many = False,
+        doParallelIter = True,
+        doParallelRange = False,
+        doParallelMany = False,
+        num_jobs = 28,
         cores_per_job = 1,
         saveEach = True
     )
 
-    run_computation(parameters, True, True, False, True, None)
+    run_computation(parameters, True, True, False, False, None)
 
 
 
 if __name__ == "__main__":
-    plot_disorder('disorder_renorm.npz', True, False)
+    main()

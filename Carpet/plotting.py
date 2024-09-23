@@ -2,9 +2,10 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import axes, figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from matplotlib import colormaps
 
-from filesaving import return_all_file_type
+import sys
+sys.path.append(".")
+from Carpet.filesaving import return_all_file_type
 #import scienceplots
 #plt.style.use(['science', 'ieee'])
 
@@ -30,7 +31,7 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
     cbar_ticks = np.linspace(cbar_bounds[0], cbar_bounds[-1], np.unique(Z).size)
 
     if doDiscreteCmap:
-        cmap = colormaps.get_cmap(cmap, int(Z.max()-Z.min()+1))
+        cmap = plt.cm.get_cmap(cmap, int(Z.max()-Z.min()+1))
 
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
@@ -145,12 +146,14 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
     filedata = np.load(infile, allow_pickle=True)
     data, params = filedata['data'], filedata['parameters'][()]
 
-    if True:
+    if False:
         for k, v in zip(params.keys(), params.values()):
             print(f"{k}  :  {v}")
 
         print()
         print(data)
+
+    np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.3g" % x))
 
     lattice_param_vals = data[1:, 0:2]
     disorder_vals = data[0, 2:]
@@ -174,8 +177,8 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
 
     x_ticks = np.linspace(disorder_vals.min(), disorder_vals.max(), 11)
     y_ticks = [-2.0, -1.0, 0.0, 1.0, 2.0]
-    ax.set_xticks(x_ticks, labels=np.round(x_ticks, 1))
-    ax.set_yticks(y_ticks, labels=np.round(y_ticks, 0))
+    ax.set_xticks(x_ticks)
+    ax.set_yticks(y_ticks)
     ax.set_ylim(-2.0, 2.0)
 
     ax.set_xlabel("Disorder Strength")
@@ -195,7 +198,7 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
 
 
 def get_colors_from_cmap(cmap:str, amount:int):
-    return np.array([colormaps.get_cmap(cmap)(val) for val in np.linspace(0.0, 1.0, amount)])
+    return np.array([plt.cm.get_cmap(cmap)(val) for val in np.linspace(0.0, 1.0, amount)])
 
 
 
@@ -226,7 +229,7 @@ def main():
 
 if __name__ == "__main__":
     
-    plot_disorder('backup/disorder_renorm.npz')
+    plot_disorder('zOrganizing data/disorder_symmetry.npz')
     if False:
         files = return_all_file_type("Data/bott_disorder/8-15-2024", '.npz')
         for f in files:

@@ -157,9 +157,15 @@ def spectral_gap_range(method, M_vals, B_tilde_vals, order, pbc=True, n=None, t1
 
     def do_single(M, B_tilde):
         H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)
-        local, gap = LDOS(H)
+        eigvals = eigvalsh(H)
 
-        return [M, gap]
+        pos_idxs = np.argwhere(eigvals > 0)
+        neg_idxs = np.argwhere(eigvals < 0)
+
+        spectral_gap = np.abs(eigvals[pos_idxs[0]] - eigvals[neg_idxs[-1]])[0]
+        bandwidth = np.abs(eigvals[pos_idxs[-1]] - eigvals[neg_idxs[0]])
+        return [M, spectral_gap]
+
 
     data = np.array(Parallel(n_jobs=num_jobs)(delayed(do_single)(params[j][0], params[j][1]) for j in range(len(params)))).T
     return data
@@ -320,8 +326,15 @@ def right_now():
 def spectral_gap(method, t1, t2, B, M, B_tilde):
     pre_data, lat = precompute(method, 3, 0, True, 1, t1, t2, B)
     H = Hamiltonian_reconstruct(method, pre_data, M, B_tilde, False)   
-    l, gap = LDOS(H)
-    return gap
+    
+    eigvals = eigvalsh(H)
+
+    pos_idxs = np.argwhere(eigvals > 0)
+    neg_idxs = np.argwhere(eigvals < 0)
+
+    spectral_gap = np.abs(eigvals[pos_idxs[0]] - eigvals[neg_idxs[-1]])
+    bandwidth = np.abs(eigvals[pos_idxs[-1]] - eigvals[neg_idxs[0]])
+    return spectral_gap
 
 
 def disorder_fig():
@@ -490,8 +503,11 @@ def main():
     plot_FIG3(f)
 
 if __name__ == "__main__":
-    print(np.linspace(1.0, 7.0, 25))
-    data = spectral_gap_range('renorm', np.linspace(1.0, 7.0, 25), [0.0], 3, True, None, 1.0, 0.0, 1.0, 4)
+    print(np.linspace(1.0, 7.0, 50))
+    data = spectral_gap_range('symmetry', np.linspace(1.0, 7.0, 50), [0.0], 3, True, 1, 1.0, 0.0, 1.0, 4)
     plt.scatter(data[0, :], data[1, :])
+    plt.xlabel("M")
+    plt.ylabel("Minimal gap")
+    plt.title("Method of symmetry : spectral gap\n (t1,t2,B)=(1,0,1) : B_tlide=0.0")
     print(data)
     plt.show()

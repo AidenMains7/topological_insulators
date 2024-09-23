@@ -115,4 +115,4 @@ def main():
 
 if __name__ == "__main__":
 
-    print(min_max_gap('renorm', 1.0, 0.0, 1.0, 6.0, 0.0))
+    print(min_max_gap('symmetry', 1.0, 0.0, 1.0, 6.0, 0.0))
