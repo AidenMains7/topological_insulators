@@ -123,7 +123,7 @@ def main():
     )
 
     fdata = np.array(pd.read_csv('gen4_computations.csv'))
-    for i in fdata.shape[0]:
+    for i in range(fdata.shape[0]):
         d = fdata[i]
         parameters['M_values'] = np.array(d[1]).astype(int)
         parameters['B_tilde_values'] = np.array(d[2]).astype(int)
@@ -138,4 +138,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()  

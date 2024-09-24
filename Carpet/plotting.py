@@ -207,7 +207,7 @@ def print_npz_info(f, savetxt):
     data, params = fdata['data'], fdata['parameters'][()]
     print(f)
     print(f'{params['method']} : {params['M_values']} : {params['B_tilde_values']}')
-    print(pd.DataFrame(data[:, 0:-27]))
+    print(pd.DataFrame(data[:, 0:-35]))
     print()
     if savetxt:
         np.savetxt(f[:-4]+'.txt', data)
