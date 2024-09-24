@@ -2,6 +2,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 from matplotlib import axes, figure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
+import pandas as pd
 
 import sys
 sys.path.append(".")
@@ -153,7 +154,6 @@ def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=N
         print()
         print(data)
 
-    np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.3g" % x))
 
     lattice_param_vals = data[1:, 0:2]
     disorder_vals = data[0, 2:]
@@ -207,10 +207,10 @@ def print_npz_info(f, savetxt):
     data, params = fdata['data'], fdata['parameters'][()]
     print(f)
     print(f'{params['method']} : {params['M_values']} : {params['B_tilde_values']}')
-    print(data)
+    print(pd.DataFrame(data[:, 0:-27]))
     print()
     if savetxt:
-        np.savetxt(f[:-4]+'.npz', data)
+        np.savetxt(f[:-4]+'.txt', data)
 #-------------Main Function Implementation-----------------
 
 def test_series_plot():
@@ -237,6 +237,28 @@ def main():
     plot_disorder(direc+f, True, False, outf, figsize=(7.5, 7.5))
 
 if __name__ == "__main__":
+    np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.2g" % x))
+    pd.set_option('display.precision', 1)
     files = return_all_file_type('./zorganizing data', '.npz')
+
+    c_list = []
+    se = []
+    sy = []
+    re = []
     for f in files:
-        print_npz_info(f, True)
+        if "crystalline" in f:
+            c_list.append(f)
+        elif "site_elim" in f:
+            se.append(f)
+        elif "renorm" in f:
+            re.append(f)
+        elif "symmetry" in f:
+            sy.append(f)
+    
+    flists = [c_list, se, sy, re]
+    for fl in flists:
+        for f in fl:
+            print_npz_info(f, False)
+
+
+    

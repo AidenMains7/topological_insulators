@@ -1,0 +1,10 @@
+Figure Region,M,B_tilde,Last Robust W,Method,crystalline
+(a),6.5,0,4.8,symmetry,n
+(b),1,0,4.8,symmetry,n
+(c),10,0.85,2.1,symmetry,y
+(d),6.5,0,4.8,site_elim,n
+(e),1,0,4.8,site_elim,n
+(f),10,0.85,2.1,site_elim,y
+(g),1,0,8.2,renorm,n
+(h),6,0,8.2,renorm,n
+(i),10,1,7.9,renorm,y
