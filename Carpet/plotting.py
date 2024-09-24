@@ -202,6 +202,15 @@ def get_colors_from_cmap(cmap:str, amount:int):
 
 
 
+def print_npz_info(f, savetxt):
+    fdata = np.load(f, allow_pickle=True)
+    data, params = fdata['data'], fdata['parameters'][()]
+    print(f)
+    print(f'{params['method']} : {params['M_values']} : {params['B_tilde_values']}')
+    print(data)
+    print()
+    if savetxt:
+        np.savetxt(f[:-4]+'.npz', data)
 #-------------Main Function Implementation-----------------
 
 def test_series_plot():
@@ -228,11 +237,6 @@ def main():
     plot_disorder(direc+f, True, False, outf, figsize=(7.5, 7.5))
 
 if __name__ == "__main__":
-    
-    plot_disorder('zOrganizing data/disorder_symmetry.npz')
-    if False:
-        files = return_all_file_type("Data/bott_disorder/8-15-2024", '.npz')
-        for f in files:
-            plot_disorder(f, False, False, outfile=f[:-4]+'.svg')
-
-    
+    files = return_all_file_type('./zorganizing data', '.npz')
+    for f in files:
+        print_npz_info(f, True)
