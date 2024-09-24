@@ -145,7 +145,14 @@ def plot_series(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, ser
 
 def plot_disorder(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis', figsize:tuple=(10, 10)) -> None:
     filedata = np.load(infile, allow_pickle=True)
-    data, params = filedata['data'], filedata['parameters'][()]
+    try:
+        params = filedata['parameters'][()]
+    except:
+        params = filedata['p_list'][0]
+    
+    data = filedata['data']
+
+    print(params)
 
     if False:
         for k, v in zip(params.keys(), params.values()):
@@ -236,7 +243,7 @@ def main():
     outf = ''+'.png'
     plot_disorder(direc+f, True, False, outf, figsize=(7.5, 7.5))
 
-if __name__ == "__main__":
+def main2():
     np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.2g" % x))
     pd.set_option('display.precision', 1)
     files = return_all_file_type('./zorganizing data', '.npz')
@@ -260,5 +267,13 @@ if __name__ == "__main__":
         for f in fl:
             print_npz_info(f, False)
 
+
+if __name__ == "__main__":
+    files = return_all_file_type('./gen4/', '.npz')
+    for f in files:
+        fdata = np.load(f, allow_pickle=True)
+        data, params = fdata['data'], fdata['parameters'][()]
+        print(f)
+        print(data)
 
     
