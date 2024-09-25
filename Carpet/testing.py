@@ -20,4 +20,9 @@ def show_data(f):
 
 
 if __name__ == "__main__":
-    show_data('gen4/disorder_gen4_symmetry_crystalline_0.npz')
+    files = return_all_file_type('gen4/attempt2/', '.npz')
+
+    for f in files:
+        print(f)
+        show_data(f)
+        print()
