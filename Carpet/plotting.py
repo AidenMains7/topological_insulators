@@ -213,7 +213,7 @@ def print_npz_info(f, savetxt):
     fdata = np.load(f, allow_pickle=True)
     data, params = fdata['data'], fdata['parameters'][()]
     print(f)
-    print(f'{params['method']} : {params['M_values']} : {params['B_tilde_values']}')
+    print(f"{params['method']} : {params['M_values']} : {params['B_tilde_values']}")
     print(pd.DataFrame(data[:, 0:-35]))
     print()
     if savetxt:

@@ -176,9 +176,9 @@ def main():
     fdata = np.array(pd.read_csv('gen4/gen4_computations.csv'))
     for i in range(fdata.shape[0]):
         d = fdata[i]
-        parameters['M_values'] = np.array(d[1]).astype(int)
-        parameters['B_tilde_values'] = np.array(d[2]).astype(int)
-        parameters['W_values'] = np.array(d[3])
+        parameters['M_values'] = np.array([d[1]]).astype(float)
+        parameters['B_tilde_values'] = np.array([d[2]]).astype(float)
+        parameters['W_values'] = np.array([d[3]]).astype(float)
         parameters['method'] = d[4]
         parameters['t2'] = 1.0 if d[5] == 'y' else 0.0
         
