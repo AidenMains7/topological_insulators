@@ -89,8 +89,10 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
             plot_disorder(disorder_outfile, False, True)
     
     print(f"Total time taken: {time()-t0:.0f}s")
-    return disorder_outfile
-
+    if computeDisorder:
+        return disorder_outfile
+    else:
+        return bott_outfile
 
 
 def resaving_data():
@@ -186,8 +188,41 @@ def main():
         run_computation(parameters, True, True, False, False, None, f)
 
 
+def main2():
+    # Generate a heatmap for bott index values over a range
+    parameters = dict(
+        method = 'symmetry',
+        order = 3,
+        pad_width = 0,
+        pbc = True,
+        n = 1,
+        t1 = 1.0,
+        t2 = 1.0,
+        B = 1.0,
+        M_values =         np.linspace(-2.0, 12.0, 141),
+        B_tilde_values =   np.linspace(0.0, 2.0, 21),
+        W_values =         None,
+        iterations = None,
+        E_F = 0.0,
+        KPM = False,
+        N = 512,
+        progress_bott = True,
+        progress_disorder_iter = True, 
+        progress_disorder_range = False,
+        progress_disorder_many = False,
+        doParallelIter = True,
+        doParallelRange = False,
+        doParallelMany = False,
+        num_jobs = 4,
+        cores_per_job = 1,
+        saveEach = False
+    )
+
+    for m in ['symmetry', 'site_elim', 'renorm']:
+        parameters['method'] = m
+        run_computation(parameters, True, False, False, False)
 
 
 if __name__ == "__main__":
-    pass
+    main2()
 
