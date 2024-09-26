@@ -20,7 +20,7 @@ def show_data(f):
 
 
 if __name__ == "__main__":
-    files = return_all_file_type('gen4/attempt2/', '.npz')
+    files = return_all_file_type('gen4/', '.npz')
 
     for f in files:
         print(f)
