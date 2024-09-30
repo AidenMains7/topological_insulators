@@ -76,7 +76,14 @@ def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None,
     """
 
     filedata = np.load(infile, allow_pickle=True)
-    data, params = filedata['data'], filedata['parameters'][()]
+    print(filedata.files)
+    try:
+        data, params = filedata['data'], filedata['parameters'][()]
+    except KeyError:
+        try:
+            data, params = filedata['bott_index'], filedata['parameters'][()]
+        except:
+            pass
 
 
     boundary_cond_str = 'PBC' if params['pbc'] else 'OBC'

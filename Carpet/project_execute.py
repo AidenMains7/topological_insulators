@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
-from filesaving import save_to_npz_intermittently
+from filesaving import save_to_npz_intermittently, add_to_bott_npz
 
 from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
 
@@ -34,7 +34,7 @@ def task_with_timeout(task_func:object, timeout:float, return_shape:tuple, *args
 
 
 # Parallel
-def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, KPM:bool=False, N:int=512, progress_bott:bool=False, num_jobs:int=28, cores_per_job:int=1) -> np.ndarray:
+def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, KPM:bool=False, N:int=512, progress_bott:bool=False, num_jobs:int=28, cores_per_job:int=1, saveEach:bool=False, filename:str=None) -> np.ndarray:
     """
     Computes the Bott Index for every combination of M and B_tilde
 
@@ -86,12 +86,19 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t
             time_message = f"{time()-t0:.0f}s"
             print(f"{percent_message.ljust(10)} {bott_message.ljust(15)} {time_message.rjust(5)}")
 
-        return np.array([M, B_tilde, bott])
+        arr = np.array([M, B_tilde, bott])
+        if saveEach:
+            add_to_bott_npz(filename,arr.T[:, ~np.isnan(arr).any(axis=0)])
+        else:
+            return arr
 
     # Compute
-    bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values)))).T
-    bott_arr = bott_arr[:, ~np.isnan(bott_arr).any(axis=0)]
-    return bott_arr
+    if saveEach:
+        Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values)))
+    else:
+        bott_arr = np.array(Parallel(n_jobs=num_jobs)(delayed(compute_single)(j) for j in range(len(parameter_values)))).T
+        bott_arr = bott_arr[:, ~np.isnan(bott_arr).any(axis=0)]
+        add_to_bott_npz(filename,bott_arr)
 
 
 # May be parallel
@@ -215,7 +222,7 @@ def disorder_range(H:np.ndarray, lattice:np.ndarray, W_values:np.ndarray, iterat
 
 
 # May be parallel
-def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress_disorder_iter:bool=False, progress_disorder_range:bool=False, progress_disorder_many:bool=False, doStatistic:bool=False, doParallelIter:bool=False, doParallelRange:bool=False, doParallelMany:bool=False, num_jobs:int=28, cores_per_job:int=1, saveEach:bool=True, disorder_outfile:str=None) -> np.ndarray:
+def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, W_values:np.ndarray, iterations:int, E_F:float=0.0, KPM:bool=False, N:int=512, progress_disorder_iter:bool=False, progress_disorder_range:bool=False, progress_disorder_many:bool=False, doStatistic:bool=False, doParallelIter:bool=False, doParallelRange:bool=False, doParallelMany:bool=False, num_jobs:int=28, cores_per_job:int=1, saveEachDisorder:bool=True, disorder_outfile:str=None) -> np.ndarray:
     """
     Will find the resultant Bott Index from disorder over the provided range for all provided (M, B_tilde, bott_init) values.
 
@@ -292,7 +299,7 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
             value_message = f"Completed range calculation: (M, B_tilde, Bott) = ({M:+.2f}, {B_tilde:+.2f}, {bott_init:+.2f})"
             print(f"{percent_message.ljust(10)} {value_message.ljust(len(value_message))} {time_message.rjust(5)}")
         
-        if saveEach:
+        if saveEachDisorder:
             save_to_npz_intermittently(disorder_outfile, disorder_arr, f"({M}, {B_tilde})")
 
         return disorder_arr
@@ -311,7 +318,7 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
     X = np.concatenate((np.array([np.nan, np.nan, 0.0]), W_values), axis=0)
     X = X.reshape(1, X.size)
 
-    if saveEach:
+    if saveEachDisorder:
         save_to_npz_intermittently(disorder_outfile, X, f"disorder_strengths")
         return
     else:

@@ -95,13 +95,23 @@ def save_to_npz_intermittently(filename:str, data:np.ndarray, data_name:str):
         np.savez(filename, **new_arr)
 
 
-def add_to_npz_file(filename:str, data:"np.ndarray | dict | list", data_name:str):
+def add_to_npz_file(filename:str, data:"dict", data_name:str=None):
     with np.load(filename, allow_pickle=True) as file_data:
         arrs = [file_data[name] for name in file_data.files]
         file_dict = {key: value for key, value in zip(file_data.files, arrs)}
-        new_arr = {data_name: data}
 
-    np.savez(filename, **new_arr, **file_dict)
+    np.savez(filename, **data, **file_dict)
+
+def add_to_bott_npz(filename:str, arr_to_add:"np.ndarray"):
+    if Path(filename).is_file():
+        with np.load(filename, allow_pickle=True) as file_data:
+            arrs = [file_data[name] for name in file_data.files]
+            file_dict = {key: value for key, value in zip(file_data.files, arrs)}
+            file_dict.pop("bott_index")
+            new_arr = {"bott_index": np.concatenate((arrs[0], arr_to_add.flatten()[:, np.newaxis]), axis=1)}
+        np.savez(filename, **new_arr, **file_dict)
+    else:
+        np.savez(filename, bott_index=arr_to_add.flatten()[:, np.newaxis])
     
 
 def reorder_npz_disorder(filename:str):
