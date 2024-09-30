@@ -1,7 +1,7 @@
 import numpy as np
 import inspect 
 from time import time, sleep
-from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder, return_all_file_type
+from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder, return_all_file_type, add_to_bott_npz
 import pandas as pd
 
 from project_execute import bott_many, disorder_many
@@ -33,11 +33,10 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
 
     if computeBott:
         # Compute the Bott Index [USES PARALLELIZATION]
-        bott_arr = bott_many(**filtered_dict)
-
-        # Save the Bott Index data
         bott_outfile = generate_save_filename('bott.npz')[0]
-        np.savez(bott_outfile, data=bott_arr, parameters=parameters)
+        bott_many(**filtered_dict, saveEach=parameters["saveEachBott"], filename=bott_outfile)
+        add_to_npz_file(bott_outfile, {"parameters":parameters})
+    
         print(f"Bott Index data saved as {bott_outfile}")
 
         # Plot Bott Index data
@@ -77,7 +76,7 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
 
 
         # Saving the disorder data
-        if parameters["saveEach"]:
+        if parameters["saveEachDisorder"]:
             add_to_npz_file(disorder_outfile, parameters, 'parameters')
             reorder_npz_disorder(disorder_outfile)
         else:
@@ -146,49 +145,8 @@ def resaving_data():
 
 #----------main function implementation--------
 
+
 def main():
-    parameters = dict(
-        method = None,
-        order = 4,
-        pad_width = 0,
-        pbc = True,
-        n = 1,
-        t1 = 1.0,
-        t2 = 0.0,
-        B = 1.0,
-        M_values =         None,
-        B_tilde_values =   None,
-        W_values =         None,
-        iterations = 25,
-        E_F = 0.0,
-        KPM = False,
-        N = 512,
-        progress_bott = True,
-        progress_disorder_iter = True, 
-        progress_disorder_range = False,
-        progress_disorder_many = False,
-        doParallelIter = True,
-        doParallelRange = False,
-        doParallelMany = False,
-        num_jobs = 28,
-        cores_per_job = 1,
-        saveEach = False
-    )
-
-    fdata = np.array(pd.read_csv('gen4/gen4_computations.csv'))
-    for i in range(fdata.shape[0]):
-        d = fdata[i]
-        parameters['M_values'] = np.array([d[1]]).astype(float)
-        parameters['B_tilde_values'] = np.array([d[2]]).astype(float)
-        parameters['W_values'] = np.array([d[3]]).astype(float)
-        parameters['method'] = d[4]
-        parameters['t2'] = 1.0 if d[5] == 'y' else 0.0
-        
-        f = f"disorder_gen4_{parameters['method']}_crystalline.npz" if d[5] == 'y' else f"disorder_gen4_{parameters['method']}.npz"
-        run_computation(parameters, True, True, False, False, None, f)
-
-
-def main2():
     # Generate a heatmap for bott index values over a range
     parameters = dict(
         method = 'symmetry',
@@ -199,8 +157,8 @@ def main2():
         t1 = 1.0,
         t2 = 1.0,
         B = 1.0,
-        M_values =         np.linspace(-2.0, 12.0, 141),
-        B_tilde_values =   np.linspace(0.0, 2.0, 21),
+        M_values =         np.linspace(-2.0, 12.0, 15),
+        B_tilde_values =   np.linspace(0.0, 2.0, 3),
         W_values =         None,
         iterations = None,
         E_F = 0.0,
@@ -215,14 +173,15 @@ def main2():
         doParallelMany = False,
         num_jobs = 4,
         cores_per_job = 1,
-        saveEach = False
+        saveEachDisorder = False,
+        saveEachBott = True
     )
 
-    for m in ['symmetry', 'site_elim', 'renorm']:
+    for m in ['symmetry']:
         parameters['method'] = m
         run_computation(parameters, True, False, False, False)
 
 
 if __name__ == "__main__":
-    main2()
+    plot_bott('bott_10  .npz')
 
