@@ -95,7 +95,7 @@ def save_to_npz_intermittently(filename:str, data:np.ndarray, data_name:str):
         np.savez(filename, **new_arr)
 
 
-def add_to_npz_file(filename:str, data:"dict", data_name:str=None):
+def add_to_npz_file(filename:str, data:"dict"):
     with np.load(filename, allow_pickle=True) as file_data:
         arrs = [file_data[name] for name in file_data.files]
         file_dict = {key: value for key, value in zip(file_data.files, arrs)}
@@ -141,13 +141,7 @@ def reorder_npz_disorder(filename:str):
 
 
 def main():
-    reorder_npz_disorder('disorder_1.npz')
-
-
-def main2():
-    filedata = np.load('disorder_1.npz', allow_pickle=True)
-    print([filedata[arr] for arr in filedata.files])
-
+    pass
 
 
 if __name__ == "__main__":

@@ -1,12 +1,18 @@
+"""
+
+
+
+
+"""
+
+
+
 import numpy as np
 import inspect 
-from time import time, sleep
-from filesaving import generate_filenames, generate_save_filename, add_to_npz_file, reorder_npz_disorder, return_all_file_type, add_to_bott_npz
-import pandas as pd
-
+from time import time
+from filesaving import generate_save_filename, add_to_npz_file, reorder_npz_disorder
 from project_execute import bott_many, disorder_many
 from plotting import plot_bott, plot_disorder
-from system_functions import profile_print_save
 
 
 def _read_from_npz(filename:str):
@@ -15,10 +21,24 @@ def _read_from_npz(filename:str):
     return data, params
 
 
-def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None, disorderFile:str=None) -> float:
+def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool=True, plotBott:bool=False, plotDisorder:bool=False, bottFile:str=None, disorderFile:str=None) -> str:
     """
     Will run disorder computation with parameters specified in internal dictionary. Will save data from both Bott Index calculation and disorder calculation. May plot.
+
+    Parameters:
+    parameters (dict): A dictionary of specified parameters to use in computation
+    computeBott (bool): Flag to control whether to compute the Bott Index
+    computeDisorder (bool): Flag to control whether to compute disorder
+    plotBott (bool): Flag whether to plot Bott Index data
+    plotDisorder (bool): Flag whether to plot disorder data
+    bottFile (str|None): If computeBott is False, then a file should be given to read this same data from.
+    disorderFile (str|None): If specified, the name of the output file for disorder data.
+
+    Returns: 
+    if computeDisorder: bott_outfile (str): The filename of which the bott data is saved.
+    else: disorder_outfile (str): The filename of which the disorder data is saved.
     """
+    # Check that the input parameters make sense
     if not computeBott and not computeDisorder:
         raise ValueError("There is no point if both computeBott and computeDisorder are False.")
     
@@ -27,7 +47,7 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
 
     t0 = time()
 
-    # Use applicable **kwargs
+    # Use applicable **kwargs targeted for bott_many
     bott_params = inspect.signature(bott_many).parameters
     filtered_dict = {k: v for k, v in parameters.items() if k in bott_params}
 
@@ -36,14 +56,13 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
         bott_outfile = generate_save_filename('bott.npz')[0]
         bott_many(**filtered_dict, saveEach=parameters["saveEachBott"], filename=bott_outfile)
         add_to_npz_file(bott_outfile, {"parameters":parameters})
-    
         print(f"Bott Index data saved as {bott_outfile}")
 
         # Plot Bott Index data
         if plotBott:
             plot_bott(bott_outfile, False, True)
     else:
-
+        # Read from the file which has either just been computed or is given
         bott_arr, file_params = _read_from_npz(bottFile)
 
         # If read from file, will use the parameters specified above, barring what is necessary to maintain correctness.
@@ -51,6 +70,7 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
         for kw in ['method', 'order', 'pad_width', 'pbc', 'n', 'M_values', 'B_tilde_values']:
             parameters[f"{kw}"] = file_params[f"{kw}"]
 
+            # Print dict values for some reason
             if kw in ['M_values', 'B_tilde_values']:
                 val = parameters[f"{kw}"]
                 print(f"{kw}: np.linspace{np.min(val), np.max(val), val.size}")
@@ -58,7 +78,7 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
                 print(f"{kw} = {parameters[kw]}")
 
         
-    # Compute disorder
+    # Run disorder calculation
     if computeDisorder:
         # Use applicable **kwargs
         disorder_params = inspect.signature(disorder_many).parameters
@@ -94,94 +114,45 @@ def run_computation(parameters:dict, computeBott:bool=True, computeDisorder:bool
         return bott_outfile
 
 
-def resaving_data():
-    files = return_all_file_type('zorganizing data/', '.npz')
-    
-
-    fs = 'zorganizing data/disorder_'
-    fe = '.npz'
-
-    files = [fs+f+fe for f in ['symmetry_crystalline']]
-
-    w_list = []
-    s = []
-    p_list = []
-    for f in files:
-        fdata = np.load(f, allow_pickle=True)
-        data = fdata['data']
-        params = fdata['parameters'][()]
-        print(data[:, :2])
-
-        p_list.append(params)
-        w_list.append(data[0, :])
-        for i in range(data.shape[0]-1):
-            s.append(data[i+1, :])
-    
-    if False:
-        if np.average((w_list[0]-w_list[1])[2:]) != 0:
-            print(np.average((w_list[0]-w_list[1])[2:]))
-            sleep(1)
-            raise ValueError
-
-
-
-    good_list = []
-    added_list = []
-    for i in range(len(s)):
-        if s[i][1] in [0.95, 0.925, 0.85] and s[i][1] not in added_list:
-            added_list.append(s[i][1])
-            good_list.append(s[i][:, np.newaxis])
-
-    good_list = [w_list[0][:, np.newaxis]]+good_list
-    
-
-    new_arr = np.concatenate(good_list, axis=1).T
-
-    print(np.round(new_arr, 2))
-
-    if False:
-        np.savez('./fig1_data/fig1_c.npz', data=new_arr, p_list=p_list)
-
-
 #----------main function implementation--------
 
 
-def main():
-    # Generate a heatmap for bott index values over a range
-    parameters = dict(
-        method = 'symmetry',
-        order = 3,
-        pad_width = 0,
-        pbc = True,
-        n = 1,
-        t1 = 1.0,
-        t2 = 1.0,
-        B = 1.0,
-        M_values =         np.linspace(-2.0, 12.0, 15),
-        B_tilde_values =   np.linspace(0.0, 2.0, 3),
-        W_values =         None,
-        iterations = None,
-        E_F = 0.0,
-        KPM = False,
-        N = 512,
-        progress_bott = True,
-        progress_disorder_iter = True, 
-        progress_disorder_range = False,
-        progress_disorder_many = False,
-        doParallelIter = True,
-        doParallelRange = False,
-        doParallelMany = False,
-        num_jobs = 4,
-        cores_per_job = 1,
-        saveEachDisorder = False,
-        saveEachBott = True
-    )
+    def main():
+        # Generate a heatmap for bott index values over a range
+        parameters = dict(
+            method = 'symmetry',
+            order = 3,
+            pad_width = 0,
+            pbc = True,
+            n = 1,
+            t1 = 1.0,
+            t2 = 1.0,
+            B = 1.0,
+            M_values =         np.linspace(-2.0, 12.0, 15),
+            B_tilde_values =   np.linspace(0.0, 2.0, 3),
+            W_values =         None,
+            iterations = None,
+            E_F = 0.0,
+            KPM = False,
+            N = 512,
+            progress_bott = True,
+            progress_disorder_iter = True, 
+            progress_disorder_range = False,
+            progress_disorder_many = False,
+            doParallelIter = True,
+            doParallelRange = False,
+            doParallelMany = False,
+            num_jobs = 4,
+            cores_per_job = 1,
+            saveEachDisorder = False,
+            saveEachBott = True
+        )
 
-    for m in ['symmetry']:
-        parameters['method'] = m
-        run_computation(parameters, True, False, False, False)
+        for m in ['symmetry']:
+            parameters['method'] = m
+            run_computation(parameters, True, False, False, False)
 
 
 if __name__ == "__main__":
-    plot_bott('bott_10  .npz')
+    plot_bott('bott_10.npz')
 

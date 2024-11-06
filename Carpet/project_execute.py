@@ -1,7 +1,3 @@
-"""
-
-"""
-
 import numpy as np
 from itertools import product
 from joblib import Parallel, delayed
@@ -9,10 +5,9 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from time import time
 import os
 from filesaving import save_to_npz_intermittently, add_to_bott_npz
-
 from project_dependencies import mass_disorder, projector_exact, projector_KPM, bott_index, precompute, Hamiltonian_reconstruct
 
-
+# Define core values to prevent cannibalization
 def init_environment(cores_per_job:int=1) -> None:
     ncore = str(int(cores_per_job))
     os.environ["OMP_NUM_THREADS"] = ncore
@@ -21,7 +16,7 @@ def init_environment(cores_per_job:int=1) -> None:
     os.environ["VECLIB_MAXIMUM_THREADS"] = ncore
     os.environ["NUMEXPR_NUM_THREADS"] = ncore
 
-
+# Run a computation with a time limit.
 def task_with_timeout(task_func:object, timeout:float, return_shape:tuple, *args, **kwargs):
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(task_func, *args, **kwargs)
@@ -31,7 +26,6 @@ def task_with_timeout(task_func:object, timeout:float, return_shape:tuple, *args
             result = np.full(return_shape, np.nan)
     
     return result
-
 
 # Parallel
 def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t2:float, B:float, M_values:np.ndarray, B_tilde_values:np.ndarray, E_F:float=0.0, KPM:bool=False, N:int=512, progress_bott:bool=False, num_jobs:int=28, cores_per_job:int=1, saveEach:bool=False, filename:str=None) -> np.ndarray:
@@ -50,10 +44,11 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t
     num_jobs (int): Number of threads to use to compute
     cores_per_job (int): Number of cores per job
     progress_bott (bool): Display progress info
-    sparse (bool): whether to generate as a sparse matrix
+    saveEach (bool): Whether to save the completed data after every computation, or all at the end
+    filename (str): If specified, the filename for the result data.
 
     Returns:
-    bott_arr (ndarray): Array of shape (3, N). Row 0 is M value, row 1 is B_tilde value, row 2 is Bott Index
+    None
     """
 
     # Initialize environment to avoid cannibalization

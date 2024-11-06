@@ -2,13 +2,16 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy.sparse import dok_matrix
 from numba import jit
-from scipy.linalg import eigvalsh
+from scipy.linalg import eigvalsh, eigh, eigvals
+from joblib import Parallel, delayed
+from itertools import product
 
 import sys
 sys.path.append(".")
 from time import time
-from Carpet.plotting import plot_imshow
-from Carpet.project_dependencies import projector_exact, bott_index
+from Carpet.plotting import plot_imshow, reshape_imshow_data
+
+
 
 # naive method to prevent trying to import scienceplots on wkstn
 if sys.version_info[1] > 9:
@@ -276,50 +279,96 @@ def construct_hamiltonian(lattice:np.ndarray, fills:np.ndarray, hops:list, t:flo
     return H
         
 
+def precompute(generation:int, side_length:int, pbc:bool) -> tuple:
+    fractal_lattice, fractal_fills, fractal_holes, pristine_lattice, pristine_fills, pristine_holes = fractal_and_honeycomb_lattices(generation, side_length)
+    fractal_hops = get_hopping_sites(fractal_fills, pbc)
+    pristine_hops = get_hopping_sites(pristine_fills, pbc)
+    return fractal_lattice, fractal_fills, fractal_hops, pristine_lattice, pristine_fills, pristine_hops
+
+
+def projector_exact(H:np.ndarray, E_F:float) -> np.ndarray:
+    '''
+    Constructs the projector of the Hamiltonian onto the states below the Fermi energy
+
+    Parameters: 
+    H (ndarray): Hamiltonian operator
+    fermi_energy (float): Fermi energy
+
+    Returns: 
+    P (ndarray): Projector operator  
+    '''
+    #eigenvalues and eigenvectors of the Hamiltonian
+    eigvals, eigvecs = eigh(H, overwrite_a=True)
+
+    #diagonal matrix 
+    D = np.where(eigvals < E_F, 1.0 + 0.0j, 0.0 + 0.0j)
+    D_dagger = np.einsum('i,ij->ij', D, eigvecs.conj().T)
+
+    #projector given by matrix multiplaction of eigenvectors and D_dagger
+    P = eigvecs @ D_dagger
+
+    return P
+
+
+def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
+    '''
+    Computes the Bott Index for a given lattice and projector
+    '''
+    Y, X = np.where(lattice >= 0)[:]
+    system_size = np.max(lattice) + 1
+    states_per_site = P.shape[0] // system_size
+    X = np.repeat(X, states_per_site)
+    Y = np.repeat(Y, states_per_site)
+    Ly, Lx = lattice.shape
+
+    #
+    Ux = np.exp(1j*2*np.pi*X/Lx)
+    Uy = np.exp(1j*2*np.pi*Y/Ly)
+
+    UxP = np.einsum('i,ij->ij', Ux, P)
+    UyP = np.einsum('i,ij->ij', Uy, P)
+    Ux_daggerP = np.einsum('i,ij->ij', Ux.conj(), P)
+    Uy_daggerP = np.einsum('i,ij->ij', Uy.conj(), P)
+
+    A = np.eye(P.shape[0], dtype=np.complex128) - P + P.dot(UxP).dot(UyP).dot(Ux_daggerP).dot(Uy_daggerP)
+   
+    #Tr(logm(A)) = sum of log of eigvals of A
+    bott = round(np.imag(np.sum(np.log(eigvals(A)))) / (2 * np.pi))
+    
+    # Old, slower method.
+    #bott = round(np.imag(np.trace(logm(A))) / (2 * np.pi))
+
+    return bott
+
+
+def bott_range(gen, side_len, pbc, M_values, B_values, t1=1.0, doFractal:bool=False):
+    fractal_lattice, fractal_fills, fractal_hops, pristine_lattice, pristine_fills, pristine_hops = precompute(gen, side_len, pbc)
+    params = tuple(product(M_values, B_values))
+    print(fractal_lattice.shape)
+    if doFractal:
+        lat, fill, hop = fractal_lattice, fractal_fills, fractal_hops
+    else:
+        lat, fill, hop = pristine_lattice, pristine_fills, pristine_hops
+
+    def worker(i):
+        M, B = params[i]
+        H = construct_hamiltonian(lat, fill, hop, t1, M, B)
+        P = projector_exact(H, 0.0)
+        bott = bott_index(P, lat)
+        return [M, B, bott]
+    
+    bott_data = np.array(Parallel(n_jobs=4)(delayed(worker)(i) for i in range(len(params)))).T
+    return bott_data
+                        
+
+
+
+
 
 if __name__ == "__main__":
-
-    np.set_printoptions(threshold=np.inf, edgeitems=30, linewidth=10000, formatter=dict(float=lambda x: "%.3g" % x))
-
-    generation = 3
-    side_length = 14
-    t0 = time()
-    fractal_lattice, fractal_fills, fractal_holes, pristine_lattice, pristine_fills, pristine_holes = fractal_and_honeycomb_lattices(generation, side_length)
-    print(f"time to generate lattices: {(time()-t0)*1000:.3f}ms")
-    t0 = time()
-    hops = get_hopping_sites(pristine_fills, False)
-    print(f"time to get valid hops: {(time()-t0)*1000:.3f}ms")
+    bott_data = bott_range(2, 14, False, np.linspace(-2.0, 12, 16), np.linspace(0.0, 2.0, 5), doFractal=True)
     
-    t = 1.0
-    M = 1.0
-    B = 1.0
-
-    t0 = time()
-    H = construct_hamiltonian(pristine_lattice, pristine_fills, hops, t, M, B)
-    print(f"time to compute H: {(time()-t0)*1000:.3f}ms")
-
-
-    eigs = eigvalsh(H)
-    x = np.arange(eigs.size)
-    plt.scatter(x, eigs)
-    plt.show()  
-
-    P = projector_exact(H, 0.0)
-    bott = bott_index(P, pristine_lattice)
-    print(bott)
-
-
-    if False:
-        fractal_lattice[fractal_fills[:, 0], fractal_fills[:, 1]] = np.ones(fractal_fills.shape[0])
-        pristine_lattice[pristine_fills[:, 0], pristine_fills[:, 1]] = np.ones(pristine_fills.shape[0])
-
-        def naive_plot(lat):
-            fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-            plot_imshow(fig, ax, np.arange(lat.shape[1]), np.arange(lat.shape[0]), lat)
-            plt.show()
-
-        naive_plot(fractal_lattice)
-        naive_plot(pristine_lattice)
-
-
-
+    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
+    X, Y, Z = reshape_imshow_data(bott_data)
+    fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, doDiscreteCmap=True)
+    plt.show()

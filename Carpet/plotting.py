@@ -37,7 +37,15 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
     divider = make_axes_locatable(ax)
     cax = divider.append_axes('right', size='5%', pad=0.05)
 
-    im = ax.imshow(Z, cmap=cmap, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], aspect='auto')
+    def tensor_rescale(X, Y, Z, scaling_factor):
+        sc_mat_2d = np.ones((scaling_factor, scaling_factor))
+        sc_mat_1d = np.ones((scaling_factor, 1))
+
+        Z_scaled = np.kron(Z, sc_mat_2d)
+        X_scaled, Y_scaled = np.kron(X, sc_mat_1d), np.kron(Y, sc_mat_1d)
+        return X_scaled, Y_scaled, Z_scaled
+
+    im = ax.imshow(Z, cmap=cmap, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], aspect='auto', interpolation='lanczos')
 
     cbar = fig.colorbar(im, cax=cax, ticks=cbar_ticks, spacing='uniform', cmap=cmap)
 
@@ -70,7 +78,7 @@ def reshape_imshow_data(data:np.ndarray) -> "tuple[np.ndarray, np.ndarray, np.nd
 
 
 
-def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis', figsize:tuple=(10, 10)) -> None:
+def plot_bott(fig, ax, infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None, cmap:str='viridis', figsize:tuple=(10, 10)) -> None:
     """
     Wrapper function for reshape_imshow_data() tailored for data from computing the Bott Index of a lattice. 
     """
@@ -97,9 +105,8 @@ def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None,
     if Y.shape[0] <= 1 or X.shape[0] <= 1:
         raise ValueError("One of either X or Y dimensions has size <= 1.")
 
-    fig, ax = plt.subplots(1, 1, figsize=figsize)
 
-    fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, cmap, True)
+    fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, cmap, False)
 
     ax.set_xticks(np.linspace(X.min(), X.max(), 8))
     ax.set_yticks(np.linspace(Y.min(), Y.max(), 5))
@@ -117,6 +124,8 @@ def plot_bott(infile:str, doShow:bool=True, doSave:bool=False, outfile:str=None,
 
     if doShow:
         plt.show()
+
+    return fig, ax
 
 
 
@@ -276,11 +285,15 @@ def main2():
 
 
 if __name__ == "__main__":
-    files = return_all_file_type('./gen4/', '.npz')
-    for f in files:
-        fdata = np.load(f, allow_pickle=True)
-        data, params = fdata['data'], fdata['parameters'][()]
-        print(f)
-        print(data)
-
+    files = ['bott_method1_gen3.npz', 'bott_method1_gen4.npz']
+    fig, axs = plt.subplots(2, 1, figsize=(10,10))
     
+    fig, axs[0] = plot_bott(fig, axs[0], files[0], False, False)
+    fig, axs[1] = plot_bott(fig, axs[1], files[1], False, False)
+
+    for i in range(2):
+        axs[i].set_xlim((2.0, 11.0))
+        axs[i].set_ylim((0.0, 1.0))
+
+
+    plt.show()
