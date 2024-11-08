@@ -5,19 +5,12 @@ from numba import jit
 from scipy.linalg import eigvalsh, eigh, eigvals
 from joblib import Parallel, delayed
 from itertools import product
+import cProfile, pstats
 
 import sys
 sys.path.append(".")
 from time import time
 from Carpet.plotting import plot_imshow, reshape_imshow_data
-
-
-
-# naive method to prevent trying to import scienceplots on wkstn
-if sys.version_info[1] > 9:
-    import scienceplots
-    plt.style.use(['pgf'])
-
 
 # Creates a 2xN array of point position values
 def honeycomb_lattice(side_length:int) -> np.ndarray:
@@ -275,7 +268,11 @@ def construct_hamiltonian(lattice:np.ndarray, fills:np.ndarray, hops:list, t:flo
     d2 = t*d_tilde2
     d3 = (M-4*B)*I + B*d_tilde3
 
-    H = np.kron(d1, pauli1) + np.kron(d2, pauli2) + np.kron(d3, pauli3)
+    d1_n = np.kron(d1, pauli1)
+    d2_n = np.kron(d2, pauli2)
+    d3_n = np.kron(d3, pauli3)
+
+    H = d1_n + d2_n + d3_n
     return H
         
 
@@ -304,7 +301,7 @@ def projector_exact(H:np.ndarray, E_F:float) -> np.ndarray:
     D = np.where(eigvals < E_F, 1.0 + 0.0j, 0.0 + 0.0j)
     D_dagger = np.einsum('i,ij->ij', D, eigvecs.conj().T)
 
-    #projector given by matrix multiplaction of eigenvectors and D_dagger
+    #projector given by matrix multiplication of eigenvectors and D_dagger
     P = eigvecs @ D_dagger
 
     return P
@@ -341,34 +338,45 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     return bott
 
 
-def bott_range(gen, side_len, pbc, M_values, B_values, t1=1.0, doFractal:bool=False):
-    fractal_lattice, fractal_fills, fractal_hops, pristine_lattice, pristine_fills, pristine_hops = precompute(gen, side_len, pbc)
-    params = tuple(product(M_values, B_values))
-    print(fractal_lattice.shape)
+def bott_phase_data(gen, side_length, pbc, M_vals, B_vals, t, doFractal=False):
+    fractal_lattice, fractal_fills, fractal_hops, pristine_lattice, pristine_fills, pristine_hops = precompute(gen, side_length, pbc)
+
+    params = tuple(product(M_vals, B_vals))
+
     if doFractal:
-        lat, fill, hop = fractal_lattice, fractal_fills, fractal_hops
+        lattice, fills, hops = fractal_lattice, fractal_fills, fractal_hops
     else:
-        lat, fill, hop = pristine_lattice, pristine_fills, pristine_hops
+        lattice, fills, hops = pristine_lattice, pristine_fills, pristine_hops
 
-    def worker(i):
+    def single(i):
         M, B = params[i]
-        H = construct_hamiltonian(lat, fill, hop, t1, M, B)
+        H = construct_hamiltonian(lattice, fills, hops, t, M, B)
         P = projector_exact(H, 0.0)
-        bott = bott_index(P, lat)
+        bott = bott_index(P, lattice)
+
+        print(f"Complete {100*(i+1)/len(params)}% : M, B = {M}, {B}")
+
         return [M, B, bott]
-    
-    bott_data = np.array(Parallel(n_jobs=4)(delayed(worker)(i) for i in range(len(params)))).T
-    return bott_data
-                        
+    arr = np.array(Parallel(n_jobs=4)(delayed(single)(i) for i in range(len(params)))).T
+    return arr
 
 
-
+def profile_func(method):
+    pr = cProfile.Profile()
+    pr.enable()
+    method()
+    pr.disable()
+    ps = pstats.Stats(pr)
+    ps.strip_dirs()
+    ps.sort_stats('cumulative')
+    ps.print_stats(20)
 
 
 if __name__ == "__main__":
-    bott_data = bott_range(2, 14, False, np.linspace(-2.0, 12, 16), np.linspace(0.0, 2.0, 5), doFractal=True)
-    
-    fig, ax = plt.subplots(1, 1, figsize=(10, 10))
-    X, Y, Z = reshape_imshow_data(bott_data)
+    arr = bott_phase_data(1, 9, False, np.linspace(-2, 12, 4), np.linspace(0.0, 1.0, 4), 1.0, False)
+
+    X, Y, Z = reshape_imshow_data(arr)
+    fig, ax = plt.subplots(figsize=(10,10))
     fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, doDiscreteCmap=True)
     plt.show()
+
