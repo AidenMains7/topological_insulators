@@ -404,11 +404,17 @@ def plot_data(data_dict, n_closest=2):
 	x, y = coordinates.T
 
 	# Find indices of eigenvalues closest to zero
-	#pos_idxs = np.argsort(np.abs(np.where(eigenvalues > 0)))[:n_closest//2]
-	#neg_idxs = np.argsort(np.abs(np.where(eigenvalues < 0)))[:n_closest//2]
-	#closest_to_zero_idxs = np.concatenate((pos_idxs.flatten(), neg_idxs.flatten()), axis=0)
-	closest_to_zero_idxs = np.argsort(np.abs(eigenvalues))[:n_closest]
+	sorted_eigs = np.sort(eigenvalues)
+	pos_idxs = np.argwhere(sorted_eigs > 0)[:n_closest//2]
+	neg_idxs = np.argwhere(sorted_eigs < 0)[-n_closest//2:]
+	closest_to_zero_idxs = np.concatenate((pos_idxs.flatten(), neg_idxs.flatten()), axis=0)
+
+	#closest_to_zero_idxs = np.argsort(np.abs(eigenvalues))[:n_closest]
 	other_idxs = np.delete(np.arange(eigenvalues.size), closest_to_zero_idxs)
+
+
+
+
 
 	# Compute LDOS from selected eigenvectors
 	LDOS = (np.abs(eigenvectors[:, closest_to_zero_idxs]) ** 2).sum(axis=1)
@@ -518,7 +524,6 @@ def bott_index_coordinates(P, coordinates):
 	X = np.repeat(X, states_per_site)
 	Y = np.repeat(Y, states_per_site)
 	Ly, Lx = int(np.max(Y) - np.min(Y)), int(np.max(X) - np.min(X))
-	Ly, Lx = 1, 1
 
 	# Unitary matrices
 	Ux = np.exp(1j*2*np.pi*X/Lx)
@@ -546,29 +551,25 @@ def lattice_from_coords(coords):
 # ---
 
 
-def bott_range(method):
-	M_vals = np.linspace(-3/2, 3/2, 7)
-	phi_vals = np.linspace(-np.pi, np.pi, 5)
+def bott_range(method, fname):
+	e = 3*np.sqrt(3)	
+	M_vals = [-e, -e/2, 0, e/2, e]
+	p = np.pi
+	phi_vals = [-p, -p/2, 0, p/2, p]
 	params = tuple(product(M_vals, phi_vals))
 
 	def worker(i):
 		M, phi = params[i]
 		data_dict = data_wrapper(M, True, method, phi=phi)
 		coords = data_dict['coordinates'].T
-		coords[0] = coords[0]*2
-		coords[1] = coords[1]*2/np.sqrt(3)
-		coords[0] -= np.min(coords[0])
-		coords[1] -= np.min(coords[1])
-		coords = np.unique(coords, axis=1)
-		coords = coords.astype(int)
-
-		lat = lattice_from_coords(coords)
 		P = projector_exact(data_dict['hamiltonian'], 0.0)
-		bott = bott_index(P, lat)
+		bott = bott_index_coordinates(P, coords)
+		print(f"Completed {100*(i+1)/len(params):.2f}% : BI = {bott}")
 		return [phi, M, bott]
 	
-	data = np.array(Parallel(n_jobs=3)(delayed(worker)(j) for j in range(len(params)))).T
+	data = np.array(Parallel(n_jobs=4)(delayed(worker)(j) for j in range(len(params)))).T
 	
+	np.savez(fname, data)
 
 	import sys
 	sys.path.append(".")
@@ -587,17 +588,15 @@ def main():
     """
 	# Define parameters
 	# Topological region: |M| < |3 * sqrt(3) * t2 * sin(phi)|
-	M = (1 / 2) * 3 * np.sqrt(3) # Semiconducting mass term
-	PBC = False  # Periodic boundary conditions
+	p = 11*np.pi/12
+	M = (1 / 2) * 3 * np.sqrt(3)*np.sin(p) # Semiconducting mass term
+	PBC = True  # Periodic boundary conditions
 	method = 'site_elim'  # Method to handle vacancies
 	# Start timing
 	t0 = time.time()
-	# Prepare data and compute eigenvalues and eigenvectors
-	data_dict = data_wrapper(M, PBC, method, t1=1., t2=1., phi=np.pi/2)
-
-
 	
-	from pybott import bott as pb_bott
+	# Prepare data and compute eigenvalues and eigenvectors
+	data_dict = data_wrapper(M, PBC, method, t1=1., t2=1., phi=p)
 
 	coords = data_dict['coordinates'].T
 	coords_init = coords 
@@ -609,17 +608,13 @@ def main():
 	coords = coords.astype(int)
 	lat = lattice_from_coords(coords)
 
-
-
 	P = projector_exact(data_dict['hamiltonian'], 0.0)
-
-	bi = bott_index(P, lat)
-
+	#bi = bott_index(P, lat)
 	bi2 = bott_index_coordinates(P, coords_init)
-	print(f"BI = {bi}")
+	#print(f"BI = {bi}")
 	print(f"BI (coords) = {bi2}")
 	
-
+	#from pybott import bott as pb_bott
 	#pyb = pb_bott(coords_init.T, data_dict['hamiltonian'], 0.0)
 	#print(f"pybott bott = {round(pyb, 0)}")
 
@@ -632,4 +627,5 @@ def main():
 
 
 if __name__ == '__main__':
-	main()
+	#main()
+	bott_range('site_elim', 'site_bott_data_0.npz')
