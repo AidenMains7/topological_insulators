@@ -45,7 +45,7 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
         X_scaled, Y_scaled = np.kron(X, sc_mat_1d), np.kron(Y, sc_mat_1d)
         return X_scaled, Y_scaled, Z_scaled
 
-    im = ax.imshow(Z, cmap=cmap, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], aspect='auto', interpolation='lanczos')
+    im = ax.imshow(Z, cmap=cmap, extent=[x_bounds[0], x_bounds[1], y_bounds[0], y_bounds[1]], aspect='auto')
 
     cbar = fig.colorbar(im, cax=cax, ticks=cbar_ticks, spacing='uniform', cmap=cmap)
 
