@@ -56,7 +56,7 @@ def bott_many(method:str, order:int, pad_width:int, pbc:bool, n:int, t1:float, t
 
     #precompute data
     pre_data, lattice = precompute(method, order, pad_width, pbc, n, t1, t2, B)
-    parameter_values = tuple(product(M_values, B_tilde_values))
+    parameter_values =   tuple(product(M_values, B_tilde_values))
     t0 = time()
 
     def compute_single(i):
