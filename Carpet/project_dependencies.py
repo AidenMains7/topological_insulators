@@ -717,10 +717,10 @@ def remap_LDOS(local_density, lattice):
 
 #-------main function implementation-----------------
 def main():
-    lat = np.arange(25).reshape(5, 5)
-    idx = np.array([[0, 1, 2], [1, 2, 3]])
-    print(lat)
-    print(lat[idx[0, :], idx[1, :]])
+    sq, fr, h, f = sierpinski_lattice(4, 0)
+    print(fr)
+    print(fr.shape)
+    print(sq.shape)
 
 if __name__ == "__main__":
     np.set_printoptions(threshold=np.inf)

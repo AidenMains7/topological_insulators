@@ -373,10 +373,6 @@ def profile_func(method):
 
 
 if __name__ == "__main__":
-    arr = bott_phase_data(1, 9, False, np.linspace(-2, 12, 4), np.linspace(0.0, 1.0, 4), 1.0, False)
+    fractal_lattice, fractal_fills, fractal_hops, pristine_lattice, pristine_fills, pristine_hops = precompute(3, 14, False)
 
-    X, Y, Z = reshape_imshow_data(arr)
-    fig, ax = plt.subplots(figsize=(10,10))
-    fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, doDiscreteCmap=True)
-    plt.show()
-
+    print(fractal_lattice.shape)

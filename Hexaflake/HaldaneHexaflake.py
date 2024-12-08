@@ -6,6 +6,9 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
 from joblib import Parallel, delayed
 from itertools import product
+import sys
+sys.path.append(".")
+from Carpet.plotting import reshape_imshow_data, plot_imshow
 
 def compute_hopping_array(coordinates_discrete, PBC):
 	"""
@@ -75,7 +78,7 @@ def compute_hopping_array(coordinates_discrete, PBC):
 	return delta_x.astype(np.int64), delta_y.astype(np.int64)
 
 
-def compute_geometric_data(iterations, PBC):
+def compute_geometric_data(iterations, PBC, arbitrary_hex=None):
 	"""
     Computes the geometric data required for constructing the Haldane model
     on a hexagonal lattice (hexaflake structure).
@@ -161,8 +164,25 @@ def compute_geometric_data(iterations, PBC):
 	piece2 = np.flipud(piece1[3:, :])
 	hexagon_mask = np.vstack((piece2, piece1)).astype(bool)
 
+	if arbitrary_hex is not None:
+		arbitrary_hex[0] = arbitrary_hex[0]*2
+		arbitrary_hex[1] = arbitrary_hex[1]*2/np.sqrt(3)
+		arbitrary_hex[0] -= np.min(arbitrary_hex[0])
+		arbitrary_hex[1] -= np.min(arbitrary_hex[1])
+		arbitrary_hex = np.unique(arbitrary_hex, axis=1)
+		arbitrary_hex = arbitrary_hex.astype(int)
+		idxs = np.lexsort((arbitrary_hex[0, :], arbitrary_hex[1, :]))
+		arbitrary_hex = arbitrary_hex[:, idxs]
+		lattice = np.full((np.max(arbitrary_hex[1]).astype(int)+1, np.max(arbitrary_hex[0]).astype(int)+1), 0, dtype=int)
+		lattice[arbitrary_hex[1], arbitrary_hex[0]] = np.arange(arbitrary_hex.shape[1])+1
+		hexagon_mask = lattice.astype(bool)
+		hexaflake_mask = np.full(hexagon_mask.shape, False, dtype=bool)
+
 	# Identify vacancies (sites in hexagon_mask not in hexaflake_mask)
-	vacancies_mask = hexagon_mask & (~hexaflake_mask)
+	if arbitrary_hex is not None:
+		vacancies_mask = hexagon_mask
+	else:
+		vacancies_mask = hexagon_mask & (~hexaflake_mask)
 
 	Ly, Lx = hexagon_mask.shape
 
@@ -327,7 +347,7 @@ def mat_inv_hermitian(A):
 	return A_inv
 
 
-def data_wrapper(M, PBC, method, iterations=3, t1=1., t2=1., phi=np.pi / 2):
+def data_wrapper(M, PBC, method, iterations=3, t1=1., t2=1., phi=np.pi / 2, ahex_L = None):
 	"""
     Wraps the data preparation steps: computes geometric data, constructs the
     Hamiltonian, and computes eigenvalues and eigenvectors.
@@ -348,7 +368,11 @@ def data_wrapper(M, PBC, method, iterations=3, t1=1., t2=1., phi=np.pi / 2):
 		raise ValueError("Invalid method. Options are 'hexagon', 'site_elim', and 'renorm'.")
 
 	# Compute geometric data
-	geometric_data = compute_geometric_data(iterations, PBC)
+	if ahex_L is not None:
+		ahex = honeycomb_lattice(ahex_L)
+		geometric_data = compute_geometric_data(iterations, PBC, ahex)
+	else:
+		geometric_data = compute_geometric_data(iterations, PBC)
 
 	# Unpack required data
 	coordinates = geometric_data['coordinates']
@@ -540,6 +564,52 @@ def bott_index_coordinates(P, coordinates):
 	return bott
 
 
+def honeycomb_lattice(side_length: int) -> np.ndarray:
+    """
+    Generate a 2D honeycomb lattice with the specified side length.
+
+    Parameters:
+    side_length (int): Number of hexagon tiles on each side.
+
+    Returns:
+    np.ndarray: A 2xN array representing the coordinates of the lattice.
+    """
+    # Define the angles and generate a single hexagon
+    angles = 2 * np.pi * np.arange(1, 7) / 6
+    hexagon = np.array([np.cos(angles), np.sin(angles)])
+
+    def _row_of_n_hexagons(n: int) -> np.ndarray:
+        """Generate a row of `n` hexagons."""
+        row = hexagon.copy()
+        for i in range(1, n):
+            row = np.append(row, hexagon + np.array([[3 * i], [0]]), axis=1)
+        row[0] -= np.mean(row[0])
+        row[1] -= np.mean(row[1])
+        return row
+
+    # Initialize the lattice
+    hexagon_lattice = np.empty((2, 0))
+    offset = np.sqrt(3) * 3 / 2
+
+    # Generate the upper half of the honeycomb
+    for i, num_hexagons in enumerate(range(side_length, 2 * side_length)):
+        row = _row_of_n_hexagons(num_hexagons)
+        row += np.array([[0], [i * offset]])
+        hexagon_lattice = np.append(hexagon_lattice, row, axis=1)
+
+    # Reflect the upper half to generate the lower half
+    lower_half = np.array([[0], [2 * np.max(hexagon_lattice[1]) - np.sqrt(3)]]) - hexagon_lattice
+    hexagon_lattice = np.append(hexagon_lattice, lower_half, axis=1)
+
+    # Center the lattice around the origin
+    hexagon_lattice[0] -= np.mean(hexagon_lattice[0])
+    hexagon_lattice[1] -= np.mean(hexagon_lattice[1])
+
+    # Ensure unique points
+    hexagon_lattice = np.unique(hexagon_lattice, axis=1)
+
+    return hexagon_lattice
+
 
 def lattice_from_coords(coords):
     idxs = np.lexsort((coords[0, :], coords[1, :]))
@@ -571,12 +641,11 @@ def bott_range(method, fname):
 	
 	np.savez(fname, data)
 
-	import sys
-	sys.path.append(".")
-	from Carpet.plotting import reshape_imshow_data, plot_imshow
 	X, Y, Z = reshape_imshow_data(data)
 	fig, ax = plt.subplots(1, 1, figsize=(10,10))
 	fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, doDiscreteCmap=True)
+	theta = np.linspace(-np.pi, np.pi, 100)
+	ax.plot(theta, np.sin(theta))
 	plt.savefig("haldane_bott_site_elim.png")
 
 
@@ -588,18 +657,18 @@ def main():
     """
 	# Define parameters
 	# Topological region: |M| < |3 * sqrt(3) * t2 * sin(phi)|
-	p = 11*np.pi/12
+	p = np.pi/2
 	M = (1 / 2) * 3 * np.sqrt(3)*np.sin(p) # Semiconducting mass term
 	PBC = True  # Periodic boundary conditions
-	method = 'site_elim'  # Method to handle vacancies
+	method = 'hexagon'  # Method to handle vacancies
 	# Start timing
 	t0 = time.time()
 	
 	# Prepare data and compute eigenvalues and eigenvectors
-	data_dict = data_wrapper(M, PBC, method, t1=1., t2=1., phi=p)
+	data_dict = data_wrapper(M, PBC, method, iterations=2, t1=1., t2=1., phi=p, ahex_L=18)
 
 	coords = data_dict['coordinates'].T
-	coords_init = coords 
+	coords_init = coords.copy()
 	coords[0] = coords[0]*2
 	coords[1] = coords[1]*2/np.sqrt(3)
 	coords[0] -= np.min(coords[0])
@@ -608,10 +677,13 @@ def main():
 	coords = coords.astype(int)
 	lat = lattice_from_coords(coords)
 
+	print(coords.shape)
+	print(lat.shape)
+
 	P = projector_exact(data_dict['hamiltonian'], 0.0)
-	#bi = bott_index(P, lat)
+	bi = bott_index(P, lat)
 	bi2 = bott_index_coordinates(P, coords_init)
-	#print(f"BI = {bi}")
+	print(f"BI = {bi}")
 	print(f"BI (coords) = {bi2}")
 	
 	#from pybott import bott as pb_bott
@@ -627,5 +699,39 @@ def main():
 
 
 if __name__ == '__main__':
-	#main()
-	bott_range('site_elim', 'site_bott_data_0.npz')
+	main()
+
+def extra():
+	data = np.load('Hexaflake/hexagon_finer_bott.npz', allow_pickle=True)['arr_0']
+	print(data[:, :5])
+	flipped = -data
+	flipped[1] *= -1		
+	data = np.concatenate((data, flipped), axis=1)
+	idxs = np.lexsort((data[0], data[1]))
+
+	data = data[:, idxs]
+	print(data[:, :5])
+
+	X, Y, Z = reshape_imshow_data(data)
+	fig, ax = plt.subplots(1, 1, figsize=(10,10))
+	fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, cmap='viridis', doDiscreteCmap=True)
+	theta = np.linspace(-np.pi, np.pi, 100)
+	ax.plot(theta, 3*np.sqrt(3)*np.sin(theta), c='black', ls='--', label='bound')
+	ax.plot(theta, -3*np.sqrt(3)*np.sin(theta), c='black', ls='--', label='bound2')
+	ax.set_xlabel("$\\phi$ (radians)")
+	ax.set_ylabel("M")
+	ax.set_yticks([-np.sqrt(3)*3, 0, np.sqrt(3)*3])
+	ax.set_yticklabels(['$-3\\sqrt{3}$', '0', '$3\\sqrt{3}$'])
+	ax.set_xticks([-np.pi, -np.pi/2, 0, np.pi/2, np.pi])
+	ax.set_xticklabels(['$-\\pi$', '$-\\frac{\\pi}{2}$', '0', '$\\frac{\\pi}{2}$', '$\\pi$'])
+	ax.set_title("Hexagon Lattice, Parent of Gen. 3")
+	cbar.set_label(label="Bott Index", size=15)
+
+	ax.title.set_fontsize(20)
+
+	ax.tick_params(labelsize=13)
+
+	for item in [ax.xaxis.label, ax.yaxis.label]:
+		item.set_fontsize(15)
+
+	plt.show()
