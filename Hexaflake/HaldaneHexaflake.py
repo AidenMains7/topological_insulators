@@ -665,8 +665,8 @@ def main():
 	t0 = time.time()
 	
 	# Prepare data and compute eigenvalues and eigenvectors
-	data_dict = data_wrapper(M, PBC, method, iterations=2, t1=1., t2=1., phi=p, ahex_L=18)
-
+	data_dict = data_wrapper(M, PBC, method, iterations=2, t1=1., t2=1., phi=p, ahex_L=28)
+	return
 	coords = data_dict['coordinates'].T
 	coords_init = coords.copy()
 	coords[0] = coords[0]*2
