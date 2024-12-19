@@ -158,7 +158,7 @@ def sublattices(generation):
 
     n_sites = np.sum(honeycomb_mask)
 
-    discrete_coordinates = scale_to_integer(honeycomb)
+    discrete_coordinates = np.unique(scale_to_integer(honeycomb), axis=1)
     triangular_A = triangular_A_mask[discrete_coordinates[1], discrete_coordinates[0]]
     triangular_B = triangular_B_mask[discrete_coordinates[1], discrete_coordinates[0]]
     hexaflake = hexaflake_mask[discrete_coordinates[1], discrete_coordinates[0]]
@@ -201,37 +201,53 @@ def displacement_array(coordinates:np.ndarray, pbc:bool):
             'bottom_left': (-x_max*3/4-3, -y_max/2+1),
             'bottom_right': (x_max*3/4, -y_max/2-2)
         }
+        x_pbc_border = np.concatenate([x[edge_pts]+shift[0] for edge_pts, shift in zip(edge_idxs.values(), pbc_shifts.values())]).flatten()
+        y_pbc_border = np.concatenate([y[edge_pts]+shift[1] for edge_pts, shift in zip(edge_idxs.values(), pbc_shifts.values())]).flatten()
+        unique_pbc_border, unique_border_idxs = np.unique(np.vstack((x_pbc_border, y_pbc_border)), return_index=True, axis=1)
 
-        ppe = edge_idxs['top'].size
-        xpts = np.concatenate([x[edge_pts]+shift[0] for edge_pts, shift in zip(edge_idxs.values(), pbc_shifts.values())])
-        ypts = np.concatenate([y[edge_pts]+shift[1] for edge_pts, shift in zip(edge_idxs.values(), pbc_shifts.values())])
-        pbc_points = np.unique(np.vstack((xpts.flatten(), ypts.flatten())), axis=1)
+        pbc_orig_idxs = np.concatenate([edge_pts for edge_pts in edge_idxs.values()]).flatten()
 
-        pbc_x = np.concatenate((x, pbc_points[0]))
-        pbc_y = np.concatenate((y, pbc_points[1]))
+        if False:
+            plt.scatter(x_pbc_border, y_pbc_border, alpha=0.5, color='green')
+            plt.scatter(x_pbc_orig, y_pbc_orig, alpha=0.25, color='red')
+            plt.scatter(x, y, alpha=0.125, color='blue')
+            plt.show()
+
+
+        x_pbc_border, y_pbc_border = unique_pbc_border
+        pbc_x = np.concatenate((x, x_pbc_border))
+        pbc_y = np.concatenate((y, y_pbc_border))
         pbc_dx = pbc_x[:, np.newaxis] - pbc_x
         pbc_dy = pbc_y[:, np.newaxis] - pbc_y
 
-        # i,j is ith site to jth site of pbc_x or pbc_y
-        dx_outside = pbc_dx[:x.size, x.size:]
-        dy_outside = pbc_dy[:y.size, y.size:]
+        arr = dx.copy()
+        obc_d_desired = dx.copy()[np.ix_(np.arange(x.size), pbc_orig_idxs[unique_border_idxs])]
+        pbc_d_desired = pbc_dx[np.ix_(np.arange(x.size), np.arange(x.size, pbc_x.size))]
+        xidxs, yidxs = np.argwhere(obc_d_desired > np.abs(pbc_d_desired)).T
+        arr[xidxs, yidxs] = pbc_d_desired[xidxs, yidxs]
 
-        xtemp = [dx_outside[:, ppe*i:ppe*(i+1)] for i in range(6)]
-        ytemp = [dy_outside[:, ppe*i:ppe*(i+1)] for i in range(6)]
+        print(f"{x[0]}, {y[0]}")
+        print()
+        pbc_dx = arr
+        if True:
+            fig, ax = plt.subplots(1,1,figsize=(10,10))
+            fig,     ax, cbar = plot_imshow(fig, ax, np.arange(pbc_dx.shape[0]), np.arange(pbc_dx.shape[1]), np.abs(np.flipud(pbc_dx)), doDiscreteCmap=True)
+            ax.set_title("Without repeats in border")
+            #plt.savefig("no_repeat_border.png")
+            plt.show()
 
-        for i in range(6):
-            init_idxs = list(edge_idxs.values())[i][:, 0]
-            dx[:, init_idxs] = np.minimum(xtemp[i], dx[:, init_idxs])
-            dy[:, init_idxs] = np.minimum(ytemp[i], dy[:, init_idxs])
-
+        x_to_pbc = pbc_dx[np.ix_(np.arange(x.size, pbc_x.size), np.arange(x.size))]
+        y_to_pbc = pbc_dy[np.ix_(np.arange(y.size, pbc_y.size), np.arange(y.size))]
 
     return dx, dy
 
 
 if __name__ == "__main__":
-    arr_dict = sublattices(3)
+    arr_dict = sublattices(1)
     coords = arr_dict['discrete_honeycomb_coordinates']
     dx, dy = displacement_array(coords, True)
+
+    print(dx)
 
     tri_A = arr_dict['triangular_A']
     tri_B = arr_dict['triangular_B']
