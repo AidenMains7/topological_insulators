@@ -11,7 +11,7 @@ sys.path.append(".")
 from Carpet.plotting import reshape_imshow_data, plot_imshow
 
 def compute_hopping_array(coordinates_discrete, PBC):
-	"""
+    """
     Computes the hopping arrays (delta_x and delta_y) between lattice sites,
     accounting for periodic boundary conditions (PBC) if specified.
 
@@ -23,59 +23,62 @@ def compute_hopping_array(coordinates_discrete, PBC):
     - delta_x (np.ndarray): Array of x-coordinate differences between sites.
     - delta_y (np.ndarray): Array of y-coordinate differences between sites.
     """
-	# Extract x and y coordinates
-	x, y = coordinates_discrete.T
+    # Extract x and y coordinates
+    x, y = coordinates_discrete.T
 
-	if not PBC:
-		# Compute differences in x and y coordinates without PBC
-		delta_x = x[:, np.newaxis] - x
-		delta_y = y[:, np.newaxis] - y
-	else:
-		# Compute differences with PBC using predefined shifts
-		a = np.max(y) + 1
-		b = (a + 3) // 2
-		c = (a - 3) // 2
-		d = 2 * a - b
-		e = 2 * a - c
+    if not PBC:
+        # Compute differences in x and y coordinates without PBC
+        delta_x = x[:, np.newaxis] - x
+        delta_y = y[:, np.newaxis] - y
+    else:
+        # Compute differences with PBC using predefined shifts
+        a = np.max(y) + 1
+        b = (a + 3) // 2
+        c = (a - 3) // 2
+        d = 2 * a - b
+        e = 2 * a - c
 
-		# Define shift vectors for PBC
-		shifts = np.array([
-			[0, 0],
-			[-3, a],
-			[3, -a],
-			[d, b],
-			[-d, -b],
-			[-e, c],
-			[e, -c]
-		])
+        # Define shift vectors for PBC
+        shifts = np.array([
+            [0, 0],
+            [-3, a],
+            [3, -a],
+            [d, b],
+            [-d, -b],
+            [-e, c],
+            [e, -c]
+        ])
 
-		delta_x_stack = []
-		delta_y_stack = []
+        delta_x_stack = []
+        delta_y_stack = []
 
-		# Apply shifts and compute coordinate differences
-		for shift in shifts:
-			shifted_delta_x = x[:, np.newaxis] - (x + shift[0])
-			shifted_delta_y = y[:, np.newaxis] - (y + shift[1])
+        # Apply shifts and compute coordinate differences
+        for shift in shifts:
+            shifted_delta_x = x[:, np.newaxis] - (x + shift[0])
+            shifted_delta_y = y[:, np.newaxis] - (y + shift[1])
 
-			delta_x_stack.append(shifted_delta_x)
-			delta_y_stack.append(shifted_delta_y)
+            delta_x_stack.append(shifted_delta_x)
+            delta_y_stack.append(shifted_delta_y)
 
-		# Convert lists to arrays
-		delta_x_stack = np.array(delta_x_stack)
-		delta_y_stack = np.array(delta_y_stack)
+        # Convert lists to arrays
+        delta_x_stack = np.array(delta_x_stack)
+        delta_y_stack = np.array(delta_y_stack)
 
-		# Find indices of minimal distance (closest images)
-		idx_array = np.argmin(delta_x_stack ** 2 + delta_y_stack ** 2, axis=0)
+        def get_smallest(stack):
+            # Find indices of minimal distance (closest images)
+            idx_array = np.argmin(stack**2, axis=0)
 
-		# Create indices for selecting minimal differences
-		i_indices, j_indices = np.indices(idx_array.shape)
+            # Create indices for selecting minimal differences
+            i_indices, j_indices = np.indices(idx_array.shape)
 
-		# Select minimal coordinate differences
-		delta_x = delta_x_stack[idx_array, i_indices, j_indices]
-		delta_y = delta_y_stack[idx_array, i_indices, j_indices]
+            # Select minimal coordinate differences
+            return stack[idx_array, i_indices, j_indices]
+         
+        delta_x = get_smallest(delta_x_stack)
+        delta_y = get_smallest(delta_y_stack)
 
-	# Convert differences to integers
-	return delta_x.astype(np.int64), delta_y.astype(np.int64)
+    # Convert differences to integers
+    return delta_x.astype(np.int64), delta_y.astype(np.int64)
 
 
 def compute_geometric_data(iterations, PBC, arbitrary_hex=None):
@@ -620,7 +623,7 @@ def lattice_from_coords(coords):
     return lattice
 # ---
 
-
+#-------------------------------------------------------------------
 def bott_range(method, fname):
 	e = 3*np.sqrt(3)	
 	M_vals = [-e, -e/2, 0, e/2, e]
@@ -639,15 +642,14 @@ def bott_range(method, fname):
 	
 	data = np.array(Parallel(n_jobs=4)(delayed(worker)(j) for j in range(len(params)))).T
 	
-	np.savez(fname, data)
+	np.savez(fname+'.npz', data)
 
 	X, Y, Z = reshape_imshow_data(data)
 	fig, ax = plt.subplots(1, 1, figsize=(10,10))
 	fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, doDiscreteCmap=True)
 	theta = np.linspace(-np.pi, np.pi, 100)
 	ax.plot(theta, np.sin(theta))
-	plt.savefig("haldane_bott_site_elim.png")
-
+	plt.savefig(fname+'.png')
 
 
 def main():
@@ -665,7 +667,7 @@ def main():
 	t0 = time.time()
 	
 	# Prepare data and compute eigenvalues and eigenvectors
-	data_dict = data_wrapper(M, PBC, method, iterations=2, t1=1., t2=1., phi=p, ahex_L=28)
+	data_dict = data_wrapper(M, PBC, method, iterations=1, t1=1., t2=1., phi=p)
 	return
 	coords = data_dict['coordinates'].T
 	coords_init = coords.copy()
@@ -699,7 +701,7 @@ def main():
 
 
 if __name__ == '__main__':
-	main()
+	bott_range('hexagon', 'test')
 
 def extra():
 	data = np.load('Hexaflake/hexagon_finer_bott.npz', allow_pickle=True)['arr_0']
