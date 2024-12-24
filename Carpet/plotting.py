@@ -29,7 +29,7 @@ def plot_imshow(fig:figure.Figure, ax:axes.Axes, X:np.ndarray, Y:np.ndarray, Z:n
     cbar_bounds = np.linspace(Z.min(), Z.max(), np.unique(Z).size) 
 
 
-    cbar_ticks = np.linspace(cbar_bounds[0], cbar_bounds[-1], np.unique(Z).size)
+    cbar_ticks = np.linspace(cbar_bounds[0], cbar_bounds[-1], min(np.unique(Z).size, 10))
 
     if doDiscreteCmap:
         cmap = plt.cm.get_cmap(cmap, int(Z.max()-Z.min()+1))
