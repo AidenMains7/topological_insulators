@@ -66,7 +66,7 @@ def compute_hopping_array(coordinates_discrete, PBC):
 
         def get_smallest(stack):
             # Find indices of minimal distance (closest images)
-            idx_array = np.argmin(stack**2, axis=0)
+            idx_array = np.argmin(np.abs(stack), axis=0)
 
             # Create indices for selecting minimal differences
             i_indices, j_indices = np.indices(idx_array.shape)
@@ -626,30 +626,25 @@ def lattice_from_coords(coords):
 #-------------------------------------------------------------------
 def bott_range(method, fname):
 	e = 3*np.sqrt(3)	
-	M_vals = [-e, -e/2, 0, e/2, e]
+	M_vals = np.linspace(-e, e, 3)
 	p = np.pi
-	phi_vals = [-p, -p/2, 0, p/2, p]
+	phi_vals = np.linspace(0, p, 5)
 	params = tuple(product(M_vals, phi_vals))
 
 	def worker(i):
+		t0 = time.time()
 		M, phi = params[i]
-		data_dict = data_wrapper(M, True, method, phi=phi)
+		data_dict = data_wrapper(M, True, method, phi=phi, iterations=3)
 		coords = data_dict['coordinates'].T
 		P = projector_exact(data_dict['hamiltonian'], 0.0)
 		bott = bott_index_coordinates(P, coords)
-		print(f"Completed {100*(i+1)/len(params):.2f}% : BI = {bott}")
+		print(f"Completed {100*(i+1)/len(params):.2f}% : BI = {bott}   :   {time.time()-t0:0f}s")
 		return [phi, M, bott]
 	
 	data = np.array(Parallel(n_jobs=4)(delayed(worker)(j) for j in range(len(params)))).T
 	
 	np.savez(fname+'.npz', data)
-
-	X, Y, Z = reshape_imshow_data(data)
-	fig, ax = plt.subplots(1, 1, figsize=(10,10))
-	fig, ax, cbar = plot_imshow(fig, ax, X, Y, Z, doDiscreteCmap=True)
-	theta = np.linspace(-np.pi, np.pi, 100)
-	ax.plot(theta, np.sin(theta))
-	plt.savefig(fname+'.png')
+	return fname+'.npz'
 
 
 def main():
@@ -700,19 +695,15 @@ def main():
 	plt.show()
 
 
-if __name__ == '__main__':
-	bott_range('hexagon', 'test')
-
 def extra():
-	data = np.load('Hexaflake/hexagon_finer_bott.npz', allow_pickle=True)['arr_0']
-	print(data[:, :5])
+	output_file = bott_range('hexagon', 'test')
+	data = np.load(output_file, allow_pickle=True)['arr_0']
 	flipped = -data
 	flipped[1] *= -1		
 	data = np.concatenate((data, flipped), axis=1)
 	idxs = np.lexsort((data[0], data[1]))
 
 	data = data[:, idxs]
-	print(data[:, :5])
 
 	X, Y, Z = reshape_imshow_data(data)
 	fig, ax = plt.subplots(1, 1, figsize=(10,10))
@@ -736,4 +727,9 @@ def extra():
 	for item in [ax.xaxis.label, ax.yaxis.label]:
 		item.set_fontsize(15)
 
-	plt.show()
+	plt.savefig(output_file[:-4]+'.png')
+
+if __name__ == '__main__':
+	t0 = time.time()
+	extra()
+	print(f"{time.time()-t0:.0f} seconds")
