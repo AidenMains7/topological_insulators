@@ -250,14 +250,17 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 		H_ab = H[np.ix_(hexaflake, ~hexaflake)]
 		H_ba = H[np.ix_(~hexaflake, hexaflake)]
 
-		H = H_aa - H_ab @ sp.linalg.solve(
-			H_bb,
-			H_ba,
-			assume_a='her',
-			check_finite=False,
-			overwrite_a=True,
-			overwrite_b=True
-		)
+		if False:
+			H = H_aa - H_ab @ sp.linalg.solve(
+				H_bb,
+				H_ba,
+				assume_a='her',
+				check_finite=False,
+				overwrite_a=True,
+				overwrite_b=True
+			)
+		else:
+			H = H_aa - H_ab @ sp.linalg.inv(H_bb, overwrite_a=True) @ H_ba
 
 	elif method == 'site_elim':
 		H = H[np.ix_(hexaflake, hexaflake)]
@@ -974,9 +977,9 @@ def main():
 	plot_eigen = 0
 	compute_band = 0
 	plot_band = 0
-	compute_phase = 1
-	plot_phase = 1
-	plot_lattice = 0
+	compute_phase = 0
+	plot_phase = 0
+	plot_lattice = 1
 	plot_distances = 0
 	plot_tiled = 0
 
@@ -1013,7 +1016,7 @@ def main():
 		plot_phase_diagram(data)
 
 	if plot_lattice:
-		plot_lattice_sites(n=1, fractal=False, change_basis=None)
+		plot_lattice_sites(n=3, fractal=True, change_basis=None)
 
 	if plot_distances:
 		plot_relative_distances(n=3, PBC=True, rel_origin=(-1/4, 2/3), abs_dist=True, fractal=True)
