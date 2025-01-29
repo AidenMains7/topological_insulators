@@ -9,6 +9,32 @@ from tqdm_joblib import tqdm_joblib
 import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+def sort_hexaflake_by_subflake(coords, generation):
+    def order_by_subflake(coords, generation): 
+            centers = (3**generation)*np.array([np.array(([2*np.cos(np.pi/3*a)], [2/np.sqrt(3)*np.sin(np.pi/3*a)])) for a in range(6)])[..., 0].T
+            if generation >= 1:
+                centers = np.append(centers, [[0],[0]], axis=1)[:, [1,2,0,6,3,5,4]]
+            else:
+                 centers = centers[:, [1, 2, 0, 3, 5, 4]]
+            centers[0] += np.mean(coords[0])
+            centers[1] += np.mean(coords[1])
+
+            dx, dy = np.power(coords[..., np.newaxis] - centers[:, np.newaxis, :], 2)
+            difference = dx + dy
+            which_subflake = np.argmin(difference, axis=-1) # Assign each point to a subflake
+
+            return np.argsort(which_subflake)
+
+    def sort_by_x_then_y(coords):
+        idxs = np.lexsort((-coords[0], -coords[1]), axis=0)
+        return idxs
+    
+    reordered = order_by_subflake(coords, generation)
+    subflake_idxs = [reordered[np.arange(len(reordered)//7*i,len(reordered)//7*(i+1))] for i in range(7)]
+    
+    sorted_idxs = np.concatenate([sfidx[sort_by_x_then_y(coords[:, sfidx])] for sfidx in subflake_idxs])
+    return sorted_idxs
+
 
 def compute_hexagon(n):
 	"""
@@ -193,9 +219,9 @@ def compute_geometric_data(n, PBC, return_dx_dy=False):
 	y_discrete, x_discrete = np.where(hexagon_array)
 
 	sublattice_array = np.zeros_like(hexagon_array)
-	sublattice_array[:, ::3] = hexagon_array[:, ::3]
-	sublattice = ~sublattice_array[y_discrete, x_discrete]
-
+	sublattice_array[:, ::3] = hexagon_array[:, ::3] #one of the sublattices
+	sublattice = ~sublattice_array[y_discrete, x_discrete] #opposite of former
+	
 	stagger_sublattices = np.empty(sublattice.size, dtype=np.int64)
 	stagger_sublattices[::2] = np.sort(np.where(sublattice)[0])
 	stagger_sublattices[1::2] = np.sort(np.where(~sublattice)[0])
@@ -203,6 +229,12 @@ def compute_geometric_data(n, PBC, return_dx_dy=False):
 
 	hexaflake_array = compute_hexaflake(n)
 	hexaflake = hexaflake_array[y_discrete, x_discrete]
+
+
+	print(f"Generation: {n}")
+	print(f"Honeycomb # filled sites: {y_discrete.size}")
+	print(f"Hexaflake # filled sites: {np.where(hexaflake)[0].size}")
+
 
 	delta_x_discrete, delta_y_discrete = compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC)
 
@@ -216,7 +248,9 @@ def compute_geometric_data(n, PBC, return_dx_dy=False):
 		'y': y,
 		'hexaflake': hexaflake,
 		'NN': NN,
-		'NNN_CCW': NNN_CCW
+		'NNN_CCW': NNN_CCW,
+		'x_discrete': x_discrete,
+		'y_discrete': y_discrete
 	}
 
 	if return_dx_dy:
@@ -235,6 +269,10 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 	NN = geometric_data['NN']
 	NNN_CCW = geometric_data['NNN_CCW']
 	hexaflake = geometric_data['hexaflake']
+	#fill_idxs = np.where(hexaflake)[0]
+	#hole_idxs = np.where(~hexaflake)[0]
+	#reordered_idxs = np.concatenate((fill_idxs, hole_idxs))
+
 
 	H = np.zeros(NN.shape, dtype=np.complex128)
 
@@ -244,26 +282,31 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 	H[NNN_CCW] = -t2 * np.sin(phi)*1j
 	H[NNN_CCW.T] = t2 * np.sin(phi)*1j
 
+	#H = H[np.ix_(reordered_idxs, reordered_idxs)]
+	#n_fills = len(fill_idxs)
+
+
+	x_discrete, y_discrete = geometric_data['x_discrete'], geometric_data['y_discrete']
+	hx, hy = x_discrete[hexaflake], y_discrete[hexaflake]
+	n = int(np.log(len(hx)/6)/np.log(7))
+	sorted_idxs = sort_hexaflake_by_subflake(np.vstack((hx[None, :], hy[None, :])), n)
+
+
 	if method == 'renorm':
-		H_aa = H[np.ix_(hexaflake, hexaflake)]
-		H_bb = H[np.ix_(~hexaflake, ~hexaflake)]
+		H_aa = H[np.ix_(hexaflake, hexaflake)][np.ix_(sorted_idxs, sorted_idxs)]
+		H_bb = H[np.ix_(~hexaflake, ~hexaflake)][:, :]
 		H_ab = H[np.ix_(hexaflake, ~hexaflake)]
 		H_ba = H[np.ix_(~hexaflake, hexaflake)]
 
-		if False:
-			H = H_aa - H_ab @ sp.linalg.solve(
-				H_bb,
-				H_ba,
-				assume_a='her',
-				check_finite=False,
-				overwrite_a=True,
-				overwrite_b=True
-			)
-		else:
-			H = H_aa - H_ab @ sp.linalg.inv(H_bb, overwrite_a=True) @ H_ba
+		H_ab = H_ab[np.ix_(sorted_idxs, np.arange(H_ab.shape[1]))]
+		H_ba = H_ba[np.ix_(np.arange(H_ba.shape[0]), sorted_idxs)]
+
+		H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
 
 	elif method == 'site_elim':
 		H = H[np.ix_(hexaflake, hexaflake)]
+		H = H[np.ix_(sorted_idxs, sorted_idxs)]
+
 
 	return H
 
@@ -633,7 +676,7 @@ def plot_band_gap_and_width(band_data, cmap='inferno'):
 	plt.show()
 
 
-def plot_phase_diagram(phase_data, cmap='viridis'):
+def plot_phase_diagram(phase_data, cmap='viridis', titleparams=None, outputfile='temp.png'):
 
 	bott_index_array = phase_data['bott_index_array']
 	phi_range = phase_data['phi_range']
@@ -656,7 +699,7 @@ def plot_phase_diagram(phase_data, cmap='viridis'):
 	ax.plot(temp, np.sin(temp)*np.sqrt(3)*3, c='k', ls='--')
 	ax.plot(temp, -np.sin(temp)*np.sqrt(3)*3, c='k', ls='--')
 
-	ax.set_title('Phase Diagram (Bott Index)')
+	ax.set_title(f'Phase Diagram (Bott Index){'\n'+titleparams}')
 	ax.set_xlabel('Phi')
 	ax.set_ylabel('M', rotation=0)
 	cbar = fig.colorbar(im, ax=ax)
@@ -675,7 +718,7 @@ def plot_phase_diagram(phase_data, cmap='viridis'):
 	cbar.set_ticklabels([f'{tick:.{decimals_cb}f}' for tick in cbar_ticks])
 
 	plt.tight_layout()
-	plt.savefig('temp.png')
+	plt.savefig(outputfile)
 	plt.show()
 
 
@@ -977,17 +1020,17 @@ def main():
 	plot_eigen = 0
 	compute_band = 0
 	plot_band = 0
-	compute_phase = 0
-	plot_phase = 0
-	plot_lattice = 1
+	compute_phase = 1
+	plot_phase = 1
+	plot_lattice = 0
 	plot_distances = 0
 	plot_tiled = 0
 
 	if compute_eigen:
-		n = 3
+		n = 2
 		PBC = True
-		method = 'hexagon'
-		M_rel, phi = 1 / 2, np.pi / 4
+		method = 'site_elim'
+		M_rel, phi = 0, np.pi / 2
 		t1, t2 = 1., 1.
 
 		M = M_rel * 3 * np.sqrt(3) * t2 * np.sin(phi)
@@ -1000,7 +1043,7 @@ def main():
 		plot_spectrum_and_LDOS(eigen_data)
 
 	if compute_band:
-		band_data = compute_band_data(n=2, resolution=100, PBC=True, sparse=True)
+		band_data = compute_band_data(method='hexagon',n=2, resolution=11, PBC=True, sparse=False)
 		np.savez('band_data.npz', **band_data)
 
 	if plot_band:
@@ -1008,21 +1051,84 @@ def main():
 		plot_band_gap_and_width(data)
 
 	if compute_phase:
-		phase_data = compute_phase_diagram(method='hexagon', n=3, resolution=100, n_jobs=-4)
-		np.savez('high_res_hexagon.npz', **phase_data)
+		phase_data = compute_phase_diagram(method='hexagon', n=2, resolution=25, n_jobs=4)
+		np.savez('test.npz', **phase_data)
 
 	if plot_phase:
-		data = np.load('high_res_hexagon.npz')
-		plot_phase_diagram(data)
+		data = np.load('test.npz')
+		plot_phase_diagram(data,titleparams='', outputfile='usleess.png')
 
 	if plot_lattice:
 		plot_lattice_sites(n=3, fractal=True, change_basis=None)
 
 	if plot_distances:
-		plot_relative_distances(n=3, PBC=True, rel_origin=(-1/4, 2/3), abs_dist=True, fractal=True)
+		plot_relative_distances(n=2, PBC=True, rel_origin=(-1/4, 2/3), abs_dist=True, fractal=True)
 
 	if plot_tiled:
 		plot_tiled_lattice(n=2, fractal=False, change_basis=triangular_basis, s=8)
 
+
+def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):	
+	def get_subflake(coords, generation, doPlot=False):
+		centers = (3**generation)*np.array([np.array(([2*np.cos(np.pi/3*a)], [2/np.sqrt(3)*np.sin(np.pi/3*a)])) for a in range(6)])[..., 0].T
+		centers = np.append([[0],[0]],centers, axis=1) 
+		centers[0] += np.mean(coords[0])
+		centers[1] += np.mean(coords[1])
+
+		dx, dy = np.power(coords[..., np.newaxis] - centers[:, np.newaxis, :], 2)
+		difference = dx + dy
+		which_subflake = np.argmin(difference, axis=-1)
+
+		if doPlot:
+			plt.scatter(coords[0], coords[1], c=which_subflake)
+			plt.scatter(centers[0], centers[1], c='k', alpha=0.25)
+			plt.show()
+
+		return np.argsort(which_subflake)
+
+
+	geo_data = compute_geometric_data(n, True)
+
+	if doBott:
+		eigen_data = compute_eigen_data(method, 0.0, np.pi/2, 1.0, 1.0, geo_data)
+		bott = compute_bott_index(eigen_data)
+		print(f"Bott Index :: {bott}")
+
+	if plotHamiltonian:
+		H = compute_hamiltonian(method, 0.0, np.pi/2, 1.0, 1.0, geo_data)
+		fig, axs = plt.subplots(1,2)
+		ims_real = axs[0].imshow(H.real)
+		axs[0].set_title("Real part")
+		ims_imag = axs[1].imshow(H.imag)
+		axs[1].set_title("Imaginary part")
+		plt.show()
+
+	if plotHexaflake:
+		hexaflake = geo_data['hexaflake']
+		x_discrete, y_discrete = geo_data['x_discrete'], geo_data['y_discrete']
+		x, y = x_discrete[hexaflake], y_discrete[hexaflake]
+		
+		def plot_tiered_color(n_tiers, x, y):
+			unit = np.linspace(0, 1, n_tiers)
+			values = np.sort(np.repeat(unit, len(x)//n_tiers))[:len(x)]
+			plt.scatter(x,y, c=plt.get_cmap('viridis')(values))
+			plt.show()
+
+		def plot_color(x, y):
+			unit = np.linspace(0,1,x.size)
+			plt.scatter(x,y, c=plt.get_cmap('viridis')(unit))
+			plt.show()
+
+
+		coords = np.empty((2, x.size))
+		coords[0] = x
+		coords[1] = y
+		reordered = get_subflake(coords, n, False)
+		plot_color(x[reordered], y[reordered])
+
+		
+
+
 if __name__ == '__main__':
-	main()
+	#main()
+	hamiltonian_imshow('site_elim', 3, True, False, False)
