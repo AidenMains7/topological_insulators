@@ -269,43 +269,38 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 	NN = geometric_data['NN']
 	NNN_CCW = geometric_data['NNN_CCW']
 	hexaflake = geometric_data['hexaflake']
-	#fill_idxs = np.where(hexaflake)[0]
-	#hole_idxs = np.where(~hexaflake)[0]
-	#reordered_idxs = np.concatenate((fill_idxs, hole_idxs))
-
 
 	H = np.zeros(NN.shape, dtype=np.complex128)
-
 	np.fill_diagonal(H, M*((-1)**(np.arange(H.shape[0]))))
-
 	H[NN] = -t1
 	H[NNN_CCW] = -t2 * np.sin(phi)*1j
 	H[NNN_CCW.T] = t2 * np.sin(phi)*1j
 
-	#H = H[np.ix_(reordered_idxs, reordered_idxs)]
-	#n_fills = len(fill_idxs)
-
-
-	x_discrete, y_discrete = geometric_data['x_discrete'], geometric_data['y_discrete']
-	hx, hy = x_discrete[hexaflake], y_discrete[hexaflake]
-	n = int(np.log(len(hx)/6)/np.log(7))
-	sorted_idxs = sort_hexaflake_by_subflake(np.vstack((hx[None, :], hy[None, :])), n)
+	doSortBySubflake = False
+	if doSortBySubflake:
+		x_discrete, y_discrete = geometric_data['x_discrete'], geometric_data['y_discrete']
+		hx, hy = x_discrete[hexaflake], y_discrete[hexaflake]
+		n = int(np.log(len(hx)/6)/np.log(7))
+		sorted_idxs = sort_hexaflake_by_subflake(np.vstack((hx[None, :], hy[None, :])), n)
 
 
 	if method == 'renorm':
-		H_aa = H[np.ix_(hexaflake, hexaflake)][np.ix_(sorted_idxs, sorted_idxs)]
-		H_bb = H[np.ix_(~hexaflake, ~hexaflake)][:, :]
+		H_aa = H[np.ix_(hexaflake, hexaflake)]
+		H_bb = H[np.ix_(~hexaflake, ~hexaflake)]
 		H_ab = H[np.ix_(hexaflake, ~hexaflake)]
 		H_ba = H[np.ix_(~hexaflake, hexaflake)]
 
-		H_ab = H_ab[np.ix_(sorted_idxs, np.arange(H_ab.shape[1]))]
-		H_ba = H_ba[np.ix_(np.arange(H_ba.shape[0]), sorted_idxs)]
+		if doSortBySubflake:
+			H_aa = H_aa[np.ix_(sorted_idxs, sorted_idxs)]
+			H_ab = H_ab[np.ix_(sorted_idxs, np.arange(H_ab.shape[1]))]
+			H_ba = H_ba[np.ix_(np.arange(H_ba.shape[0]), sorted_idxs)]
 
 		H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
 
 	elif method == 'site_elim':
 		H = H[np.ix_(hexaflake, hexaflake)]
-		H = H[np.ix_(sorted_idxs, sorted_idxs)]
+		if doSortBySubflake:
+			H = H[np.ix_(sorted_idxs, sorted_idxs)]
 
 
 	return H
@@ -1016,20 +1011,20 @@ def plot_tiled_lattice(n, fractal=False, change_basis=None, s=10):
 
 def main():
 
-	compute_eigen = 0
-	plot_eigen = 0
+	compute_eigen = 1
+	plot_eigen = 1
 	compute_band = 0
 	plot_band = 0
-	compute_phase = 1
-	plot_phase = 1
+	compute_phase = 0
+	plot_phase = 0
 	plot_lattice = 0
 	plot_distances = 0
 	plot_tiled = 0
 
 	if compute_eigen:
-		n = 2
+		n = 3
 		PBC = True
-		method = 'site_elim'
+		method = 'renorm'
 		M_rel, phi = 0, np.pi / 2
 		t1, t2 = 1., 1.
 
@@ -1051,7 +1046,7 @@ def main():
 		plot_band_gap_and_width(data)
 
 	if compute_phase:
-		phase_data = compute_phase_diagram(method='hexagon', n=2, resolution=25, n_jobs=4)
+		phase_data = compute_phase_diagram(method='site_elim', n=2, resolution=25, n_jobs=4)
 		np.savez('test.npz', **phase_data)
 
 	if plot_phase:
@@ -1090,7 +1085,7 @@ def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):
 	geo_data = compute_geometric_data(n, True)
 
 	if doBott:
-		eigen_data = compute_eigen_data(method, 0.0, np.pi/2, 1.0, 1.0, geo_data)
+		eigen_data = compute_eigen_data(method, 0.0, -np.pi/2, 1.0, 1.0, geo_data)
 		bott = compute_bott_index(eigen_data)
 		print(f"Bott Index :: {bott}")
 
@@ -1123,12 +1118,13 @@ def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):
 		coords = np.empty((2, x.size))
 		coords[0] = x
 		coords[1] = y
-		reordered = get_subflake(coords, n, False)
-		plot_color(x[reordered], y[reordered])
+
+		sorted_idxs = sort_hexaflake_by_subflake(coords, n)
+		plot_color(coords[0, sorted_idxs], coords[1, sorted_idxs])
 
 		
 
 
 if __name__ == '__main__':
-	#main()
-	hamiltonian_imshow('site_elim', 3, True, False, False)
+	main()
+	#hamiltonian_imshow('site_elim', 3, False, False, True)
