@@ -260,7 +260,7 @@ def compute_geometric_data(n, PBC, return_dx_dy=False):
 	return geometric_data
 
 
-def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
+def compute_hamiltonian(method, M, phi, t1, t2, geometric_data, invmethod=None):
 
 	valid_methods = ['hexagon', 'site_elim', 'renorm']
 	if method not in valid_methods:
@@ -290,12 +290,32 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 		H_ab = H[np.ix_(hexaflake, ~hexaflake)]
 		H_ba = H[np.ix_(~hexaflake, hexaflake)]
 
+		# Debugging information
+		#print(f"H_aa is Hermitian: {np.allclose(H_aa, H_aa.conj().T)}")
+		#print(f"H_bb is Hermitian: {np.allclose(H_bb, H_bb.conj().T)}")
+		#print(f"H_ab is Hermitian: {np.allclose(H_ab, H_ba.conj().T)}")
+		#print(f"H_ba is Hermitian: {np.allclose(H_ba, H_ab.conj().T)}")
+
+
+
 		if doSortBySubflake:
 			H_aa = H_aa[np.ix_(sorted_idxs, sorted_idxs)]
 			H_ab = H_ab[np.ix_(sorted_idxs, np.arange(H_ab.shape[1]))]
 			H_ba = H_ba[np.ix_(np.arange(H_ba.shape[0]), sorted_idxs)]
 
-		H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
+		if invmethod == 'solve':
+			H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
+		elif invmethod == 'np.linalg.inv':
+			H = H_aa - H_ab @ np.linalg.inv(H_bb) @ H_ba
+		elif invmethod == 'np.linalg.pinv':
+			H = H_aa - H_ab @ np.linalg.pinv(H_bb) @ H_ba
+		elif invmethod == 'sp.linalg.pinv':
+			H = H_aa - H_ab @ sp.linalg.pinv(H_bb) @ H_ba
+		else:
+			raise ValueError(f"Invalid invmethod '{invmethod}'. Options are 'solve', 'np.linalg.inv', 'np.linalg.pinv', 'sp.linalg.pinv'.")
+
+		#print(f"H_renorm is Hermitian: {np.allclose(H, H.conj().T)}")
+
 
 	elif method == 'site_elim':
 		H = H[np.ix_(hexaflake, hexaflake)]
@@ -388,11 +408,11 @@ def compute_local_chern_markers(eigen_data):
 	return C
 
 
-def compute_eigen_data(method, M, phi, t1, t2, geometric_data):
+def compute_eigen_data(method, M, phi, t1, t2, geometric_data, invmethod):
 
 	x, y = geometric_data['x'], geometric_data['y']
 
-	H = compute_hamiltonian(method, M, phi, t1, t2, geometric_data)
+	H = compute_hamiltonian(method, M, phi, t1, t2, geometric_data, invmethod)
 
 	dx = (1/2)*(H[::2, :][:, 1::2] + H[::2, :][:, 1::2].conj().T)
 	dy = (1j/2)*(H[::2, :][:, 1::2] - H[::2, :][:, 1::2].conj().T)
@@ -488,7 +508,7 @@ def compute_phase_diagram(
         method='hexagon', resolution=100,
         M_resolution=None, phi_resolution=None,
         M_range=(-5.5, 5.5), phi_range=(-np.pi, np.pi),
-        n=3, t1=1., t2=1.,  n_jobs=-8):
+        n=3, t1=1., t2=1.,  n_jobs=-8, invmethod=None):
 
 	valid_methods = ['hexagon', 'site_elim', 'renorm']
 	if method not in valid_methods:
@@ -508,7 +528,7 @@ def compute_phase_diagram(
 		phi_val = (phi_range[1] - phi_range[0]) * (phi_idx / (phi_resolution - 1)) + phi_range[0]
 
 		try:
-			eigen_data = compute_eigen_data(method, M_val, phi_val, t1, t2, geometric_data)
+			eigen_data = compute_eigen_data(method, M_val, phi_val, t1, t2, geometric_data, invmethod)
 			bott = compute_bott_index(eigen_data)
 			return [M_idx, phi_idx, bott]
 
@@ -1011,19 +1031,19 @@ def plot_tiled_lattice(n, fractal=False, change_basis=None, s=10):
 
 def main():
 
-	compute_eigen = 1
-	plot_eigen = 1
+	compute_eigen = 0
+	plot_eigen = 0
 	compute_band = 0
 	plot_band = 0
-	compute_phase = 0
-	plot_phase = 0
+	compute_phase = 1
+	plot_phase = 1
 	plot_lattice = 0
 	plot_distances = 0
 	plot_tiled = 0
 
 	if compute_eigen:
 		n = 3
-		PBC = True
+		PBC = False
 		method = 'renorm'
 		M_rel, phi = 0, np.pi / 2
 		t1, t2 = 1., 1.
@@ -1046,18 +1066,21 @@ def main():
 		plot_band_gap_and_width(data)
 
 	if compute_phase:
-		phase_data = compute_phase_diagram(method='site_elim', n=2, resolution=25, n_jobs=4)
-		np.savez('test.npz', **phase_data)
+		invmethods = ['solve', 'np.linalg.inv', 'np.linalg.pinv', 'sp.linalg.pinv']
+		for invmethod in invmethods:
+			phase_data = compute_phase_diagram(method='renorm', n=2, resolution=25, n_jobs=4, invmethod=invmethod)
+			np.savez(f'{invmethod}_renorm.npz', **phase_data)
 
 	if plot_phase:
-		data = np.load('test.npz')
-		plot_phase_diagram(data,titleparams='', outputfile='usleess.png')
+		for invmethod in ['solve', 'np.linalg.inv', 'np.linalg.pinv', 'sp.linalg.pinv']:
+			data = np.load(f'{invmethod}_renorm.npz')
+			plot_phase_diagram(data,titleparams=f"{invmethod} : gen 2", outputfile=f'{invmethod}_renorm.png')
 
 	if plot_lattice:
 		plot_lattice_sites(n=3, fractal=True, change_basis=None)
 
 	if plot_distances:
-		plot_relative_distances(n=2, PBC=True, rel_origin=(-1/4, 2/3), abs_dist=True, fractal=True)
+		plot_relative_distances(n=3, PBC=True, rel_origin=(-1/4, 2/3), abs_dist=True, fractal=True)
 
 	if plot_tiled:
 		plot_tiled_lattice(n=2, fractal=False, change_basis=triangular_basis, s=8)
@@ -1085,7 +1108,7 @@ def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):
 	geo_data = compute_geometric_data(n, True)
 
 	if doBott:
-		eigen_data = compute_eigen_data(method, 0.0, -np.pi/2, 1.0, 1.0, geo_data)
+		eigen_data = compute_eigen_data(method, 0.0, np.pi/2, 1.0, 1.0, geo_data)
 		bott = compute_bott_index(eigen_data)
 		print(f"Bott Index :: {bott}")
 
@@ -1127,4 +1150,4 @@ def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):
 
 if __name__ == '__main__':
 	main()
-	#hamiltonian_imshow('site_elim', 3, False, False, True)
+	#hamiltonian_imshow('renorm', 3, True, False, False)
