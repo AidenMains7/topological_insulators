@@ -36,6 +36,18 @@ def sort_hexaflake_by_subflake(coords, generation):
     return sorted_idxs
 
 
+def remove_center_hole(n,size):
+	hexagon_array = compute_hexagon(n)
+	center = np.array(hexagon_array.shape) // 2
+	size_y, size_x = size
+	size_y = int(size_y * hexagon_array.shape[0])
+	size_x = int(size_x * hexagon_array.shape[1])
+	y, x = np.ogrid[:hexagon_array.shape[0], :hexagon_array.shape[1]]
+	mask = (x - center[1])**2 / (size_x // 2)**2 + (y - center[0])**2 / (size_y // 2)**2 <= 1
+	hexagon_array[mask] = False
+	return hexagon_array
+
+
 def compute_hexagon(n):
 	"""
 	Construct a boolean 2D array that represents a large hexagonal honeycomb lattice composed of.
@@ -213,7 +225,7 @@ def compute_hopping_arrays(delta_x_discrete, delta_y_discrete):
 	return NN, NNN_CCW
 
 
-def compute_geometric_data(n, PBC, return_dx_dy=False):
+def compute_geometric_data(n, PBC, return_dx_dy=False, sublatticeMethod='hexaflake', print_info=False):
 
 	hexagon_array = compute_hexagon(n)
 	y_discrete, x_discrete = np.where(hexagon_array)
@@ -227,13 +239,19 @@ def compute_geometric_data(n, PBC, return_dx_dy=False):
 	stagger_sublattices[1::2] = np.sort(np.where(~sublattice)[0])
 	x_discrete, y_discrete = x_discrete[stagger_sublattices], y_discrete[stagger_sublattices]
 
-	hexaflake_array = compute_hexaflake(n)
-	hexaflake = hexaflake_array[y_discrete, x_discrete]
+	if sublatticeMethod == 'hexaflake':
+		hexaflake_array = compute_hexaflake(n)
+		hexaflake = hexaflake_array[y_discrete, x_discrete]
+	elif sublatticeMethod == 'center_hole':
+		hexaflake_array = remove_center_hole(n, (0.6, 0.6))
+		plt.imshow(hexaflake_array)
+		plt.show()
+		hexaflake = hexaflake_array[y_discrete, x_discrete]
 
-
-	print(f"Generation: {n}")
-	print(f"Honeycomb # filled sites: {y_discrete.size}")
-	print(f"Hexaflake # filled sites: {np.where(hexaflake)[0].size}")
+	if print_info:
+		print(f"Generation: {n}")
+		print(f"Honeycomb # filled sites: {y_discrete.size}")
+		print(f"Hexaflake # filled sites: {np.where(hexaflake)[0].size}")
 
 
 	delta_x_discrete, delta_y_discrete = compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC)
@@ -260,7 +278,7 @@ def compute_geometric_data(n, PBC, return_dx_dy=False):
 	return geometric_data
 
 
-def compute_hamiltonian(method, M, phi, t1, t2, geometric_data, invmethod=None):
+def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 
 	valid_methods = ['hexagon', 'site_elim', 'renorm']
 	if method not in valid_methods:
@@ -303,17 +321,12 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data, invmethod=None):
 			H_ab = H_ab[np.ix_(sorted_idxs, np.arange(H_ab.shape[1]))]
 			H_ba = H_ba[np.ix_(np.arange(H_ba.shape[0]), sorted_idxs)]
 
-		if invmethod == 'solve':
-			H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
-		elif invmethod == 'np.linalg.inv':
-			H = H_aa - H_ab @ np.linalg.inv(H_bb) @ H_ba
-		elif invmethod == 'np.linalg.pinv':
-			H = H_aa - H_ab @ np.linalg.pinv(H_bb) @ H_ba
-		elif invmethod == 'sp.linalg.pinv':
-			H = H_aa - H_ab @ sp.linalg.pinv(H_bb) @ H_ba
-		else:
-			raise ValueError(f"Invalid invmethod '{invmethod}'. Options are 'solve', 'np.linalg.inv', 'np.linalg.pinv', 'sp.linalg.pinv'.")
+		#print("Determinant of H_bb")
+		#print(np.linalg.det(H_bb))
+		#print("Condition of H_bb")
+		#print(np.linalg.cond(H_bb))
 
+		H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
 		#print(f"H_renorm is Hermitian: {np.allclose(H, H.conj().T)}")
 
 
@@ -408,7 +421,7 @@ def compute_local_chern_markers(eigen_data):
 	return C
 
 
-def compute_eigen_data(method, M, phi, t1, t2, geometric_data, invmethod):
+def compute_eigen_data(method, M, phi, t1, t2, geometric_data, invmethod='solve'):
 
 	x, y = geometric_data['x'], geometric_data['y']
 
@@ -1043,7 +1056,7 @@ def main():
 
 	if compute_eigen:
 		n = 3
-		PBC = False
+		PBC = True
 		method = 'renorm'
 		M_rel, phi = 0, np.pi / 2
 		t1, t2 = 1., 1.
@@ -1065,16 +1078,16 @@ def main():
 		data = np.load('band_data.npz')
 		plot_band_gap_and_width(data)
 
-	if compute_phase:
-		invmethods = ['solve', 'np.linalg.inv', 'np.linalg.pinv', 'sp.linalg.pinv']
-		for invmethod in invmethods:
-			phase_data = compute_phase_diagram(method='renorm', n=2, resolution=25, n_jobs=4, invmethod=invmethod)
-			np.savez(f'{invmethod}_renorm.npz', **phase_data)
+	gens = [2]
+	resos = [25]
+	for gen, res in zip(gens, resos):
+		if compute_phase:
+			phase_data = compute_phase_diagram(method='renorm', n=gen, resolution=res, n_jobs=4, invmethod='solve')
+			np.savez(f'big_center_hole_renorm_g{gen}.npz', **phase_data)
 
-	if plot_phase:
-		for invmethod in ['solve', 'np.linalg.inv', 'np.linalg.pinv', 'sp.linalg.pinv']:
-			data = np.load(f'{invmethod}_renorm.npz')
-			plot_phase_diagram(data,titleparams=f"{invmethod} : gen 2", outputfile=f'{invmethod}_renorm.png')
+		if plot_phase:
+			data = np.load(f'big_center_hole_renorm_g{gen}.npz')
+			plot_phase_diagram(data,titleparams=f"center_hole : gen {gen}\nsize=", outputfile=f'big_center_hole_renorm_g{gen}.png')
 
 	if plot_lattice:
 		plot_lattice_sites(n=3, fractal=True, change_basis=None)
@@ -1108,9 +1121,10 @@ def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):
 	geo_data = compute_geometric_data(n, True)
 
 	if doBott:
-		eigen_data = compute_eigen_data(method, 0.0, np.pi/2, 1.0, 1.0, geo_data)
-		bott = compute_bott_index(eigen_data)
-		print(f"Bott Index :: {bott}")
+		for invmethod in ['np.linalg.lstsq', 'solve']:
+			eigen_data = compute_eigen_data(method, 0.0, np.pi/2, 1.0, 1.0, geo_data, invmethod='np.linalg.lstsq')
+			bott = compute_bott_index(eigen_data)
+			print(f"Bott Index :: {bott}")
 
 	if plotHamiltonian:
 		H = compute_hamiltonian(method, 0.0, np.pi/2, 1.0, 1.0, geo_data)
@@ -1149,5 +1163,12 @@ def hamiltonian_imshow(method, n, doBott, plotHamiltonian, plotHexaflake):
 
 
 if __name__ == '__main__':
-	main()
-	#hamiltonian_imshow('renorm', 3, True, False, False)
+	#main()
+	#import time
+	#t0 = time.time()
+	#hamiltonian_imshow('renorm', 2, True, False, False)
+	#print(f"{time.time()-t0}s")
+	#arr = remove_center_hole(2, (0.7, 0.7))
+	#plt.imshow(arr)
+	#plt.show()
+	compute_geometric_data(2, True, print_info=True)
