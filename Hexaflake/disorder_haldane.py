@@ -219,7 +219,7 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
             except ValueError:
                 continue
     disorder_strengths = np.sort(np.unique(np.array(disorder_strengths)))
-
+    #disorder_strengths = [0.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 
     fig, axs = plt.subplots(3, len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
     methods = ['hexagon', 'renorm', 'site_elim']
@@ -278,8 +278,8 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
         ax.set_aspect('equal', adjustable='box')
 
 def compute_many_phase_diagrams():
-    for method in ['site_elim', 'renorm', 'hexagon']:
-        for W in (np.arange(10.0)+1.0):
+    for method in ['hexagon']:
+        for W in [10.0, 9.0, 8.0, 7.0, 6.0]:
             t0 = time()
             compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
             print(f"Time for {method}, W={W}: {time()-t0:.2f} seconds.")
