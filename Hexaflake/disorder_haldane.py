@@ -7,9 +7,8 @@ from joblib import Parallel, delayed
 import scipy as sp
 from testing_filesave import iterative_filename
 from multiprocessing import Lock, Manager
-import h5py
-import os
-import glob
+import h5py, os, glob
+from time import time
 
 
 
@@ -140,7 +139,7 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
         if intermittent_saving:
             with lock:
                 with h5py.File(out_filename, 'a') as f:
-                    f['disorder'][index] = avg_bott
+                    f['disorder_flat'][index] = avg_bott
                     f['computed_idxs'][index] = True
         return avg_bott
 
@@ -148,8 +147,9 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 
     if not os.path.exists(out_filename):
         with h5py.File(out_filename, 'a') as f:
-            f.create_dataset(name='disorder', data=disorder_bott_arr)
+            f.create_dataset(name='disorder_flat', data=disorder_bott_arr)
             f.create_dataset(name='computed_idxs', data=disorder_bott_arr.astype(bool))
+            f.create_dataset(name='disorder', data=np.zeros(bott_index_vals.shape))
 
     with h5py.File(out_filename, 'r') as f:
         wasComputed = f['computed_idxs'][:].flatten()
@@ -172,18 +172,11 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
             disorder_bott_arr[compute_these] = disorder_averages
             f['disorder'][:] = disorder_bott_arr.reshape(bott_index_vals.shape)
         else:
-            saved_disorder = f['disorder'][:][compute_these]
-            #f['disorder'][:] = f['disorder'][:].reshape(bott_index_vals.shape)
-
-
+            saved_disorder = f['disorder_flat'][:]
             if np.any(saved_disorder[compute_these]-disorder_averages):
                 raise ValueError("Disorder values do not match between saved and computed values."
-                                  +f"Saved: {saved_disorder}, Computed: {disorder_averages}")
-            
-            print(saved_disorder)
-            print(disorder_averages)
-            
-
+                                    +f"Saved: {saved_disorder[compute_these]}, Computed: {disorder_averages}")
+            f['disorder'][:] = saved_disorder.reshape(bott_index_vals.shape)
     return out_filename
 
 #------------------------------------------------------------
@@ -192,7 +185,7 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 
 def compute_and_save_phase_diagram(method, generation, disorder_strength, dimensions, iterations, n_jobs, directory):
     clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory)
-    disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True)
+    disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
     return clean_file, disorder_file
 
 
@@ -214,29 +207,44 @@ def plot_comparison(clean_file, disorder_vals, method, generation, disorder_stre
             plt.savefig(f"{method}_g{generation}_w{disorder_strength}_{fp}.png")
 
 
-def large_figure():
-    fig, axs = plt.subplots(3, 6, figsize=(15,10), sharex=True, sharey=True)
+def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensions=(50,50)):
+    files = glob.glob(os.path.join(directory, '*.h5'))
+    disorder_strengths = [0.0]
+    for file in files:
+        filename = os.path.basename(file)
+        if '_w' in filename:
+            try:
+                w_value = float(filename.split('_w')[1].split('.h5')[0])
+                disorder_strengths.append(w_value)
+            except ValueError:
+                continue
+    disorder_strengths = np.sort(np.unique(np.array(disorder_strengths)))
+
+
+    fig, axs = plt.subplots(3, len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
     methods = ['hexagon', 'renorm', 'site_elim']
-    d_vals = [0.0, 1.0, 2.0, 3.0, 4.0, 5.0]
     generation = 2
     cmap = 'viridis'
     bool_dict = {"doLabels": False, "doBoundary": False, "doCbar": False}
 
-    for i in range(3):
-        for j in range(6):
+    for i, method in enumerate(methods):
+        for j, w in enumerate(disorder_strengths):
             try:
-                clean_file = f"{methods[i]}_g{generation}.h5"
-                disorder_file = f"{methods[i]}_g{generation}_w{d_vals[j]}_disorder.h5"
+                clean_file = directory + f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
+                disorder_file = clean_file.replace('.h5', f'_w{w}.h5')
                 with h5py.File(clean_file, 'r') as f:
                     clean_dict = {k: v[:] for k, v in zip(f.keys(), f.values())}
-                if j != 0:
-                    with h5py.File(disorder_file, 'r') as f:
-                        disorder_vals = f['disorder'][:].T  
+
                 phi_vals, M_vals, bott_index_vals = clean_dict['phi'], clean_dict['M'], clean_dict['bott_index'].T
                 if j == 0:
                     fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, bott_index_vals, titleparams=f"Undisordered", cmap=cmap, **bool_dict)
                 else:
-                    fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, disorder_vals, titleparams=f"W = {d_vals[j]}", cmap=cmap, **bool_dict)
+                    if os.path.exists(disorder_file):
+                        with h5py.File(disorder_file, 'r') as f:
+                            disorder_vals = f['disorder'][:].T  
+                        fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, disorder_vals, titleparams=f"W = {w}", cmap=cmap, **bool_dict)
+                    else:
+                        print(f"Disorder file {disorder_file} not found.")
             except Exception as e:
                 print(f"Exception: {e}")
 
@@ -266,13 +274,15 @@ def large_figure():
     cbar = fig.colorbar(sm, cax=cbar_ax)
     cbar.set_label('Bott Index', fontsize=12)
     plt.show()
-
+    for ax in axs.flatten():
+        ax.set_aspect('equal', adjustable='box')
 
 def compute_many_phase_diagrams():
-    for method in ['renorm', 'site_elim', 'hexagon']:
-        for W in np.arange(10.0)+1:
-            compute_and_save_phase_diagram(method, 2, W, (5, 5), 2, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
-
+    for method in ['site_elim', 'renorm', 'hexagon']:
+        for W in (np.arange(10.0)+1.0):
+            t0 = time()
+            compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
+            print(f"Time for {method}, W={W}: {time()-t0:.2f} seconds.")
 
 def probe_files(directory):
     for f in glob.glob(directory+'*.h5'):
@@ -282,8 +292,19 @@ def probe_files(directory):
                 print(f"{k}: {file[k][:]}")
             print('\n')
 
+def plot_files():
+    directory = 'Haldane_Disorder_Data/Res2500_Avg100/'
+    val_list = []
+    for f in glob.glob(directory+'*.h5'):
+        with h5py.File(f, 'r') as file:
+            if 'disorder' in file.keys():
+                val_list.append(file['disorder'][:])
+    for v in val_list:
+        plt.plot(range(len(v)), v)
 
+        plt.show()
 
 if __name__ == "__main__":
-    #probe_files('Haldane_Disorder_Data/Res2500_Avg100/')
-    compute_many_phase_diagrams()
+    #compute_many_phase_diagrams()
+    make_large_figure()
+    # test
