@@ -221,7 +221,7 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
     disorder_strengths = np.sort(np.unique(np.array(disorder_strengths)))
 
 
-    fig, axs = plt.subplots(3, len(disorder_strengths), figsize=(35,10), sharex=True, sharey=True)
+    fig, axs = plt.subplots(3, len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
     methods = ['hexagon', 'renorm', 'site_elim']
     generation = 2
     cmap = 'viridis'
@@ -278,7 +278,7 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
         ax.set_aspect('equal', adjustable='box')
 
 def compute_many_phase_diagrams():
-    for method in ['renorm', 'site_elim', 'hexagon']:
+    for method in ['site_elim', 'renorm', 'hexagon']:
         for W in (np.arange(10.0)+1.0):
             t0 = time()
             compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
@@ -305,5 +305,5 @@ def plot_files():
         plt.show()
 
 if __name__ == "__main__":
-    compute_many_phase_diagrams()
-    #make_large_figure(dimensions=(25,25))
+    #compute_many_phase_diagrams()
+    make_large_figure()
