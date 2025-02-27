@@ -1,18 +1,17 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from MaybeActualFinalHaldane2 import  compute_hamiltonian, compute_eigen_data, compute_geometric_data, compute_bott_index
+from MaybeActualFinalHaldane2 import  compute_hamiltonian, compute_geometric_data, compute_bott_index
 from itertools import product
 from tqdm_joblib import tqdm_joblib, tqdm
 from joblib import Parallel, delayed
 import scipy as sp
-from testing_filesave import iterative_filename
 from multiprocessing import Lock, Manager
 import h5py, os, glob
 from time import time
 
 
-
 def plot_phase_diagram(fig, ax, phi_vals, M_vals, bott_vals, cmap='viridis', titleparams=None, doBoundary=True, doCbar=True, doLabels=True):
+
     phi_range = [np.min(phi_vals), np.max(phi_vals)]
     M_range = [np.min(M_vals), np.max(M_vals)]
 
@@ -23,7 +22,8 @@ def plot_phase_diagram(fig, ax, phi_vals, M_vals, bott_vals, cmap='viridis', tit
         ax.plot(boundary_vals, np.sin(boundary_vals)*np.sqrt(3)*3, c='k', ls='--', alpha=0.5)
         ax.plot(boundary_vals, -np.sin(boundary_vals)*np.sqrt(3)*3, c='k', ls='--', alpha=0.5)
 
-    ax.set_title(str(titleparams))
+    if titleparams is not None:
+        ax.set_title(str(titleparams))
     if doLabels:
         ax.set_xlabel('Phi')
         ax.set_ylabel('M', rotation=0)
@@ -36,19 +36,30 @@ def plot_phase_diagram(fig, ax, phi_vals, M_vals, bott_vals, cmap='viridis', tit
 
     if doCbar:
         cbar = fig.colorbar(im, ax=ax)
-        bott_min, bott_max = np.nanmin(bott_vals), np.nanmax(bott_vals)
-        cbar_ticks = np.linspace(min(bott_min, -1), max(bott_max, 1), 5)
+        bott_min, bott_max = np.floor(np.nanmin(bott_vals)), np.ceil(np.nanmax(bott_vals))
+        cbar_ticks = np.linspace(bott_min, bott_max, 2*(int(bott_max-bott_min))+1)
         cbar.set_ticks(cbar_ticks)
-        cbar.set_ticklabels([f'{tick:.{1}f}' for tick in cbar_ticks])
+        cbar.set_ticklabels([f'{tick:.1f}' for tick in cbar_ticks])
 
     return fig, ax
 
 
-def compute_disorder_array(strength, system_size, df):
+def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
+    """
+    Generate a disorder array for the Hamiltonian.
+
+    Parameters:
+    strength (float): The strength of the disorder.
+    system_size (int): The size of the system.
+    degrees_of_freedom (int): Degrees of freedom
+
+    Returns:
+    np.ndarray: A diagonal matrix representing the disorder.
+    """
     disorder_array = np.random.uniform(-strength/2, strength/2, size=system_size)
     delta = np.sum(disorder_array)/system_size
     disorder_array -= delta
-    disorder_array = np.repeat(disorder_array, df)
+    disorder_array = np.repeat(disorder_array, degrees_of_freedom)
     return np.diag(disorder_array).astype(np.complex128)
 
 
@@ -219,7 +230,7 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
             except ValueError:
                 continue
     disorder_strengths = np.sort(np.unique(np.array(disorder_strengths)))
-    #disorder_strengths = [0.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    disorder_strengths = [0.0, 6.0, 7.0, 8.0, 9.0, 10.0]
 
     fig, axs = plt.subplots(3, len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
     methods = ['hexagon', 'renorm', 'site_elim']
@@ -278,10 +289,10 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
         ax.set_aspect('equal', adjustable='box')
 
 def compute_many_phase_diagrams():
-    for method in ['hexagon']:
-        for W in [10.0, 9.0, 8.0, 7.0, 6.0]:
+    for method in ['hexagon', 'renorm', 'site_elim']:
+        for W in [15.0]:
             t0 = time()
-            compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
+            compute_and_save_phase_diagram(method, 2, W, (25, 25), 25, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
             print(f"Time for {method}, W={W}: {time()-t0:.2f} seconds.")
 
 def probe_files(directory):
@@ -307,4 +318,3 @@ def plot_files():
 if __name__ == "__main__":
     #compute_many_phase_diagrams()
     make_large_figure()
-    # test
