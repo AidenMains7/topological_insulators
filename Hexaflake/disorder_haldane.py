@@ -10,12 +10,12 @@ import h5py, os, glob
 from time import time
 
 
-def plot_phase_diagram(fig, ax, phi_vals, M_vals, bott_vals, cmap='viridis', titleparams=None, doBoundary=True, doCbar=True, doLabels=True):
+def plot_phase_diagram(fig, ax, phi_vals, M_vals, bott_vals, cmap='viridis', titleparams=None, norm=None, doBoundary=True, doCbar=True, doLabels=True):
 
     phi_range = [np.min(phi_vals), np.max(phi_vals)]
     M_range = [np.min(M_vals), np.max(M_vals)]
 
-    im = ax.imshow(bott_vals, extent=[phi_range[0], phi_range[1], M_range[0], M_range[1]], origin='lower', aspect='auto', cmap=cmap, interpolation='none', rasterized=True)
+    im = ax.imshow(bott_vals, extent=[phi_range[0], phi_range[1], M_range[0], M_range[1]], origin='lower', aspect='auto', cmap=cmap, interpolation='none', rasterized=True, norm=norm)
 
     if doBoundary:
         boundary_vals = np.linspace(-np.pi, np.pi, 500)
@@ -195,6 +195,8 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 #------------------------------------------------------------
 
 def compute_and_save_phase_diagram(method, generation, disorder_strength, dimensions, iterations, n_jobs, directory):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory)
     disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
     return clean_file, disorder_file
@@ -218,26 +220,26 @@ def plot_comparison(clean_file, disorder_vals, method, generation, disorder_stre
             plt.savefig(f"{method}_g{generation}_w{disorder_strength}_{fp}.png")
 
 
-def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensions=(50,50)):
+def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensions=(50,50), cmap='viridis', disorder_strengths=None, methods = ['hexagon', 'renorm', 'site_elim']):
     files = glob.glob(os.path.join(directory, '*.h5'))
-    disorder_strengths = [0.0]
-    for file in files:
-        filename = os.path.basename(file)
-        if '_w' in filename:
-            try:
-                w_value = float(filename.split('_w')[1].split('.h5')[0])
-                disorder_strengths.append(w_value)
-            except ValueError:
-                continue
-    disorder_strengths = np.sort(np.unique(np.array(disorder_strengths)))
-    disorder_strengths = [0.0, 6.0, 7.0, 8.0, 9.0, 10.0]
+    if disorder_strengths is None:
+        disorder_strengths = [0.0]
+        for file in files:
+            filename = os.path.basename(file)
+            if '_w' in filename:
+                try:
+                    w_value = float(filename.split('_w')[1].split('.h5')[0])
+                    disorder_strengths.append(w_value)
+                except ValueError:
+                    continue
+        disorder_strengths = np.sort(np.unique(np.array(disorder_strengths)))
+
 
     fig, axs = plt.subplots(3, len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
-    methods = ['hexagon', 'renorm', 'site_elim']
     generation = 2
-    cmap = 'viridis'
     bool_dict = {"doLabels": False, "doBoundary": False, "doCbar": False}
 
+    global_min, global_max = 0.0, 0.0
     for i, method in enumerate(methods):
         for j, w in enumerate(disorder_strengths):
             try:
@@ -247,13 +249,39 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
                     clean_dict = {k: v[:] for k, v in zip(f.keys(), f.values())}
 
                 phi_vals, M_vals, bott_index_vals = clean_dict['phi'], clean_dict['M'], clean_dict['bott_index'].T
-                if j == 0:
-                    fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, bott_index_vals, titleparams=f"Undisordered", cmap=cmap, **bool_dict)
+                if w == 0.0:
+                    global_min = min(global_min, np.nanmin(bott_index_vals))
+                    global_max = max(global_max, np.nanmax(bott_index_vals))
+                if os.path.exists(disorder_file):
+                    with h5py.File(disorder_file, 'r') as f:
+                        disorder_vals = f['disorder'][:].T  
+                    
+                    global_min = min(global_min, np.nanmin(disorder_vals))
+                    global_max = max(global_max, np.nanmax(disorder_vals))
+            except Exception as e:
+                print(f"Exception: {e}")
+
+    if np.abs(global_min) > global_max:
+        global_max = -global_min
+    else:
+        global_min = -global_max
+    
+    norm = plt.Normalize(vmin=global_min, vmax=global_max)
+    for i, method in enumerate(methods):
+        for j, w in enumerate(disorder_strengths):
+            try:
+                clean_file = directory + f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
+                disorder_file = clean_file.replace('.h5', f'_w{w}.h5')
+                with h5py.File(clean_file, 'r') as f:
+                    clean_dict = {k: v[:] for k, v in zip(f.keys(), f.values())}
+                phi_vals, M_vals, bott_index_vals = clean_dict['phi'], clean_dict['M'], clean_dict['bott_index'].T
+                if w == 0.0:
+                    fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, bott_index_vals, titleparams=f"Undisordered", cmap=cmap, norm=norm, **bool_dict)
                 else:
                     if os.path.exists(disorder_file):
                         with h5py.File(disorder_file, 'r') as f:
                             disorder_vals = f['disorder'][:].T  
-                        fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, disorder_vals, titleparams=f"W = {w}", cmap=cmap, **bool_dict)
+                        fig, axs[i, j] = plot_phase_diagram(fig, axs[i,j], phi_vals, M_vals, disorder_vals, titleparams=f"W = {w}", cmap=cmap, norm=norm, **bool_dict)
                     else:
                         print(f"Disorder file {disorder_file} not found.")
             except Exception as e:
@@ -270,16 +298,16 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
     for ax in axs[-1, :]:
         ax.set_xlabel(r'$\phi$', fontsize=12)
 
-    for ax in axs.flatten():
-        t = np.linspace(-np.pi, np.pi, 1000)
-        #ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
-        #ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
+    if True:
+        for ax in axs.flatten():
+            t = np.linspace(-np.pi, np.pi, 1000)
+            ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
+            ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
 
     plt.tight_layout(rect=[0, 0, 0.9, 1])
     pos1 = axs[0,0].get_position()
     pos2 = axs[-1,-1].get_position()
     cbar_ax = fig.add_axes([0.9, pos2.y0, 0.02, pos1.y1 - pos2.y0])
-    norm = plt.Normalize(vmin=-1, vmax=1)
     sm = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm.set_array([])
     cbar = fig.colorbar(sm, cax=cbar_ax)
@@ -289,10 +317,10 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
         ax.set_aspect('equal', adjustable='box')
 
 def compute_many_phase_diagrams():
-    for method in ['hexagon', 'renorm', 'site_elim']:
-        for W in [15.0]:
+    for W in [11.0]:
+        for method in ['renorm', 'site_elim', 'hexagon']:
             t0 = time()
-            compute_and_save_phase_diagram(method, 2, W, (25, 25), 25, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
+            compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
             print(f"Time for {method}, W={W}: {time()-t0:.2f} seconds.")
 
 def probe_files(directory):
@@ -317,4 +345,4 @@ def plot_files():
 
 if __name__ == "__main__":
     #compute_many_phase_diagrams()
-    make_large_figure()
+    make_large_figure(disorder_strengths = [6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0], cmap='Spectral')
