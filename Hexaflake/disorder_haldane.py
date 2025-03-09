@@ -278,11 +278,17 @@ def make_large_figure(directory='Haldane_Disorder_Data/Res2500_Avg100/', dimensi
         ax.set_aspect('equal', adjustable='box')
 
 def compute_many_phase_diagrams():
-    for method in ['site_elim', 'renorm', 'hexagon']:
+    for method in ['hexagon']:
         for W in (np.arange(10.0)+1.0):
             t0 = time()
             compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
             print(f"Time for {method}, W={W}: {time()-t0:.2f} seconds.")
+    for method in ['site_elim']:
+        for W in [10.0, 9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]:
+            t0 = time()
+            compute_and_save_phase_diagram(method, 2, W, (50, 50), 100, 4, 'Haldane_Disorder_Data/Res2500_Avg100/')
+            print(f"Time for {method}, W={W}: {time()-t0:.2f} seconds.")
+    
 
 def probe_files(directory):
     for f in glob.glob(directory+'*.h5'):
@@ -305,6 +311,6 @@ def plot_files():
         plt.show()
 
 if __name__ == "__main__":
-    #compute_many_phase_diagrams()
-    make_large_figure()
+    compute_many_phase_diagrams()
+    #make_large_figure()
     # test
