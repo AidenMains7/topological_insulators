@@ -4,7 +4,7 @@ from time import time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 # returns lattice
-def triangular_lattice(generation):
+def compute_triangular_lattice(generation):
     def recursive_lattice(_gen):
         if _gen == 0:
             return np.array([0.0, -np.sqrt(3)/2, np.sqrt(3)/2, 1.0, -0.5, -0.5]).reshape(2, 3)
@@ -45,9 +45,8 @@ def triangular_lattice(generation):
     lattice[coordinates[1], coordinates[0]] = np.arange(coordinates.shape[1])
     return lattice
 
-
 # returns lattice, triangular_hole_locations as integer
-def sierpinski_triangle(generation):
+def compute_sierpinski_triangle(generation):
     def recursive_fractal(_gen):
         if _gen == 0:
             return {"lattice_points": np.array([0.0, -np.sqrt(3)/2, np.sqrt(3)/2, 1.0, -0.5, -0.5]).reshape(2, 3), "triangular_hole_locations": None}
@@ -111,21 +110,46 @@ def sierpinski_triangle(generation):
     return {"lattice": lattice, "triangular_hole_locations": hole_locations}
 
 # not good yet
-def tiled_sierpinski(generation):
-    fractal = sierpinski_triangle(generation)
-    x_max = np.max(fractal[0])
-    flipped_fractal = fractal.copy()
-    flipped_fractal[1] = np.max(fractal[1])-flipped_fractal[1]
-    flipped_fractal[1] -= np.min(flipped_fractal[1]) - np.min(fractal[1])
-    flipped_fractal[0] += x_max
+def tile_triangle_to_implement_pbc(generation, doFractal=True):
+    if doFractal:
+        fractal_dict = compute_sierpinski_triangle(generation)
+        lattice, triangular_hole_locations = fractal_dict["lattice"], fractal_dict["triangular_hole_locations"]
+    else:
+        lattice = compute_triangular_lattice(generation)
+        triangular_hole_locations = None
+    
+    y, x = np.where(lattice >= 0)
+    coordinates = np.vstack((x, y))
 
-    tiled = np.hstack((fractal, flipped_fractal))
-    tiled[1] -= np.min(tiled[1])
-    tiled[0] -= np.min(tiled[0])
-    tiled = np.unique(tiled, axis=1)
-    sorted_indices = np.lexsort((tiled[1], tiled[0]))
-    tiled = tiled[:, sorted_indices]
-    return tiled
+    arrays = [coordinates.copy()]
+    if doFractal:
+        arrays.append(triangular_hole_locations.copy())
+        arrays[1][2] *= -1 # filp hole size as to imply that the hole is an upright triangle now
+    
+    for arr in arrays:
+        arr[1] = np.max(coordinates[1])-arr[1] # flip upside down, adjust y position
+        arr[0] += np.max(coordinates[0])//2 # shift x position to the right
+  
+    tiled_coords = np.hstack((coordinates, arrays[0]))
+    
+    y_min, x_min = np.min(tiled_coords[1]), np.min(tiled_coords[0])
+    tiled_coords[0] -= x_min
+    tiled_coords[1] -= y_min
+    tiled_coords = np.unique(tiled_coords, axis=1)
+    tiled_coords = tiled_coords[:, np.lexsort((tiled_coords[0], tiled_coords[1]))]
+
+    lattice = np.full((np.max(tiled_coords[1])+1, np.max(tiled_coords[0])+1), -1)
+    lattice[tiled_coords[1], tiled_coords[0]] = np.arange(tiled_coords.shape[1])
+
+    if doFractal:
+        tiled_hole_locations = np.hstack((triangular_hole_locations, arrays[1]))
+        tiled_hole_locations[0] -= x_min
+        tiled_hole_locations[1] -= y_min
+        tiled_hole_locations = np.unique(tiled_hole_locations, axis=1)
+    else:
+        tiled_hole_locations = None
+
+    return {"lattice" : lattice, "triangular_hole_locations" : tiled_hole_locations}
 
 # works with pbc (check with tiled)
 def calcluate_dx_dy(lattice, pbc):
@@ -169,12 +193,14 @@ def calcluate_dx_dy(lattice, pbc):
     return dx, dy
 
 
-def plot_relative_distances(n, PBC, rel_origin=(0., 0.), abs_dist=True, fractal=False):
+def plot_relative_distances(generation, PBC, rel_origin=(0., 0.), abs_dist=True, doFractal=False):
 
-    coords = tiled_sierpinski(n)
-    x, y = coords
-    delta_x_discrete, delta_y_discrete = calcluate_dx_dy(coords, PBC)
+    lattice_dict = tile_triangle_to_implement_pbc(generation, doFractal)
+    lattice = lattice_dict["lattice"]
 
+    delta_x_discrete, delta_y_discrete = calcluate_dx_dy(lattice, PBC)
+
+    y, x = np.where(lattice >= 0)
 
     x_origin_rel, y_origin_rel = rel_origin
     x_origin = (x_origin_rel / 2) * (x.max() - x.min())
@@ -284,13 +310,16 @@ def plot_relative_distances(n, PBC, rel_origin=(0., 0.), abs_dist=True, fractal=
  
 # check with tiled
 def calculate_hopping(dx, dy):
+    # Must be in DISCRETE coordinates
     abs_dx = np.abs(dx)
     abs_dy = np.abs(dy)
     NN = ((abs_dx == 2) & (abs_dy == 0)) | ((abs_dx == 1) & (abs_dy == 3))
-    return NN
+
+    NNN = ((abs_dy == 6) & ((abs_dx == 0) | (abs_dx == 2))) | ((abs_dy == 3) & (abs_dx == 3)) | ((abs_dy == 0) & (abs_dx == 4))
+    return NN, NNN
 
 
-def plot_bonds(lattice, NN, ax, plotIndicesNames=False, removeBonds=True):
+def plot_bonds(lattice, NN, ax, plotIndicesNames=False):
 
     y_discrete, x_discrete = np.where(lattice >= 0)
     yidx, xidx = np.argwhere(lattice >= 0).T
@@ -311,10 +340,12 @@ def remove_fractal_bonds(triangular_hole_locations, lattice):
     def get_side_length(n):
         if n == 0:
             return 2
+        elif n < 0:
+            raise ValueError("n must be a non-negative integer")
         else:
             return 2*get_side_length(n-1) - 1
     dx, dy = calcluate_dx_dy(lattice, False)
-    NN = calculate_hopping(dx, dy)
+    NN, NNN = calculate_hopping(dx, dy)
 
     hole_x, hole_y, hole_n = triangular_hole_locations
     remove_n0_holes_mask = (hole_n != 0)
@@ -324,19 +355,25 @@ def remove_fractal_bonds(triangular_hole_locations, lattice):
     hole_pos = np.vstack((hole_x, hole_y))
 
     for pos, n in zip(hole_pos.T, hole_n):
-        horizontal_break_pos = pos + moving_vector_right
-        h_break_end = horizontal_break_pos + np.array([-2, 0])
-        right_vertical_break_pos = pos + (get_side_length(n)-2) * moving_vector_right
-        left_vertical_break_pos = pos + (get_side_length(n)-2) * moving_vector_left
+        # n is the relative generation size of the hole. Positive n means the hole is an inverted triangle, negative n means the hole is an upright triangle.
+        horizontal_break_pos = pos + np.sign(n) * moving_vector_right
+        h_break_end = horizontal_break_pos + np.sign(n) * np.array([-2, 0])
+
+        right_vertical_break_pos = pos + (get_side_length(abs(n))-2) * np.sign(n) * moving_vector_right
+        rv_break_end = right_vertical_break_pos + np.sign(n) * np.array([-1, 3])
+
+        left_vertical_break_pos = pos + (get_side_length(abs(n))-2) * np.sign(n) * moving_vector_left
+        lv_break_end = left_vertical_break_pos + np.sign(n) * np.array([1, 3])
+
         
         hor_i = lattice[horizontal_break_pos[1], horizontal_break_pos[0]]
         hor_j = lattice[h_break_end[1], h_break_end[0]]
 
         right_ver_i = lattice[right_vertical_break_pos[1], right_vertical_break_pos[0]]
-        right_ver_j = lattice[right_vertical_break_pos[1] + 3, right_vertical_break_pos[0] - 1]
+        right_ver_j = lattice[rv_break_end[1], rv_break_end[0]]
 
         left_ver_i = lattice[left_vertical_break_pos[1], left_vertical_break_pos[0]]
-        left_ver_j = lattice[left_vertical_break_pos[1] + 3, left_vertical_break_pos[0] + 1]
+        left_ver_j = lattice[lv_break_end[1], lv_break_end[0]]
 
         if hor_i >= 0 and hor_j >= 0:
             NN[hor_i, hor_j] = False
@@ -351,18 +388,79 @@ def remove_fractal_bonds(triangular_hole_locations, lattice):
     return NN
 
 
+def wrapper(generation, pbc, plotBonds=False):
+    triangular_lattice = compute_triangular_lattice(generation)
+    fractal_dict = compute_sierpinski_triangle(generation)
+    fractal_lattice, triangular_hole_locations = fractal_dict["lattice"], fractal_dict["triangular_hole_locations"]
+
+    frac_dx, frac_dy = calcluate_dx_dy(fractal_lattice, pbc)
+    frac_NN = remove_fractal_bonds(triangular_hole_locations, fractal_lattice)
+
+    tri_dx, tri_dy = calcluate_dx_dy(triangular_lattice, pbc)
+    tri_NN, tri_NNN = calculate_hopping(tri_dx, tri_dy)
+
+    if plotBonds and pbc == False:
+        fig, axs = plt.subplots(1, 2, figsize=(10,10))
+        plot_bonds(fractal_lattice, frac_NN, axs[1])
+        plot_bonds(triangular_lattice, tri_NN, axs[0])
+        axs[0].set_title("Triangular Lattice")
+        axs[1].set_title("Fractal Lattice")
+
+        for ax in axs.flatten():
+            ax.set_aspect('equal')
+        plt.show()
+
+
+def plot_bonds_for_comparison():
+    fractal_dict = tile_triangle_to_implement_pbc(5)
+    triangular_dict = tile_triangle_to_implement_pbc(5, False)
+
+    fractal_lattice = fractal_dict["lattice"]
+    triangular_lattice = triangular_dict["lattice"]
+    hole_locations = fractal_dict["triangular_hole_locations"]
+
+    fractal_dx, fractal_dy = calcluate_dx_dy(fractal_lattice, False)
+    fractal_NN = remove_fractal_bonds(hole_locations, fractal_lattice)
+
+    triangular_dx, triangular_dy = calcluate_dx_dy(triangular_lattice, False)
+    triangular_NN, triangular_NNN = calculate_hopping(triangular_dx, triangular_dy)
+
+    fig, ax = plt.subplots(1, 2, figsize=(10,10))
+    plot_bonds(fractal_lattice, fractal_NN, ax[0], plotIndicesNames=False)
+    plot_bonds(triangular_lattice, triangular_NN, ax[1], plotIndicesNames=False)
+    ax[0].set_title("Fractal Lattice")
+    ax[1].set_title("Triangular Lattice")
+    for ax in ax.flatten():
+        ax.set_aspect('equal')
+    plt.tight_layout()
+    plt.show()
+
 if __name__ == "__main__":
-    fig, axs = plt.subplots(1, 1)
-    y, x = np.where(triangular_lattice(5) >= 0)
-    axs.scatter(x, y, alpha=0.5)
+    plot_relative_distances(6, True, rel_origin=(.5,.5), doFractal=True)
+    if False:
+        fractal_dict = tile_triangle_to_implement_pbc(5)
+        triangular_dict = tile_triangle_to_implement_pbc(5, False)
 
-    if True:
-        triangle_dict = sierpinski_triangle(5)
-        hole_locations = triangle_dict["triangular_hole_locations"]
-        lattice = triangle_dict["lattice"]
-        NN = remove_fractal_bonds(**triangle_dict)
+        fractal_lattice = fractal_dict["lattice"]
+        triangular_lattice = triangular_dict["lattice"]
+        hole_locations = fractal_dict["triangular_hole_locations"]
 
-        
-        
-        plot_bonds(lattice,  NN, axs)
+        fractal_dx, fractal_dy = calcluate_dx_dy(fractal_lattice, True)
+        fractal_NN, fractal_NNN = calculate_hopping(fractal_dx, fractal_dy)
+        fractal_NN = remove_fractal_bonds(hole_locations, fractal_lattice)
+
+        triangular_dx, triangular_dy = calcluate_dx_dy(triangular_lattice, True)
+        triangular_NN, triangular_NNN = calculate_hopping(triangular_dx, triangular_dy)
+
+
+        index = np.random.randint(0, fractal_NN.shape[0])
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        y, x = np.where(fractal_lattice >= 0)
+        scatter = ax.scatter(x, y, c=fractal_NNN[index], cmap='viridis', s=100)
+        ax.set_aspect('equal')
+        plt.colorbar(scatter, ax=ax, label='NNN Value')
+        plt.title('Fractal Lattice with NNN Values')
+        plt.xlabel('x')
+        plt.ylabel('y')
         plt.show()
