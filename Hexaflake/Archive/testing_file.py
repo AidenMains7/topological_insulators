@@ -1,10 +1,8 @@
 import numpy as np
-
-n=100
-arr = np.arange(n).reshape(10, 10)
-
+a, b, c = 3, 4, 5
+arr = np.arange(a*b*c).reshape(a,b,c)
 print(arr)
 
-a = np.random.randint(0, 10, (10, 2))
-print(a)
-print(arr[a[:, 0], a[:, 1]])
+vals = [a for a in arr]
+for v in vals:
+    print(v.shape)
