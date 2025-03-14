@@ -1171,4 +1171,6 @@ if __name__ == '__main__':
 	#arr = remove_center_hole(2, (0.7, 0.7))
 	#plt.imshow(arr)
 	#plt.show()
-	compute_geometric_data(2, True, print_info=True)
+	#compute_geometric_data(2, True, print_info=True)
+
+	plot_lattice_sites(2)
