@@ -421,11 +421,11 @@ def compute_local_chern_markers(eigen_data):
 	return C
 
 
-def compute_eigen_data(method, M, phi, t1, t2, geometric_data, invmethod='solve'):
+def compute_eigen_data(method, M, phi, t1, t2, geometric_data):
 
 	x, y = geometric_data['x'], geometric_data['y']
 
-	H = compute_hamiltonian(method, M, phi, t1, t2, geometric_data, invmethod)
+	H = compute_hamiltonian(method, M, phi, t1, t2, geometric_data)
 
 	dx = (1/2)*(H[::2, :][:, 1::2] + H[::2, :][:, 1::2].conj().T)
 	dy = (1j/2)*(H[::2, :][:, 1::2] - H[::2, :][:, 1::2].conj().T)
@@ -581,6 +581,10 @@ def plot_spectrum_and_LDOS(eigen_data, num_states=2, cmap='inferno'):
 	num_states += 1 - num_states % 2
 
 	x, y, eigenvalues, eigenvectors = [eigen_data[key] for key in 'x, y, eigenvalues, eigenvectors'.split(', ')]
+
+	print(eigenvalues.shape)
+	print(x.shape)
+
 
 	all_idxs = np.arange(eigenvalues.size)
 	positive = eigenvalues > 0
@@ -1173,4 +1177,5 @@ if __name__ == '__main__':
 	#plt.show()
 	#compute_geometric_data(2, True, print_info=True)
 
-	plot_lattice_sites(2)
+	eigen_dat = compute_eigen_data('hexagon', 0.0, np.pi/2, 1.0, 1.0, geometric_data=compute_geometric_data(2, True))
+	plot_spectrum_and_LDOS(eigen_dat)

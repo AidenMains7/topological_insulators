@@ -50,3 +50,11 @@ def find_triangle_lines2(coordinates):
             in_boundary_idxs = find_triangle_lines(larger_hole_points)
 
             all_hole_points = np.append(larger_hole_points[:, ~in_boundary_idxs], shifted_hole_boundary_points, axis=1) if fractal_dict["hole_boundary_points"] is not None else larger_hole_points
+
+
+def finite_difference_2D(func, kx, ky, M, B_tilde, B, t1, t2, tol=1e-4, *args, **kwargs):
+    d_func_x = (func(kx + tol, ky, M, B_tilde, B, t1, t2) - func(kx - tol, ky, M, B_tilde, B, t1, t2)) / (2 * tol)
+    d_func_y = (func(kx, ky + tol, M, B_tilde, B, t1, t2) - func(kx, ky - tol, M, B_tilde, B, t1, t2)) / (2 * tol)
+    return d_func_x, d_func_y
+
+

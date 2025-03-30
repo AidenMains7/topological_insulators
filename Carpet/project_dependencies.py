@@ -627,7 +627,7 @@ def bott_index(P:np.ndarray, lattice:np.ndarray) -> float:
     '''
     Computes the Bott Index for a given lattice and projector
     '''
-    Y, X = np.where(lattice >= 0)[:]
+    Y, X    = np.where(lattice >= 0)[:]
     system_size = np.max(lattice) + 1
     states_per_site = P.shape[0] // system_size
     X = np.repeat(X, states_per_site)
@@ -717,10 +717,11 @@ def remap_LDOS(local_density, lattice):
 
 #-------main function implementation-----------------
 def main():
-    sq, fr, h, f = sierpinski_lattice(4, 0)
-    print(fr)
-    print(fr.shape)
-    print(sq.shape)
+    pd, lat = precompute("square", 3, 0, True, None)
+    H = Hamiltonian_reconstruct("square", pd, 1.0, 1.0)
+    y, x = np.where(lat >= 0)
+    print(x.shape[0])
+    print(H.shape)
 
 if __name__ == "__main__":
     np.set_printoptions(threshold=np.inf)

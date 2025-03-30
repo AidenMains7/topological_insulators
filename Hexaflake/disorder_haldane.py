@@ -271,6 +271,7 @@ def triangular_basis(x, y):
 
 	a1 = (np.sqrt(3) / 2) * x - 0.5 * y
 	a2 = (np.sqrt(3) / 2) * x + 0.5 * y
+	print(a1.shape)
 
 	return a1, a2
 
@@ -281,6 +282,8 @@ def compute_bott_index(eigen_data):
 	lower_band = np.argsort(eigenvalues)[:eigenvalues.size // 2]
 	V = eigenvectors[:, lower_band]
 
+	print("V shape:", V.shape)
+
 	N = round((np.sqrt(2 * x.size - 3) - 3) / 2 + 2)
 	L = np.sqrt(3) * N
 
@@ -288,6 +291,8 @@ def compute_bott_index(eigen_data):
 
 	U1 = np.exp(1j * 2 * np.pi * a1 / L)[:, np.newaxis]
 	U2 = np.exp(1j * 2 * np.pi * a2 / L)[:, np.newaxis]
+
+	print("U1 shape:", U1.shape)
 
 	U1_proj = V.conj().T @ (V * U1)
 	U2_proj = V.conj().T @ (V * U2)
@@ -713,7 +718,7 @@ if __name__ == "__main__":
 	profiler = cProfile.Profile()
 	profiler.enable()
 
-	geom = compute_geometric_data(3, True)
+	geom = compute_geometric_data(2, True)
 	H = compute_hamiltonian('hexagon', 0.0, np.pi/2, 1.0, 1.0, geom)
 	bott = compute_bott_from_hamiltonian(H, 'hexagon', geom)
 	print(bott)
