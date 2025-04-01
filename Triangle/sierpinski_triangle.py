@@ -590,7 +590,7 @@ def compute_bott_index(H:np.ndarray, lattice:np.ndarray) -> float:
 
 
     Y, X = np.where(lattice >= 0)[:]
-    X, Y = np.repeat(X, 2), np.repeat(Y, 2)
+    x, y = np.repeat(X, 2), np.repeat(Y, 2)
 
     a1, a2 = convert_from_discrete_to_triangular_basis(x, y)
     a1, a2 = x, y

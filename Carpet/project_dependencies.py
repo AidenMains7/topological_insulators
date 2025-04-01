@@ -240,7 +240,7 @@ def wannier_fourier(lattice:np.ndarray, pbc:bool) -> tuple:
                 if x_hop:
                     Cx[pos, pos_xp] = 1 / 2
                     Sx[pos, pos_xp] = 1j / 2
-                if y_hop:
+                if y_hop:   
                     Cy[pos, pos_yp] = 1 / 2
                     Sy[pos, pos_yp] = 1j / 2
                 if ypxp_hop:

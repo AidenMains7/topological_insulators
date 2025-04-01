@@ -1,7 +1,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 from scipy.integrate import simpson
-import sympy
+from scipy.linalg import eigh
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm_joblib, tqdm
 from itertools import product
@@ -249,6 +249,28 @@ def plot_phase_diagram(fig, ax,
 
     return fig, ax
 
+
+
+
+
+def compute_bott_index(H):
+    eigenvalues, eigenvectors = eigh(H)
+    lower_band_eigvals = np.sort(eigenvalues)[:eigenvalues // 2]
+    highest_lower_band = np.max(lower_band_eigvals)
+
+    D = np.where(eigenvalues <= highest_lower_band, 1.0 + 0.0j, 0.0 + 0.0j)
+    P_part = np.einsum('i,ij->ij', D, eigenvectors.conj().T)
+    P = eigenvectors @ P_part
+
+    fig, axs = plt.sublpots(1, 2, figsize=(12, 6))
+    axs[0].imshow(np.abs(P), cmap='viridis', aspect='auto')
+    axs[1].imshow(eigenvalues, cmap='viridis', aspect='auto')
+    plt.show()
+
+    return P
+
+
+
 # -----------------
 
 def fig2_partc():
@@ -303,6 +325,12 @@ def plot_phase_diagram_example():
                                  cbar_tick_labels=[str(i) for i in np.arange(-2, 1, 1)])
     plt.savefig(output_file[:-2]+"png")
     plt.show()
+
+
+
+
+
+
 
 if __name__ == "__main__":
     plot_phase_diagram_example()

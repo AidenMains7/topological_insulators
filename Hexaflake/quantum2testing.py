@@ -5,7 +5,7 @@ m_electron = 9.10938356e-31
 c = 299792458
 a_const = (-13.6)**2 / (2*m_electron*c*c)
 h_ev = 4.1357e-15
-
+alpha = 1/137
 
 def fine_structure_correction(n, nprime, j, jprime):
     E_n_ev = (3 - (4*n)/(j+1/2)) / (n**2)
@@ -41,6 +41,15 @@ def get_unique_values(values, removeNan=True):
     return values
     
 
+
+def bohr_energy(n):
+    return -13.6 / n**2
+
+def fs_energy(n, l, ml, ms):
+    return (3 / (4*n) - ((l * (l+1) - ml*ms) / (l * (l + 1/2) * (l + 1))))
+
+def zeeman_energy(mu_b, B, ml, ms):
+    return mu_b * B * (ml + 2 * ms)
 
 
 def main():
@@ -96,4 +105,16 @@ def main():
     plt.show()
 
 if __name__ == "__main__":
-    main()
+    n = 2
+    l_vals = [1]
+    ms_vals = [-1/2, 1/2]
+
+    for l in l_vals:
+        for ml in range(-l, l+1):
+            for ms in ms_vals:
+                E_bohr = bohr_energy(n)
+                E_fs = fs_energy(n, l, ml, ms)
+                E_zeeman = zeeman_energy(1, 1, ml, ms)
+                E = E_bohr + E_fs + E_zeeman
+
+                print(f"l={l}, ml={ml}, ms={ms}: E_fs = {E_fs:.4f}")
