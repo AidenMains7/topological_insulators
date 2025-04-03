@@ -239,7 +239,7 @@ def compute_sierpinski_triangle(generation):
     return {"lattice": lattice, "triangular_hole_locations": hole_locations}
 
 
-def tile_triangle(generation, doFractal=False):
+def tile_triangle(generation, doFractal):
     if doFractal:
         fractal_dict = compute_sierpinski_triangle(generation)
         lattice, triangular_hole_locations = fractal_dict["lattice"], fractal_dict["triangular_hole_locations"]
@@ -334,7 +334,7 @@ def calculate_triangle_hopping(dx, dy):
     b1_mask = (dx == 2) & (dy == 0)
     b2_mask = (dx == 1) & (dy == 3)
     b2_tilde_mask = (dx == 1) & (dy == -3)
-    neg_b2_tilde_mask = (dx == -1) & (dy == 3)
+    #neg_b2_tilde_mask = (dx == -1) & (dy == 3)
 
     # For NNN--------------
     # In real space:
@@ -350,8 +350,8 @@ def calculate_triangle_hopping(dx, dy):
     c1_mask = (dx == 0) & (dy == 6)
     c2_mask = (dx == 3) & (dy == 3)
     c3_mask = (dx == 3) & (dy == -3)
-    masks = [b1_mask, b2_mask, b2_tilde_mask, neg_b2_tilde_mask, c1_mask, c2_mask, c3_mask]
-    return [m.astype(np.complex128) for m in masks]
+    masks = [b1_mask, b2_mask, b2_tilde_mask, c1_mask, c2_mask, c3_mask]
+    return {"b1": b1_mask, "b2": b2_mask, "b2_tilde": b2_tilde_mask, "c1": c1_mask, "c2": c2_mask, "c3": c3_mask}
 
 
 def find_removal_sites(lattice, triangular_hole_locations, masks):
@@ -370,74 +370,140 @@ def find_removal_sites(lattice, triangular_hole_locations, masks):
     moving_vector_left = np.array([-1, 3]).T
     hole_pos = np.vstack((hole_x, hole_y))
 
-    bonds_to_remove = []
+    moving_vectors = [moving_vector_right, moving_vector_left]
+    NN_bonds_to_remove = []
+    NNN_bonds_to_remove = []
+
+    b1_vector = np.array([2, 0])
+    b2_vector = np.array([1, 3])
+    b2tilde_vector = np.array([1, -3])
+    c1_vector = np.array([0, 6])
+    c2_vector = np.array([3, 3])
+    c3_vector = np.array([3, -3])
+
     for pos, n in zip(hole_pos.T, hole_n):
         # n is the relative generation size of the hole. Positive n means the hole is an inverted triangle, negative n means the hole is an upright triangle.
-        horizontal_break_pos = pos + np.sign(n) * moving_vector_right
-        h_break_end = horizontal_break_pos + np.sign(n) * np.array([-2, 0])
+        b1_break_pos = pos + np.sign(n) * moving_vector_left
+        b1_end_pos = b1_break_pos + np.sign(n) * b1_vector
+        b2_break_pos = pos + (get_side_length(abs(n))-2) * np.sign(n) * moving_vector_left
+        b2_end_pos = b2_break_pos + np.sign(n) * b2_vector
+        b2tilde_break_pos = pos + (get_side_length(abs(n))-2) * np.sign(n) * moving_vector_right
+        b2tilde_end_pos = b2tilde_break_pos + np.sign(n) * (-b2tilde_vector)
 
-        right_vertical_break_pos = pos + (get_side_length(abs(n))-2) * np.sign(n) * moving_vector_right
-        rv_break_end = right_vertical_break_pos + np.sign(n) * np.array([-1, 3])
+        b1_i = lattice[b1_break_pos[1], b1_break_pos[0]]
+        b1_j = lattice[b1_end_pos[1], b1_end_pos[0]]
+        b2_i = lattice[b2_break_pos[1], b2_break_pos[0]]
+        b2_j = lattice[b2_end_pos[1], b2_end_pos[0]]
+        b2tilde_i = lattice[b2tilde_break_pos[1], b2tilde_break_pos[0]]
+        b2tilde_j = lattice[b2tilde_end_pos[1], b2tilde_end_pos[0]]
 
-        left_vertical_break_pos = pos + (get_side_length(abs(n))-2) * np.sign(n) * moving_vector_left
-        lv_break_end = left_vertical_break_pos + np.sign(n) * np.array([1, 3])
+        if b1_i >= 0 and b1_j >= 0:
+            NN_bonds_to_remove.append((b1_i, b1_j))
+        if b2_i >= 0 and b2_j >= 0:
+            NN_bonds_to_remove.append((b2_i, b2_j))
+        if b2tilde_i >= 0 and b2tilde_j >= 0:
+            NN_bonds_to_remove.append((b2tilde_i, b2tilde_j))
 
-        hor_i = lattice[horizontal_break_pos[1], horizontal_break_pos[0]]
-        hor_j = lattice[h_break_end[1], h_break_end[0]]
+        c1_break_positions = [(pos + (get_side_length(abs(n))-displacement) * np.sign(n) * mv) for mv, displacement in tuple(product(moving_vectors, [2, 3]))]
+        c1_end_positions = [c1_break_pos + np.sign(n) * (c1_vector) for c1_break_pos in c1_break_positions]
 
-        right_ver_i = lattice[right_vertical_break_pos[1], right_vertical_break_pos[0]]
-        right_ver_j = lattice[rv_break_end[1], rv_break_end[0]]
+        c2_mvs = [moving_vector_left, moving_vector_left, moving_vector_right, moving_vector_left, moving_vector_left]
+        c2_displacements = [2, 4, get_side_length(abs(n))-1, 3, get_side_length(abs(n)) - 1]
+        c2_shifts = [0, 0, 0, np.array([0, 6]).T, 0]
+        c2_flip_factors = np.array([1, 1, -1, -1, 1])
+        c2_parameters = [(mv, displacement, additional_shifts) for mv, displacement, additional_shifts in zip(c2_mvs, c2_displacements, c2_shifts)]
+        c2_break_positions = [(pos + (get_side_length(abs(n)) - displacement) * np.sign(n) * mv + additional_shifts * np.sign(n)) for mv, displacement, additional_shifts in c2_parameters]
+        c2_end_positions = [c2_break_pos + np.sign(n) * (c2_vector) * ff for c2_break_pos, ff in zip(c2_break_positions, c2_flip_factors)]
 
-        left_ver_i = lattice[left_vertical_break_pos[1], left_vertical_break_pos[0]]
-        left_ver_j = lattice[lv_break_end[1], lv_break_end[0]]
+        c3_mvs = [moving_vector_right, moving_vector_right, moving_vector_left, moving_vector_right, moving_vector_right]
+        c3_displacements = c2_displacements
+        c3_shifts = c2_shifts
+        c3_flip_factors = -c2_flip_factors
+        c3_parameters = [(mv, displacement, additional_shifts) for mv, displacement, additional_shifts in zip(c3_mvs, c3_displacements, c3_shifts)]
+        c3_break_positions = [(pos + (get_side_length(abs(n)) - displacement) * np.sign(n) * mv + additional_shifts * np.sign(n)) for mv, displacement, additional_shifts in c3_parameters]
+        c3_end_positions = [c3_break_pos + np.sign(n) * (c3_vector) * ff for c3_break_pos, ff in zip(c3_break_positions, c3_flip_factors)]        #print("n =", n)
 
-        if hor_i >= 0 and hor_j >= 0:
-            bonds_to_remove.append((hor_i, hor_j))
-        if right_ver_i >= 0 and right_ver_j >= 0:
-            bonds_to_remove.append((right_ver_i, right_ver_j))
-        if left_ver_i >= 0 and left_ver_j >= 0:
-            bonds_to_remove.append((left_ver_i, left_ver_j))
+        def check_position_list(position_list):
+            def _check_position(pos):
+                if 0 <= pos[0] < lattice.shape[1] and 0 <= pos[1] < lattice.shape[0]:
+                    return True
+                return False
+            return np.array([_check_position(pos) for pos in position_list])
 
-    b1_mask, b2_mask, b2_tilde_mask, neg_b2_tilde_mask, c1_mask, c2_mask, c3_mask = masks
+        c2_break_positions = np.array(c2_break_positions)
+        c2_end_positions = np.array(c2_end_positions)
+        c2_mask = check_position_list(c2_break_positions) & check_position_list(c2_end_positions)
+        c2_break_positions = c2_break_positions[c2_mask]
+        c2_end_positions = c2_end_positions[c2_mask]
 
-    for i, j in bonds_to_remove:
-        b1_mask[i, j] = 0
-        b1_mask[j, i] = 0
-        b2_mask[i, j] = 0
-        b2_mask[j, i] = 0
-        b2_tilde_mask[i, j] = 0
-        b2_tilde_mask[j, i] = 0
+        c3_break_positions = np.array(c3_break_positions)
+        c3_end_positions = np.array(c3_end_positions)
+        c3_mask = check_position_list(c3_break_positions) & check_position_list(c3_end_positions)
+        c3_break_positions = c3_break_positions[c3_mask]
+        c3_end_positions = c3_end_positions[c3_mask]
+
+        c1_is = [lattice[c1_break_pos[1], c1_break_pos[0]] for c1_break_pos in c1_break_positions]
+        c1_js = [lattice[c1_end_pos[1], c1_end_pos[0]] for c1_end_pos in c1_end_positions]
+
+        c2_is = [lattice[c2_break_pos[1], c2_break_pos[0]] for c2_break_pos in c2_break_positions]
+        c2_js = [lattice[c2_end_pos[1], c2_end_pos[0]] for c2_end_pos in c2_end_positions]
+        
+        c3_is = [lattice[c3_break_pos[1], c3_break_pos[0]] for c3_break_pos in c3_break_positions]
+        c3_js = [lattice[c3_end_pos[1], c3_end_pos[0]] for c3_end_pos in c3_end_positions]
+
+        for c1_i, c1_j in zip(c1_is, c1_js):
+            if c1_i >= 0 and c1_j >= 0:
+                NNN_bonds_to_remove.append((c1_i, c1_j))
+        for c2_i, c2_j in zip(c2_is, c2_js):
+            if c2_i >= 0 and c2_j >= 0:
+                NNN_bonds_to_remove.append((c2_i, c2_j))
+        for c3_i, c3_j in zip(c3_is, c3_js):
+            if c3_i >= 0 and c3_j >= 0:
+                NNN_bonds_to_remove.append((c3_i, c3_j))
+
+    b1_mask, b2_mask, b2_tilde_mask, c1_mask, c2_mask, c3_mask = masks.values()
+
+    for i, j in NN_bonds_to_remove:
+        b1_mask[i, j] = False
+        b1_mask[j, i] = False
+        b2_mask[i, j] = False
+        b2_mask[j, i] = False
+        b2_tilde_mask[i, j] = False
+        b2_tilde_mask[j, i] = False
+    for i, j in NNN_bonds_to_remove:
+        c1_mask[i, j] = False
+        c1_mask[j, i] = False
+        c2_mask[i, j] = False
+        c2_mask[j, i] = False
+        c3_mask[i, j] = False
+        c3_mask[j, i] = False
     
-    return b1_mask, b2_mask, b2_tilde_mask, neg_b2_tilde_mask, c1_mask, c2_mask, c3_mask
+    return {"b1": b1_mask, "b2": b2_mask, "b2_tilde": b2_tilde_mask, "c1": c1_mask, "c2": c2_mask, "c3": c3_mask}
     
 
-def fractal_wrapper(generation, pbc, doFractal=False):
+def fractal_wrapper(generation, pbc):
 
     triangular_dict = tile_triangle(generation, doFractal=False)
     triangular_lattice = triangular_dict["lattice"]
 
-    if doFractal:
-        fractal_dict = tile_triangle(generation, True)
-        fractal_lattice = fractal_dict["lattice"]
-        triangular_hole_locations = fractal_dict["triangular_hole_locations"]
+    fractal_dict = tile_triangle(generation, doFractal=True)
 
-        dx, dy = calculate_triangle_distances(fractal_lattice, pbc)
-        hopping_masks = calculate_triangle_hopping(dx, dy)
-        hopping_masks = find_removal_sites(fractal_lattice, triangular_hole_locations, hopping_masks)
+    fractal_lattice = fractal_dict["lattice"]
+    fractal_hole_locations = fractal_dict["triangular_hole_locations"]
 
-        Y_tri, X_tri = np.where(triangular_lattice >= 0)[:]
-        bool_fractal_lattice = fractal_lattice >= 0
-        fractal_site_mask = bool_fractal_lattice[Y_tri, X_tri]
+    fractal_dx, fractal_dy = calculate_triangle_distances(fractal_lattice, pbc)
+    fractal_hopping_masks = calculate_triangle_hopping(fractal_dx, fractal_dy)
+    fractal_hopping_masks = find_removal_sites(fractal_lattice, fractal_hole_locations, fractal_hopping_masks)
 
-        #hopping_masks = [mask[np.ix_(fractal_site_mask, fractal_site_mask)] for mask in hopping_masks]
 
-    else:
-        dx, dy = calculate_triangle_distances(triangular_lattice, pbc)
-        hopping_masks = calculate_triangle_hopping(dx, dy)
+    dx, dy = calculate_triangle_distances(triangular_lattice, pbc)
+    hopping_masks = calculate_triangle_hopping(dx, dy)
 
     geometry_dict = {
-        "lattice": triangular_lattice if not doFractal else fractal_lattice,
-        "hopping_masks": hopping_masks,
+        "triangular_lattice": triangular_lattice,
+        "triangular_hopping_masks": hopping_masks,
+        "fractal_lattice": fractal_lattice,
+        "fractal_hopping_masks": fractal_hopping_masks
     }
     return geometry_dict
 
@@ -450,7 +516,7 @@ def calculate_triangle_hamiltonian(hopping_masks, M, B_tilde, B = 1.0, A_tilde =
     d1 = (t / 2j) * (b1_mask) + (t / 4j) * (b2_mask + b2_tilde_mask)
     d1 += d1.conj().T
 
-    d2 = (-t * np.sqrt(3) / 4j) * (b2_mask + neg_b2_tilde_mask)
+    d2 = (-t * np.sqrt(3) / 4j) * (b2_mask - b2_tilde_mask)
     d2 += d2.conj().T
 
     d3 = (B) * (b1_mask + b2_mask + b2_tilde_mask)
@@ -573,7 +639,7 @@ def compute_triangle_bott_phase_diagram(generation, doFractal, M_range, B_tilde_
         bott = calculate_triangle_bott_index(projector, lattice)
         return [M, B_tilde, bott]
 
-    with tqdm_joblib(tqdm(total=len(parameter_values), desc=f"Computing phase diagram for Chern number.")) as progress_bar:
+    with tqdm_joblib(tqdm(total=len(parameter_values), desc=f"Computing phase diagram for Bott index.")) as progress_bar:
         M_data, B_tilde_data, bott_data = np.array(Parallel(n_jobs=4)(delayed(compute_single)(params) for params in parameter_values), dtype=float).T
 
     with h5py.File(output_file, "w") as f:
@@ -626,12 +692,13 @@ def test():
     plt.show()
 
 if __name__ == "__main__":
-    fout = compute_triangle_bott_phase_diagram(5, True, (-2.0, 8.0), (0.0, 0.5), resolution=(25, 25), B=1.0, t=1.0, A_tilde=0.0, directory='./Triangle/PhaseDiagrams', overwrite=False)
-    with h5py.File(fout, 'r') as f:
-        M_data = f["M"][:]
-        B_tilde_data = f["B_tilde"][:]
-        bott_data = f["bott_data"][:]
-    
-    fig, ax = plt.subplots(1, 1, figsize=(10,10))
-    plot_phase_diagram(fig, ax, M_data, B_tilde_data, bott_data, title="Triangle Lattice Phase Diagram", labels=["M", "B_tilde"])
-    plt.show()
+    for g in [4]:
+        fout = compute_triangle_bott_phase_diagram(g, False, (-2.0, 8.0), (0.0, 0.5), resolution=(25, 25), B=1.0, t=1.0, A_tilde=0.0, directory='./Triangle/PhaseDiagrams', overwrite=False)
+        with h5py.File(fout, 'r') as f:
+            M_data = f["M"][:]
+            B_tilde_data = f["B_tilde"][:]
+            bott_data = f["bott_data"][:]
+        
+        fig, ax = plt.subplots(1, 1, figsize=(10,10))
+        plot_phase_diagram(fig, ax, M_data, B_tilde_data, bott_data, title=f"Triangle Lattice Phase Diagram : g = {g}", labels=["M", "B_tilde"])
+        plt.savefig(f"{fout[:-2]}png")
