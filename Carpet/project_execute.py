@@ -322,7 +322,13 @@ def disorder_many(bott_arr:np.ndarray, method:str, order:int, pad_width:int, pbc
 
 #---------------------
 def main():
-    pass
+    from matplotlib import pyplot as plt
+    fname = bott_many("square", 3, 0, True, 1, 1., 1., 1., np.linspace(-2., 12., 15), np.linspace(0., 2., 15), 0., filename="temp.npz", progress_bott=True, num_jobs=4)
+    fig, ax = plt.subplots()
+    from plotting import plot_bott
+    plot_bott(fig, ax, fname, True)
+
+
 
 if __name__ == "__main__":
     main()

@@ -8,8 +8,6 @@ from joblib import Parallel, delayed
 from multiprocessing import Manager
 from time import time
 from fractions import Fraction
-import cProfile
-import pstats
 
 
 def compute_hexagon(n):
@@ -271,7 +269,6 @@ def triangular_basis(x, y):
 
 	a1 = (np.sqrt(3) / 2) * x - 0.5 * y
 	a2 = (np.sqrt(3) / 2) * x + 0.5 * y
-	print(a1.shape)
 
 	return a1, a2
 
@@ -282,8 +279,6 @@ def compute_bott_index(eigen_data):
 	lower_band = np.argsort(eigenvalues)[:eigenvalues.size // 2]
 	V = eigenvectors[:, lower_band]
 
-	print("V shape:", V.shape)
-
 	N = round((np.sqrt(2 * x.size - 3) - 3) / 2 + 2)
 	L = np.sqrt(3) * N
 
@@ -291,8 +286,6 @@ def compute_bott_index(eigen_data):
 
 	U1 = np.exp(1j * 2 * np.pi * a1 / L)[:, np.newaxis]
 	U2 = np.exp(1j * 2 * np.pi * a2 / L)[:, np.newaxis]
-
-	print("U1 shape:", U1.shape)
 
 	U1_proj = V.conj().T @ (V * U1)
 	U2_proj = V.conj().T @ (V * U2)
@@ -572,9 +565,9 @@ def pi_tick_labels(value):
 		return 0
 	sign = "-" if fractional_value.numerator < 0 else ""
 	if abs(fractional_value.numerator) == 1:
-		numerator = r"$\pi$"
+		numerator = "$\pi$"
 	else:
-		numerator = f"{abs(fractional_value.numerator)}"+r"$\pi$"
+		numerator = f"{abs(fractional_value.numerator)}$\pi$"
 	if fractional_value.denominator == 1:
 		return sign + numerator
 	else:
@@ -702,28 +695,12 @@ def compute_many_phase_diagrams(generation=2, dimensions=(50,50), iterations=100
 #------------------------------------------------------------
 
 
-#if __name__ == "__main__":	
-	#compute_many_phase_diagrams()
-	#make_large_figure(2, (50,50), ['hexagon', 'renorm	', 'site_elim'], 
-	#			   disorder_strengths=[1.0, 3.0, 5.0, 7.0, 9.0, 11.0],
-	#			   directory="Haldane_Disorder_Data/Res2500_Avg100/", 
-	#			   cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
-	#			   row_labels=['Hexagon', 'Renormalization', 'Site Elimination'],
-	#			   title="Bott Index Phase Diagram Varying With Disorder", image_filename="Haldane_Disorder_Data/Res2500_Avg100/PhaseDiagram.png")
-	
-
-
-
 if __name__ == "__main__":
-	profiler = cProfile.Profile()
-	profiler.enable()
-
-	geom = compute_geometric_data(2, True)
-	H = compute_hamiltonian('hexagon', 0.0, np.pi/2, 1.0, 1.0, geom)
-	bott = compute_bott_from_hamiltonian(H, 'hexagon', geom)
-	print(bott)
-
-	profiler.disable()
-	stats = pstats.Stats(profiler) 	
-	stats = stats.sort_stats('cumtime')
-	stats.print_stats(10)
+	#compute_many_phase_diagrams()
+	make_large_figure(2, (50,50), ['hexagon', 'renorm', 'site_elim'], 
+				   disorder_strengths=[1.0, 3.0, 5.0, 7.0, 9.0, 11.0],
+				   directory="Haldane_Disorder_Data/Res2500_Avg100/", 
+				   cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
+				   row_labels=['Hexagon', 'Renormalization', 'Site Elimination'],
+				   title="Bott Index Phase Diagram Varying With Disorder", image_filename="Haldane_Disorder_Data/Res2500_Avg100/PhaseDiagram.png")
+	

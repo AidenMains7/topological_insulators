@@ -1,17 +1,10 @@
 import numpy as np
 from matplotlib import pyplot as plt
-from scipy.integrate import simpson
-from scipy.linalg import eigh
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm_joblib, tqdm
 from itertools import product
-import os
-import h5py
-
-
-
-def compute_square_lattice(side_length):
-    return np.arange(side_length**2).reshape((side_length, side_length))
+import os, h5py
+from matplotlib.colors import ListedColormap, BoundaryNorm
 
 
 def compute_square_d_vector(kx, ky, M, B_tilde, B, t1, t2):
@@ -30,13 +23,15 @@ def compute_square_d_vector(kx, ky, M, B_tilde, B, t1, t2):
 def compute_triangular_d_vector(kx, ky, M, B_tilde, B, t1, A_tilde):
     sqrt3 = np.sqrt(3)
 
-    d1 = t1 * (np.sin(kx) + np.sin(kx / 2) * np.cos(sqrt3 / 2 * ky))
-    d2 = t1 * (-sqrt3 * np.cos(kx / 2) * np.sin(sqrt3 / 2 * ky))
-    d3 = M - 2*B*(2 - np.cos(kx) - 2 * np.cos(kx / 2) * np.cos(sqrt3 * ky / 2))
+    #print(f"A_tilde = {A_tilde}")
 
-    dtilde1 =  A_tilde * np.sin(3 * kx / 2) * np.cos(sqrt3 / 2 * ky) * (sqrt3 / 2)
-    dtilde2 = -A_tilde * (np.sin(sqrt3 * ky) - np.cos(3 * kx / 2) * np.sin(sqrt3 / 2 * ky))
-    dtilde3 = -2*B_tilde * (3 - np.cos(sqrt3 * ky) - 2 * np.cos(3 / 2 * kx) * np.cos(sqrt3 / 2 * ky))
+    d1 = t1 * (np.sin(kx) + np.sin(kx / 2) * np.cos(np.pi/3) * np.cos(sqrt3 / 2 * ky))
+    d2 = t1 * (-sqrt3 * np.cos(kx / 2) * np.sin(np.pi/3) * np.sin(sqrt3 / 2 * ky))
+    d3 = M - 2 * B * (2 - np.cos(kx) - 2 * np.cos(kx / 2) * np.cos(sqrt3 * ky / 2))
+
+    dtilde1 =  A_tilde * np.sin(3 * kx / 2) * np.cos(np.pi/6) * np.cos(sqrt3 / 2 * ky)
+    dtilde2 = -A_tilde * (np.sin(sqrt3 * ky) - 2 * np.cos(3 * kx / 2) * np.sin(np.pi/6) * np.sin(sqrt3 / 2 * ky))
+    dtilde3 = -2 * B_tilde * (3 - np.cos(sqrt3 * ky) - 2 * np.cos(3 / 2 * kx) * np.cos(sqrt3 / 2 * ky))
     
     d_vector = np.array([d1, d2, d3])
     dtilde_vector = np.array([dtilde1, dtilde2, dtilde3])
@@ -54,7 +49,7 @@ def compute_unit_vector(vector):
     return unit_vector
     
 
-def compute_d_vector(kx, ky, M, B_tilde, B=1.0, t1=1.0, t2=1.0, A_tilde=1.0, doTriangular=False):
+def compute_d_vector(kx, ky, M, B_tilde, B, t1, t2, A_tilde, doTriangular=False):
     if doTriangular:
         return compute_triangular_d_vector(kx, ky, M, B_tilde, B, t1, A_tilde)
     else:
@@ -71,13 +66,13 @@ def compute_d_hat_and_derivatives(kx, ky, M, B_tilde, B, t1, t2, A_tilde, doTria
     d_dky = (compute_d_vector(kx, ky + dkx, M, B_tilde, B, t1, t2, A_tilde, doTriangular) - 
             compute_d_vector(kx, ky - dkx, M, B_tilde, B, t1, t2, A_tilde, doTriangular)) / (2 * dkx)
 
-    epsilon = 1e-10
-    d_dkx = np.where(np.abs(d_dkx) < epsilon, 0, d_dkx)  # Avoid numerical issues
-    d_dky = np.where(np.abs(d_dky) < epsilon, 0, d_dky)  # Avoid numerical issues
+    #epsilon = 1e-6
+    #d_dkx = np.where(np.abs(d_dkx) < epsilon, 0, d_dkx)  # Avoid numerical issues
+    #d_dky = np.where(np.abs(d_dky) < epsilon, 0, d_dky)  # Avoid numerical issues
     
     # Quotient Rule
     d_norm_safe = np.where(d_norm == 0, 1, d_norm)  # Avoid division by zero by replacing zero norms with 1
-    d_norm_safe = np.clip(d_norm, -1e4, 1e4)  # Clip values to avoid excessively large norms
+    #d_norm_safe = np.clip(d_norm, 1e-10, None)  # Clip values to avoid excessively large norms
     
     d_hat = d / d_norm_safe
     d_hat_dkx = (d_dkx / d_norm_safe) - (d_hat * np.einsum("ij,ij->j", d, d_dkx) / (d_norm_safe**2))
@@ -96,8 +91,8 @@ def compute_berry_curvature(kx, ky, M, B_tilde, B, t1, t2, A_tilde, doTriangular
 
 
 def compute_square_brillouin_zone(resolution=(100, 100)):
-    kx_limits = (0.0, np.pi)
-    ky_limits = (0.0, np.pi)
+    kx_limits = (-np.pi, np.pi)
+    ky_limits = (-np.pi, np.pi)
 
     kx = np.linspace(kx_limits[0], kx_limits[1], resolution[0])
     ky = np.linspace(ky_limits[0], ky_limits[1], resolution[1])
@@ -106,7 +101,7 @@ def compute_square_brillouin_zone(resolution=(100, 100)):
     return kx.flatten(), ky.flatten()
 
 
-def compute_triangular_brillouin_zone(resolution=(200, 200)):
+def compute_triangular_brillouin_zone(resolution=(501, 501), doRotate=False):
     R = 4 * np.pi / 3
 
     angles = [i * np.pi / 3 for i in range(6)]
@@ -144,12 +139,17 @@ def compute_triangular_brillouin_zone(resolution=(200, 200)):
     within_hexagon_mask = inside_polygon(kx, ky)
     kx, ky = kx[within_hexagon_mask], ky[within_hexagon_mask]
 
+
+    if doRotate:
+        theta = np.pi / 6
+        rotation_matrix = np.array([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]])
+        coordinates = np.vstack((kx, ky))
+        kx, ky = np.einsum("ij,jk->ik", rotation_matrix, coordinates).reshape(2, -1)
+
     return kx, ky
 
 
-def compute_chern_number(M, B_tilde, B=1.0, t1=1.0, t2=1.0, A_tilde=1.0, doTriangular=False):
-    N = 200
-    resolution = (N, N)
+def compute_chern_number(M, B_tilde, B, t1, t2, A_tilde, doTriangular=False, resolution = (501, 501)):
 
     if doTriangular:
         kx, ky = compute_triangular_brillouin_zone(resolution)
@@ -159,28 +159,27 @@ def compute_chern_number(M, B_tilde, B=1.0, t1=1.0, t2=1.0, A_tilde=1.0, doTrian
 
     berry_curvature = compute_berry_curvature(kx, ky, M, B_tilde, B, t1, t2, A_tilde, doTriangular)
 
+    bc_max, bc_min = np.max(berry_curvature), np.min(berry_curvature)
+    bc_mean, bc_std = np.mean(berry_curvature), np.std(berry_curvature)
+
     dkx = (np.max(kx) - np.min(kx)) / resolution[0]
     dky = (np.max(ky) - np.min(ky)) / resolution[1]
 
     sum_kx = np.sum(berry_curvature, axis=0) * dkx
-    sum_total = np.sum(sum_kx) * dky
+    sum_total = -np.sum(sum_kx) * dky
 
-    if not doTriangular:
-        chern = np.round(sum_total * 4)
-    else:
-        chern = np.round(sum_total)
 
-    if np.abs(chern) > 1e10:
-        print(f"Warning: Chern number is too large for M = {M:.3f}, B_tilde = {B_tilde:.3f}: {chern:.3e}.")
+    if np.abs(sum_total) > 1e10:
+        print(f"Warning: Chern number is too large for M = {M:.3f}, B_tilde = {B_tilde:.3f}: {sum_total:.3e}.")
         #print(np.max(np.abs(berry_curvature)))
-        return None
-    elif np.isnan(chern):
-        return None
+        return None, bc_min, bc_max, bc_mean, bc_std
+    elif np.isnan(sum_total):
+        return None, bc_min, bc_max, bc_mean, bc_std
     else:
-        return - int(chern)
+        return round(sum_total), bc_min, bc_max, bc_mean, bc_std
 
 
-def compute_chern_phase_diagram(M_range, B_tilde_range, resolution=(25, 25), B=1.0, t1=1.0, t2=0.0, A_tilde=1.0, output_file=None, directory='', overwrite=False, doTriangular=False):
+def compute_chern_phase_diagram(M_range, B_tilde_range, B, t1, t2, A_tilde, output_file=None, directory='', overwrite=False, doTriangular=False, resolution=(25, 25)):
     M_values = np.linspace(M_range[0], M_range[1], resolution[0])
     B_tilde_values = np.linspace(B_tilde_range[0], B_tilde_range[1], resolution[1])
     parameter_values = tuple(product(M_values, B_tilde_values))
@@ -195,16 +194,21 @@ def compute_chern_phase_diagram(M_range, B_tilde_range, resolution=(25, 25), B=1
 
     def compute_single(params):
         M, B_tilde = params
-        chern = compute_chern_number(M, B_tilde, B, t1, t2, A_tilde, doTriangular)
-        return [M, B_tilde, chern]
+        chern, bc_min, bc_max, bc_mean, bc_std = compute_chern_number(M, B_tilde, B, t1, t2, A_tilde, doTriangular)
+        return [M, B_tilde, chern, bc_min, bc_max, bc_mean, bc_std]
 
     with tqdm_joblib(tqdm(total=len(parameter_values), desc=f"Computing phase diagram for Chern number.")) as progress_bar:
-        M_data, B_tilde_data, chern_data = np.array(Parallel(n_jobs=4)(delayed(compute_single)(params) for params in parameter_values), dtype=float).T
+        M_data, B_tilde_data, chern_data, bcmin, bcmax, bcmean, bcstd = np.array(Parallel(n_jobs=4)(delayed(compute_single)(params) for params in parameter_values), dtype=float).T
 
     with h5py.File(output_file, "w") as f:
         f.create_dataset(name = "M", data=M_data)
         f.create_dataset(name = "B_tilde", data=B_tilde_data)
         f.create_dataset(name =  "chern", data=chern_data.reshape(resolution).T)
+        f.create_dataset(name = "bc_min", data=bcmin.reshape(resolution).T)
+        f.create_dataset(name = "bc_max", data=bcmax.reshape(resolution).T)
+        f.create_dataset(name = "bc_mean", data=bcmean.reshape(resolution).T)
+        f.create_dataset(name = "bc_std", data=bcstd.reshape(resolution).T)
+
     return output_file
 
 
@@ -214,15 +218,25 @@ def plot_phase_diagram(fig, ax,
                        X_ticks=None, Y_ticks=None, X_tick_labels=None, Y_tick_labels=None,
                        cbar_ticks=None, cbar_tick_labels=None,
                        cmap='Spectral', norm=None,
-                       plotColorbar=True):
-
+                       plotColorbar=True, doDiscreteColormap=True):
     X_range = [np.min(X_values), np.max(X_values)]
     Y_range = [np.min(Y_values), np.max(Y_values)]
-    Z_range = [np.floor(np.nanmin(Z_values)), np.ceil(np.nanmax(Z_values))]
+    Z_values = np.where(Z_values == -0, 0, Z_values)
+
+    not_nan_mask = ~np.isnan(Z_values)
+    unique_values = np.sort(np.unique(Z_values[not_nan_mask]).astype(int))
+    if doDiscreteColormap:
+        if len(unique_values) < 25:
+            cmap = plt.get_cmap(cmap)
+            discrete_colors = cmap(np.linspace(0, 1, len(unique_values)))
+            cmap = ListedColormap(discrete_colors)
+            norm = BoundaryNorm(boundaries=np.append(unique_values, unique_values[-1] + 1), ncolors=len(unique_values))
 
     im = ax.imshow(Z_values, extent=[X_range[0], X_range[1], Y_range[0], Y_range[1]], 
                    origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
                    rasterized=True, norm=norm)
+    
+
 
     if title is not None:
         ax.set_title(title)
@@ -244,30 +258,14 @@ def plot_phase_diagram(fig, ax,
         cbar = fig.colorbar(im, ax=ax)
         if cbar_ticks is not None:
             cbar.set_ticks(cbar_ticks)
+        else:
+            cbar.set_ticks(unique_values)
         if cbar_tick_labels is not None:
             cbar.set_ticklabels(cbar_tick_labels)
+        else:
+            cbar.set_ticklabels([str(val) for val in unique_values])
 
     return fig, ax
-
-
-
-
-
-def compute_bott_index(H):
-    eigenvalues, eigenvectors = eigh(H)
-    lower_band_eigvals = np.sort(eigenvalues)[:eigenvalues // 2]
-    highest_lower_band = np.max(lower_band_eigvals)
-
-    D = np.where(eigenvalues <= highest_lower_band, 1.0 + 0.0j, 0.0 + 0.0j)
-    P_part = np.einsum('i,ij->ij', D, eigenvectors.conj().T)
-    P = eigenvectors @ P_part
-
-    fig, axs = plt.sublpots(1, 2, figsize=(12, 6))
-    axs[0].imshow(np.abs(P), cmap='viridis', aspect='auto')
-    axs[1].imshow(eigenvalues, cmap='viridis', aspect='auto')
-    plt.show()
-
-    return P
 
 
 
@@ -284,6 +282,7 @@ def fig2_partc():
     plt.savefig("./Triangle/PhaseDiagrams/"+"square_bottom_line.png")
     plt.show()
 
+
 def fig2_partd():
     B_tilde_vals = np.linspace(0.7, 1.1, 51)
     chern_numbers = [compute_chern_number(10.0, B_tilde, 1.0, 1.0, 1.0) for B_tilde in B_tilde_vals]
@@ -294,10 +293,12 @@ def fig2_partd():
     plt.axhline(0, color='black', linestyle='--')
     plt.show()
 
+
 def triangular_bottom_line():
-    M_values = np.linspace(-2.0, 12.0, 51)
-    chern_numbers = [compute_chern_number(M, 0.0, 1.0, 1.0, 0.0, 0.0, True) for M in M_values]
-    plt.axhline(0, color='black', linestyle='--')
+    M_values = np.linspace(-2.0, 8.0, 51)
+    chern_numbers = [compute_chern_number(M, 0.0, 1.0, 1.0, np.nan, 1.0, True)[0] for M in M_values]
+    for xpos in [-2, 6, 7]:
+        plt.axvline(xpos, color='black', linestyle='--')
     plt.scatter(M_values, chern_numbers, marker='o', zorder=3)
     plt.xlabel("M")
     plt.title("Triangular Lattice: NN-only")
@@ -308,29 +309,81 @@ def triangular_bottom_line():
 
 def plot_phase_diagram_example():
     directory = './Triangle/PhaseDiagrams/'
-    output_file = compute_chern_phase_diagram((-2.0, 12.0), (0.0, 2.0), resolution=(100, 100), B=1.0, t1=1.0, t2=0.0, A_tilde=0.0, directory=directory, overwrite=False, doTriangular=True)
+    output_file = compute_chern_phase_diagram((-2.0, 8.0), (0.0, 0.5), resolution=(15, 15), B=1.0, t1=1.0, t2=np.nan, A_tilde=1.0, directory=directory, overwrite=True, doTriangular=True)
     with h5py.File(output_file, "r") as f:
         M_data = f["M"][:]
         B_tilde_data = f["B_tilde"][:]
         chern_data = f["chern"][:]
+        try:
+            bc_min_data = f["bc_min"][:]
+            bc_max_data = f["bc_max"][:]
+            bc_mean_data = f["bc_mean"][:]
+            bc_std_data = f["bc_std"][:]
+        except:
+            pass
 
-    chern_data = np.clip(chern_data, -2, 3)  # Clip values to avoid excessively large chern numbers
+    #chern_data = np.clip(chern_data, -2, 1)  # Clip values to avoid excessively large chern numbers
+
+    if True:
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10), subplot_kw={'projection': '3d'})
+        labels = ['min', 'max', 'mean', 'std']
+        for ax, Z in zip(axs.flatten(), [bc_min_data, bc_max_data, bc_mean_data, bc_std_data]):
+            ax.plot_trisurf(M_data, B_tilde_data, Z.T.flatten(), cmap='viridis', edgecolor='none')
+            ax.set_xlabel("M")
+            ax.set_ylabel("B_tilde")
+            ax.set_title(f"Berry Curvature {labels.pop(0)}")
+        plt.show()
+
+
 
     fig, ax = plt.subplots(figsize=(8, 6))
     fig, ax = plot_phase_diagram(fig, ax, M_data, B_tilde_data, chern_data,
                                  labels=["M", "B_tilde"],
                                  title="Triangular Lattice : Chern Number",
                                  cmap='Spectral',
-                                 cbar_ticks=np.arange(-2, 1, 1),
-                                 cbar_tick_labels=[str(i) for i in np.arange(-2, 1, 1)])
-    plt.savefig(output_file[:-2]+"png")
+                                 doDiscreteColormap=True)
+    
+    linex = np.linspace(6.0, np.max(M_data), 500)
+    ax.plot(linex, linex/8 - 0.75, ls='--', c='k', lw=1, zorder=2)
+    #linex2 = np.linspace(3.5, np.max(M_data), 500)
+    #ax.plot(linex2, linex2/8 - 7/16, ls='--', c='k', lw=1, zorder=2)
+    for xpos in [-2.0, 7.0]:
+        ax.axvline(x=xpos, color='black', linestyle='--', linewidth=1, zorder=2)
+    ax.set_yticks([1/8, 1/4, 1/2])
+    ax.set_yticklabels([r'$\frac{1}{8}$', r'$\frac{1}{4}$', r'$\frac{1}{2}$'])
+    ax.set_xticks([-2, 3.5, 6, 7, 8])
+    ax.set_ylabel(r"$\tilde{B}$", rotation=90)
+
+    ax.set_xlim([np.min(M_data), np.max(M_data)])
+    ax.set_ylim([np.min(B_tilde_data), np.max(B_tilde_data)])
+    ax.set_title(f"Chern # : A_tilde=0.0")
+
+    #plt.savefig(output_file[:-2]+"png")
+    plt.show()
+
+
+def plot_bz():
+    kx, ky = compute_triangular_brillouin_zone()
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.set_aspect('equal')
+    plt.scatter(kx, ky, s=1, color='black', alpha=0.5)
+    ax.set_xlabel(r"$k_x$")
+    ax.set_ylabel(r"$k_y$")
+    ax.set_title(f"Triangular Brillouin Zone\n{len(kx):.2e} points" + r"$\approx$" + f"{np.sqrt(len(kx)):.0f} x {np.sqrt(len(kx)):.0f} grid")
+
+    ax.set_xticks([-4 * np.pi / 3, -2 * np.pi / 3, 0, 2 * np.pi / 3, 4 * np.pi / 3])
+    ax.set_xticklabels([r"$-\frac{4\pi}{3}$", r"$-\frac{2\pi}{3}$", r"$0$", r"$\frac{2\pi}{3}$", r"$\frac{4\pi}{3}$"])
+    ax.set_yticks([-2 * np.pi / np.sqrt(3), 0, 2 * np.pi / np.sqrt(3)])
+    ax.set_yticklabels([r"$-\frac{2\pi}{\sqrt{3}}$", r"$0$", r"$\frac{2\pi}{\sqrt{3}}$"])
+
+    ax.axvline(x=-4 * np.pi / 3, color='red', linestyle='--', linewidth=1, alpha=0.25)
+    ax.axvline(x=4 * np.pi / 3, color='red', linestyle='--', linewidth=1, alpha=0.25)
+    ax.axhline(y=-2 * np.pi / np.sqrt(3), color='red', linestyle='--', linewidth=1, alpha=0.25)
+    ax.axhline(y=2 * np.pi / np.sqrt(3), color='red', linestyle='--', linewidth=1, alpha=0.25)
+
     plt.show()
 
 
 
-
-
-
-
 if __name__ == "__main__":
-    plot_phase_diagram_example()
+    triangular_bottom_line()

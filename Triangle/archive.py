@@ -4,8 +4,7 @@ from time import time
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
-
-
+# ----------------
 
 def find_triangle_lines(coordinates):
     x, y = coordinates
@@ -57,4 +56,79 @@ def finite_difference_2D(func, kx, ky, M, B_tilde, B, t1, t2, tol=1e-4, *args, *
     d_func_y = (func(kx, ky + tol, M, B_tilde, B, t1, t2) - func(kx, ky - tol, M, B_tilde, B, t1, t2)) / (2 * tol)
     return d_func_x, d_func_y
 
+# ---------------------------
+#   triangle_geometry.py
 
+def highlight_NNN(generation):
+    lattice_hopping_dict = fractal_wrapper(generation, False)
+    fractal_lattice = lattice_hopping_dict["fractal_lattice"]
+    b1, b2, b2_tilde, c1, c2, c3 = lattice_hopping_dict["fractal_hopping_masks"].values()
+    triangular_lattice = lattice_hopping_dict["triangular_lattice"]
+
+    y, x = np.where(triangular_lattice >= 0)[:]
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+    arrs = [c1, c2, c3]
+    colors = ['b', 'orange','r']
+    linestyles = ['--','-.', ':']
+    for i, arr in enumerate(arrs):
+        i_idx, j_idx = np.where(arr)
+        valid_indices = (i_idx < len(x)) & (j_idx < len(x))  # Ensure indices are valid
+        i_idx, j_idx = i_idx[valid_indices], j_idx[valid_indices]
+        ax.plot([x[i_idx], x[j_idx]], [y[i_idx], y[j_idx]], c = colors[i], ls=linestyles[i], zorder=2)
+
+    for arr in [b1, b2, b2_tilde]:
+        i_idx, j_idx = np.where(arr)
+        ax.plot([x[i_idx], x[j_idx]], [y[i_idx], y[j_idx]], c = 'k', zorder=1)
+
+
+    if False:
+        yidx, xidx = np.argwhere(fractal_lattice >= 0).T
+        for yidx, xidx in zip(yidx, xidx):
+            ax.text(xidx, yidx, str(fractal_lattice[yidx, xidx]), fontsize=12, ha='center', va='top', c='r')
+
+    ax.scatter(x, y, c='k', zorder=0, s=4)
+    plt.show()
+
+
+def profile():
+    with cProfile.Profile() as pr:
+        generation = 6
+        lattice_hopping_dict = fractal_wrapper(generation, False)
+        fractal_lattice = lattice_hopping_dict["fractal_lattice"]
+        b1, b2, b2_tilde, c1, c2, c3 = lattice_hopping_dict["fractal_hopping_masks"].values()
+
+    stats = pstats.Stats(pr)
+    stats.sort_stats('cumtime').print_stats(10)
+
+
+def average_speed(func, n_trials):
+    times = []
+    for _ in range(n_trials):
+        start = time()
+        func()
+        times.append(time() - start)
+    return np.mean(times), np.std(times)
+
+
+def compare_complex_casting():
+    arr = np.random.randint(0, 2, (1000, 1000)).astype(bool)
+
+    def multiply():
+        arr2 = arr * 1. + 1.j
+        return arr2
+    
+    def convert_then_multiply():
+        arr2 = arr.astype(np.complex128) * 1. + 1.j
+        return arr2
+
+    m1, s1 = average_speed(multiply, 100)
+    m2, s2 = average_speed(convert_then_multiply, 100)
+
+    print(f"multiply: {m1:.4f} ± {s1:.4f}")
+    print(f"convert_then_multiply: {m2:.4f} ± {s2:.4f}")
+
+    print((arr * 1. + 1.j).dtype)
+
+# --------------------------
