@@ -252,46 +252,65 @@ def compute_sierpinski_triangle(generation):
     return {"lattice": lattice, "triangular_hole_locations": hole_locations}
 
 
-def tile_triangle(generation, doFractal):
+def tile_triangle(generation:int, doFractal:bool):
     if doFractal:
-        fractal_dict = compute_sierpinski_triangle(generation)
-        lattice, triangular_hole_locations = fractal_dict["lattice"], fractal_dict["triangular_hole_locations"]
+        gdict = compute_sierpinski_triangle(generation)
+        lattice = gdict["lattice"]
+        hole_locations = gdict["triangular_hole_locations"]
     else:
         lattice = compute_triangular_lattice(generation)
-        triangular_hole_locations = None
-    
-    y, x = np.where(lattice >= 0)
-    coordinates = np.vstack((x, y))
+        hole_locations = None
 
-    arrays = [coordinates.copy()]
-    if doFractal:
-        arrays.append(triangular_hole_locations.copy())
-        arrays[1][2] *= -1 # filp hole size as to imply that the hole is an upright triangle now
-    
-    for arr in arrays:
-        arr[1] = np.max(coordinates[1])-arr[1] # flip upside down, adjust y position
-        arr[0] += np.max(coordinates[0])//2 # shift x position to the right
-  
-    tiled_coords = np.hstack((coordinates, arrays[0]))
-    
-    y_min, x_min = np.min(tiled_coords[1]), np.min(tiled_coords[0])
-    tiled_coords[0] -= x_min
-    tiled_coords[1] -= y_min
-    tiled_coords = np.unique(tiled_coords, axis=1)
-    tiled_coords = tiled_coords[:, np.lexsort((tiled_coords[0], tiled_coords[1]))]
+    # get upside down triangle also
+    y, x = np.where(lattice >= 0)[:]
+    upright_coordinates = np.array([x, y])
+    flipped_coordinates = upright_coordinates.copy()
 
-    lattice = np.full((np.max(tiled_coords[1])+1, np.max(tiled_coords[0])+1), -1)
-    lattice[tiled_coords[1], tiled_coords[0]] = np.arange(tiled_coords.shape[1])
+    if hole_locations is not None:
+        flipped_hole_locations = hole_locations.copy()
+        flipped_hole_locations[1] *= -1
+        flipped_hole_locations[1] -= np.min(flipped_hole_locations[1]) - 6
+        flipped_hole_locations[0] -= np.min(flipped_hole_locations[0]) - np.min(hole_locations[0])
+        flipped_hole_locations[2] *= -1
 
-    if doFractal:
-        tiled_hole_locations = np.hstack((triangular_hole_locations, arrays[1]))
-        tiled_hole_locations[0] -= x_min
-        tiled_hole_locations[1] -= y_min
-        tiled_hole_locations = np.unique(tiled_hole_locations, axis=1)
-    else:
-        tiled_hole_locations = None
+    flipped_coordinates[1] *= -1
+    flipped_coordinates[1] -= np.min(flipped_coordinates[1])
+    flipped_coordinates[0] -= np.min(flipped_coordinates[0])
 
-    return {"lattice" : lattice, "triangular_hole_locations" : tiled_hole_locations}
+    upright_shifts = [np.array([0, 0]).T, np.array([-np.max(x), 0]).T, np.array([-np.max(x)//2, -np.max(y)]).T]
+    flipped_shifts = [np.array([-np.max(x)//2, 0]).T, np.array([0, -np.max(y)]).T, np.array([-np.max(x), -np.max(y)]).T]
+
+    hexagon_coordinates = []
+    for shift in upright_shifts:
+        hexagon_coordinates.append(upright_coordinates + shift.reshape(2, 1))
+    for shift in flipped_shifts:
+        hexagon_coordinates.append(flipped_coordinates + shift.reshape(2, 1))
+
+    hexagon_coordinates = np.concatenate(hexagon_coordinates, axis=1)
+    hexagon_coordinates = np.unique(hexagon_coordinates, axis=1)
+
+
+    if hole_locations is not None:
+        hexagon_hole_locations = []
+        for shift in upright_shifts:
+            shift = np.array([shift[0], shift[1], 0])
+            hexagon_hole_locations.append(hole_locations + shift.reshape(3, 1))
+        for shift in flipped_shifts:
+            shift = np.array([shift[0], shift[1], 0])
+            hexagon_hole_locations.append(flipped_hole_locations + shift.reshape(3, 1))
+        
+        hexagon_hole_locations = np.concatenate(hexagon_hole_locations, axis=1)
+        hexagon_hole_locations = np.unique(hexagon_hole_locations, axis=1)
+        hexagon_hole_locations[0] -= np.min(hexagon_coordinates[0])
+        hexagon_hole_locations[1] -= np.min(hexagon_coordinates[1])
+
+        
+    hexagon_coordinates[0] -= np.min(hexagon_coordinates[0])
+    hexagon_coordinates[1] -= np.min(hexagon_coordinates[1])
+    lattice = np.full((np.max(hexagon_coordinates[1])+1, np.max(hexagon_coordinates[0])+1), -1)
+    lattice[hexagon_coordinates[1], hexagon_coordinates[0]] = np.arange(hexagon_coordinates.shape[1])
+
+    return {"lattice": lattice, "hole_locations": hexagon_hole_locations if hole_locations is not None else None}
 
 
 def calculate_triangle_distances(lattice, pbc):
@@ -511,7 +530,7 @@ def fractal_wrapper(generation, pbc, doTile=True):
     else:
         fractal_dict = compute_sierpinski_triangle(generation)
     fractal_lattice = fractal_dict["lattice"]
-    fractal_hole_locations = fractal_dict["triangular_hole_locations"]
+    fractal_hole_locations = fractal_dict["hole_locations"]
     #fractal_dx, fractal_dy = calculate_triangle_distances(fractal_lattice, pbc)
     #fractal_hopping_masks = calculate_triangle_hopping(fractal_dx, fractal_dy)
 
@@ -602,9 +621,11 @@ def calculate_triangle_hamiltonian(method, geometry_dict, M, B_tilde, A_tilde, B
         H_0 = _calc_H(fractal_hopping_masks, M, B_tilde, B=B, A_tilde=A_tilde, t=t)
 
         H_aa = H_0[np.ix_(fractal_site_mask, fractal_site_mask)]
-        if method == "site_elim":
+        if method == "triangular_bond_elim":
+            H = H_0
+        elif method == "site_elim":
             H = H_aa
-        else:
+        elif method == "renorm":
             H_bb = H_0[np.ix_(~fractal_site_mask, ~fractal_site_mask)]
             H_ab = H_0[np.ix_(fractal_site_mask, ~fractal_site_mask)]
             H_ba = H_0[np.ix_(~fractal_site_mask, fractal_site_mask)]
@@ -614,6 +635,8 @@ def calculate_triangle_hamiltonian(method, geometry_dict, M, B_tilde, A_tilde, B
             except np.linalg.LinAlgError as e:
                 print(f"H_bb is singular at M = {M}, B_tilde = {B_tilde}.")
                 H = np.nan
+        else:
+            raise ValueError("Invalid method.")
     return H
 
 
@@ -721,7 +744,7 @@ def compute_triangle_bott_phase_diagram(method, generation, B, t, A_tilde, M_ran
     else:
         geometry_dict = fractal_wrapper(generation, pbc=True, doTile=True)
     
-    lattice = geometry_dict["triangular_lattice"] if method == "triangular" else geometry_dict["fractal_lattice"]
+    lattice = geometry_dict["triangular_lattice"] if "triangular" in method else geometry_dict["fractal_lattice"]
 
     def compute_single(params):
         M, B_tilde = params
@@ -732,7 +755,7 @@ def compute_triangle_bott_phase_diagram(method, generation, B, t, A_tilde, M_ran
         bott = calculate_triangle_bott_index(projector, lattice)
         return [M, B_tilde, bott]
 
-    with tqdm_joblib(tqdm(total=len(parameter_values), desc=f"Computing {method} phase diagram for Bott index.")) as progress_bar:
+    with tqdm_joblib(tqdm(total=len(parameter_values), desc=f"Computing {method}, gen {generation} phase diagram for Bott index.")) as progress_bar:
         M_data, B_tilde_data, bott_data = np.array(Parallel(n_jobs=4)(delayed(compute_single)(params) for params in parameter_values), dtype=float).T
 
     with h5py.File(output_file, "w") as f:
@@ -819,41 +842,93 @@ def triangle_bottom_line(method, generation):
     plt.xlabel('M')
     plt.ylabel('Bott Index')
     plt.title(f'Triangular Lattice :: Bott Index :: {method}')
-    plt.savefig(f"./Triangle/PhaseDiagrams/bott/g{generation}_{method}_bottom_line.png")
-    #plt.show()
+    #plt.savefig(f"./Triangle/PhaseDiagrams/bott/g{generation}_{method}_bottom_line.png")
+    plt.show()
+
+
+def plot_bonds(lattice, NN, NNN, title:str = None, plotNN:bool = True, plotNNN:bool = False, *args, **kwargs):
+    fig, ax = plt.subplots(1, 1, figsize=(10, 5))
+
+    Y, X = np.where(lattice >= 0)[:]
+
+    ax.scatter(X, Y, c='k', zorder=0, s=25)
+
+    if plotNN: 
+        if isinstance(NN, dict):
+            NN_sum = np.sum(list(NN.values()), axis=0)
+            i_idx, j_idx = np.where(NN_sum)
+            valid_indices = (i_idx < len(X)) & (j_idx < len(X))
+            i_idx, j_idx = i_idx[valid_indices], j_idx[valid_indices]
+            ax.plot([X[i_idx], X[j_idx]], [Y[i_idx], Y[j_idx]], c = 'k', alpha=0.5, ls='-', zorder=0)
+    if plotNNN:
+        if isinstance(NNN, dict):
+            colors = ["blue", "orange", "red"]
+            for arr, color in zip(NNN.values(), colors):
+                i_idx, j_idx = np.where(arr)
+                valid_indices = (i_idx < len(X)) & (j_idx < len(X))
+                i_idx, j_idx = i_idx[valid_indices], j_idx[valid_indices]
+                ax.plot([X[i_idx], X[j_idx]], [Y[i_idx], Y[j_idx]], c=color, alpha=0.5, ls='--', zorder=1)
+
+    ax.set_title(title)
+    plt.tight_layout()
+    plt.show()
+
+
+
 
 # ------------------
 
 def temp():
+    for reso in [None, (51, 51), (60, 25)]:
+        for g in [4, 5]:
+            for method in ["site_elim", "triangular", "renorm", "triangular_bond_elim"]:
+                try:
+                    resolution = reso
+                    sizestr = f"{resolution[0]}x{resolution[1]}" if resolution is not None else "auto"
+                    fbasename = f"bott_index_g{g}_{method}_{sizestr}_.h5"
+                    directory = "./Triangle/PhaseDiagrams/Bott/"
+                    #output_file = compute_triangle_bott_phase_diagram(method=method, generation=g, B=1., t=1., A_tilde=0.0, resolution = resolution, overwrite=False, output_file = fbasename, directory=directory)
+                    output_file = directory+fbasename
+                    if True:
+                        with h5py.File(output_file, "r") as f:
+                            try:
+                                M_data = f["M_values"][:]
+                                B_tilde_data = f["B_tilde_values"][:]
+                                bott_data = f["bott_values"][:]
+                            except:
+                                M_data = f["M"][:]
+                                B_tilde_data = f["B_tilde"][:]
+                                bott_data = f["bott_data"][:]
 
-    for g in [4]:
-        for method in ["renorm"]:
-            for A_tilde in [0.0]:
-                fname = f"bott_atilde={A_tilde:.1f}.h5"
-                output_file = compute_triangle_bott_phase_diagram(method=method, M_range=(-2.0, 8.0), generation=g, B=1., t=1., A_tilde=A_tilde, overwrite=False, resolution=(51, 51), output_file = fname, directory="./")
-                print(output_file)
-                with h5py.File(output_file, "r") as f:
-                    M_data = f["M"][:]
-                    B_tilde_data = f["B_tilde"][:]
-                    bott_data = f["bott_data"][:]
+                        fig, ax = plt.subplots(1, 1, figsize=(10,10))
+                        plot_phase_diagram(fig, ax, M_data, B_tilde_data, bott_data, labels=["M", "B_tilde"], doDiscreteColormap=True)
+                        
+                        linex = np.linspace(6.0, np.max(M_data), 500)
+                        ax.plot(linex, linex/8 - 0.75, ls='--', c='k', lw=1, zorder=2)
+                        for xpos in [-2.0, 7.0]:
+                            ax.axvline(x=xpos, color='black', linestyle='--', linewidth=1, zorder=2)
+                        ax.set_yticks([1/8, 1/4, 1/2])
+                        ax.set_yticklabels([r'$\frac{1}{8}$', r'$\frac{1}{4}$', r'$\frac{1}{2}$'])
+                        ax.set_xticks([-2, 6, 7, 8])
+                        ax.set_ylabel(r"$\tilde{B}$", rotation=90)
 
-                fig, ax = plt.subplots(1, 1, figsize=(10,10))
-                plot_phase_diagram(fig, ax, M_data, B_tilde_data, bott_data, title=f"BI : method={method}, A_tilde={A_tilde}, g={g}", labels=["M", "B_tilde"], doDiscreteColormap=True)
-                
-                linex = np.linspace(6.0, np.max(M_data), 500)
-                ax.plot(linex, linex/8 - 0.75, ls='--', c='k', lw=1, zorder=2)
-                for xpos in [-2.0, 7.0]:
-                    ax.axvline(x=xpos, color='black', linestyle='--', linewidth=1, zorder=2)
-                ax.set_yticks([1/8, 1/4, 1/2])
-                ax.set_yticklabels([r'$\frac{1}{8}$', r'$\frac{1}{4}$', r'$\frac{1}{2}$'])
-                ax.set_xticks([-2, 6, 7, 8])
-                ax.set_ylabel(r"$\tilde{B}$", rotation=90)
-
-                ax.set_xlim([np.min(M_data), np.max(M_data)])
-                ax.set_ylim([np.min(B_tilde_data), np.max(B_tilde_data)])
-                plt.show()
-
-
+        
+                        ax.set_xlim([np.min(M_data), np.max(M_data)])
+                        ax.set_ylim([np.min(B_tilde_data), np.max(B_tilde_data)])
+                        ax.set_title(f"Method: {method}, Generation: {g}")
+                        plt.tight_layout()
+                        plt.savefig(output_file.replace(".h5", ".png"))
+                except:
+                    pass
 
 if __name__ == "__main__":
-    temp()
+    gdict = tile_triangle(4, True)
+    dx, dy = calculate_triangle_distances(gdict["lattice"], pbc=False)
+    hopping_masks = calculate_triangle_hopping(dx, dy)
+    print(gdict["hole_locations"])
+    gdict2 = find_removal_sites(gdict["lattice"], gdict["hole_locations"], hopping_masks)
+
+    NN = {"b1": gdict2["b1"], "b2": gdict2["b2"], "b2tilde": gdict2["b2tilde"]}
+    NNN = {"c1": gdict2["c1"], "c2": gdict2["c2"], "c3": gdict2["c3"]}
+
+    plot_bonds(gdict["lattice"], NN, NNN, title="Generation 5", plotNN=True, plotNNN=True)

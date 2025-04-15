@@ -216,15 +216,15 @@ def plot_phase_diagram(fig, ax,
                        X_values, Y_values, Z_values, 
                        labels:list=None, title:str=None, 
                        X_ticks=None, Y_ticks=None, X_tick_labels=None, Y_tick_labels=None,
-                       cbar_ticks=None, cbar_tick_labels=None,
-                       cmap='Spectral', norm=None,
-                       plotColorbar=True, doDiscreteColormap=True):
+                       cmap='Spectral', plotColorbar=True, doDiscreteColormap=True):
     X_range = [np.min(X_values), np.max(X_values)]
     Y_range = [np.min(Y_values), np.max(Y_values)]
     Z_values = np.where(Z_values == -0, 0, Z_values)
 
     not_nan_mask = ~np.isnan(Z_values)
     unique_values = np.sort(np.unique(Z_values[not_nan_mask]).astype(int))
+    unique_values = np.arange(-3, 4, 1)
+
     if doDiscreteColormap:
         if len(unique_values) < 25:
             cmap = plt.get_cmap(cmap)
@@ -236,8 +236,6 @@ def plot_phase_diagram(fig, ax,
                    origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
                    rasterized=True, norm=norm)
     
-
-
     if title is not None:
         ax.set_title(title)
 
@@ -256,14 +254,8 @@ def plot_phase_diagram(fig, ax,
 
     if plotColorbar:
         cbar = fig.colorbar(im, ax=ax)
-        if cbar_ticks is not None:
-            cbar.set_ticks(cbar_ticks)
-        else:
-            cbar.set_ticks(unique_values)
-        if cbar_tick_labels is not None:
-            cbar.set_ticklabels(cbar_tick_labels)
-        else:
-            cbar.set_ticklabels([str(val) for val in unique_values])
+        cbar.set_ticks(unique_values+0.5)
+        cbar.set_ticklabels([str(val) for val in unique_values], fontsize=16)
 
     return fig, ax
 
