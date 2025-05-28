@@ -39,10 +39,7 @@ def calculate_square_hopping(lattice, pbc):
         dy = y_shifted[i_idxs, j_idxs, minimal_hop]
 
 
-    abs_dx = np.abs(dx)
-    abs_dy = np.abs(dy)
-
-    xp_mask = (dx == 1) & (abs_dy == 0)
+    xp_mask = (dx == 1) & (dy == 0)
     yp_mask = (dx == 0) & (dy == 1)
 
     xpyp_mask = (dx == 1) & (dy == 1)
@@ -922,13 +919,10 @@ def temp():
                     pass
 
 if __name__ == "__main__":
-    gdict = tile_triangle(4, True)
-    dx, dy = calculate_triangle_distances(gdict["lattice"], pbc=False)
-    hopping_masks = calculate_triangle_hopping(dx, dy)
-    print(gdict["hole_locations"])
-    gdict2 = find_removal_sites(gdict["lattice"], gdict["hole_locations"], hopping_masks)
-
-    NN = {"b1": gdict2["b1"], "b2": gdict2["b2"], "b2tilde": gdict2["b2tilde"]}
-    NNN = {"c1": gdict2["c1"], "c2": gdict2["c2"], "c3": gdict2["c3"]}
-
-    plot_bonds(gdict["lattice"], NN, NNN, title="Generation 5", plotNN=True, plotNNN=True)
+    lattice = calculate_square_lattice(9)
+    hopping_masks = calculate_square_hopping(lattice, True)
+    for M in np.linspace(-2., 8., 51):
+        H = calculate_square_hamiltonian(hopping_masks, M, 0.0, 1.0, 1.0, 1.0)
+        projector = calculate_projector(H)
+        bott_index = calculate_square_bott_index(projector, lattice)
+        print(f'M = {M:.2f}, Bott Index = {bott_index}')

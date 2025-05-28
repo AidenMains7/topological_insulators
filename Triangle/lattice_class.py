@@ -8,6 +8,7 @@ from itertools import product
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm_joblib, tqdm
 import os, h5py
+from time import time
 
 
 class Lattice:
@@ -85,36 +86,43 @@ class Lattice:
     def compute_NN_and_NNN(self):
         raise NotImplementedError("This method should be implemented in a child class.")
     
-    def plot(self, ax:plt.Axes=None, title:str = None, plotNN:bool = True, plotNNN:bool = False, plotIdxs:bool = False, *args, **kwargs):
+    def plot(self, ax:plt.Axes=None, title:str = None, plotNN:bool = True, plotNNN:bool = False, plotIdxs:bool = False, scaling:tuple = (1/2, 1/2/np.sqrt(3)), plotSites:bool = True, site_color:str = "black", NN_color:str = "black", NNN_color:str = "black", *args, **kwargs):
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(10, 5))
 
-        ax.scatter(self.X, self.Y, c='k', zorder=0, s=25)
+        if scaling is not None:
+            X = self.X * scaling[0]
+            Y = self.Y * scaling[1]
+        else:
+            X = self.X
+            Y = self.Y
+
+        if plotSites:
+            ax.scatter(X, Y, c=site_color, zorder=1, s=25)
 
         if plotNN: 
             if isinstance(self.NN, dict):
                 NN_sum = np.sum(list(self.NN.values()), axis=0)
                 i_idx, j_idx = np.where(NN_sum)
-                valid_indices = (i_idx < len(self.X)) & (j_idx < len(self.X))
+                valid_indices = (i_idx < len(X)) & (j_idx < len(X))
                 i_idx, j_idx = i_idx[valid_indices], j_idx[valid_indices]
-                ax.plot([self.X[i_idx], self.X[j_idx]], [self.Y[i_idx], self.Y[j_idx]], c = 'k', alpha=0.5, ls='-', zorder=0)
+                ax.plot([X[i_idx], X[j_idx]], [Y[i_idx], Y[j_idx]], c = NN_color, alpha=1., ls='-', zorder=0)
         if plotNNN:
             if isinstance(self.NNN, dict):
                 colors = ["blue", "orange", "red"]
                 for arr, color in zip(self.NNN.values(), colors):
                     i_idx, j_idx = np.where(arr)
-                    valid_indices = (i_idx < len(self.X)) & (j_idx < len(self.X))
+                    valid_indices = (i_idx < len(X)) & (j_idx < len(X))
                     i_idx, j_idx = i_idx[valid_indices], j_idx[valid_indices]
-                    ax.plot([self.X[i_idx], self.X[j_idx]], [self.Y[i_idx], self.Y[j_idx]], c=color, alpha=0.5, ls='--', zorder=1)
+                    ax.plot([X[i_idx], X[j_idx]], [Y[i_idx], Y[j_idx]], c=NNN_color, alpha=1., ls='--', zorder=0)
 
         if plotIdxs:
-            for y, x in zip(self.Y, self.X):
+            for y, x in zip(Y, X):
                 ax.text(x, y, f"{self.lattice[y, x]}", color="red", fontsize=12, ha="center", va="center")
 
         title = title if title else f"Lattice with {self.number_of_sites} sites"
         ax.set_title(title)
         plt.tight_layout()
-        plt.show()
 
     def plot_distances(self, idx:int = None, cmap:str = "viridis", *args, **kwargs):
         fig, axs = plt.subplots(1, 3, figsize=(10, 5))
@@ -210,7 +218,7 @@ class TriangularLattice(Lattice):
         lattice[coordinates[1], coordinates[0]] = np.arange(coordinates.shape[1])
         return lattice
 
-    def generate_lattice_tiled(self, *args, **kwargs):
+    def generate_lattice_tiled(self, doHex:bool = False, *args, **kwargs):
         lattice = self.generate_lattice_not_tiled()
         Y, X = np.where(lattice >= 0)[:]
         upright_coordinates = np.array([X, Y])
@@ -220,8 +228,12 @@ class TriangularLattice(Lattice):
         flipped_coordinates[1] -= np.min(flipped_coordinates[1])
         flipped_coordinates[0] -= np.min(flipped_coordinates[0])
 
-        upright_shifts = [np.array([0, 0]).T, np.array([-np.max(X), 0]).T, np.array([-np.max(X)//2, -np.max(Y)]).T]
-        flipped_shifts = [np.array([-np.max(X)//2, 0]).T, np.array([0, -np.max(Y)]).T, np.array([-np.max(X), -np.max(Y)]).T]
+        if doHex:
+            upright_shifts = [np.array([0, 0]).T, np.array([-np.max(X), 0]).T, np.array([-np.max(X)//2, -np.max(Y)]).T]
+            flipped_shifts = [np.array([-np.max(X)//2, 0]).T, np.array([0, -np.max(Y)]).T, np.array([-np.max(X), -np.max(Y)]).T]
+        else:
+            upright_shifts = [np.array([0, 0]).T]
+            flipped_shifts = [np.array([-np.max(X)//2, 0]).T]
 
         hexagon_coordinates = []
         for shift in upright_shifts:
@@ -480,7 +492,7 @@ class SierpinskiTriangularLattice(TriangularLattice):
         self.hole_locations = np.round(hole_locations).astype(int)
         return lattice
 
-    def generate_lattice_tiled(self, *args, **kwargs):
+    def generate_lattice_tiled(self, doHex:bool = False, *args, **kwargs):
         lattice = self.generate_lattice_not_tiled()
         Y, X = np.where(lattice >= 0)[:]
         upright_coordinates = np.array([X, Y])
@@ -496,8 +508,12 @@ class SierpinskiTriangularLattice(TriangularLattice):
         flipped_coordinates[1] -= np.min(flipped_coordinates[1])
         flipped_coordinates[0] -= np.min(flipped_coordinates[0])
 
-        upright_shifts = [np.array([0, 0]).T, np.array([-np.max(X), 0]).T, np.array([-np.max(X)//2, -np.max(Y)]).T]
-        flipped_shifts = [np.array([-np.max(X)//2, 0]).T, np.array([0, -np.max(Y)]).T, np.array([-np.max(X), -np.max(Y)]).T]
+        if doHex:
+            upright_shifts = [np.array([0, 0]).T, np.array([-np.max(X), 0]).T, np.array([-np.max(X)//2, -np.max(Y)]).T]
+            flipped_shifts = [np.array([-np.max(X)//2, 0]).T, np.array([0, -np.max(Y)]).T, np.array([-np.max(X), -np.max(Y)]).T]
+        else:
+            upright_shifts = [np.array([0, 0]).T]
+            flipped_shifts = [np.array([-np.max(X)//2, 0]).T]
 
         hexagon_coordinates = []
         for shift in upright_shifts:
@@ -657,7 +673,7 @@ class SierpinskiTriangularLattice(TriangularLattice):
 
         return {"b1": b1_mask, "b2": b2_mask, "b2tilde": b2tilde_mask}, {"c1": c1_mask, "c2": c2_mask, "c3": c3_mask}
 
-    def compute_hamiltonian(self, method:str, M:float, B_tilde:float, B:float, t:float, A_tilde:float, *args, **kwargs):
+    def compute_hamiltonian(self, method:str, M:float, B_tilde:float, B:float, t:float, A_tilde:float, *args, **kwargs) -> np.ndarray:
         site_mask = np.repeat(self.site_mask, 2)
         if method == "triangular":
             return self.ParentLattice.compute_hamiltonian(M, B_tilde, B, t, A_tilde, *args, **kwargs)
@@ -686,7 +702,7 @@ class SierpinskiTriangularLattice(TriangularLattice):
         disorder_array -= np.mean(disorder_array)
         return np.diag(disorder_array).astype(np.complex128)
 
-    def compute_phase_diagram(self, method:str, M_range:tuple = (-2.0, 8.0), B_tilde:tuple = (0.0, 0.5), resolution:tuple = None, B:float = 1.0, t:float = 1.0, A_tilde:float = 0.0, doOverwrite:bool = False, directory:str = None, *args, **kwargs):
+    def compute_phase_diagram(self, method:str, M_range:tuple = (-2.0, 8.0), B_tilde_range:tuple = (0.0, 0.5), resolution:tuple = None, B:float = 1.0, t:float = 1.0, A_tilde:float = 0.0, doOverwrite:bool = False, directory:str = None, *args, **kwargs):
         sizestr = f"{resolution[0]}x{resolution[1]}" if resolution is not None else "auto"
         fbasename = f"bott_index_g{self.generation}_{method}_{sizestr}_.h5"
         directory = "./Triangle/PhaseDiagrams/Bott/" if directory is None else directory
@@ -697,10 +713,11 @@ class SierpinskiTriangularLattice(TriangularLattice):
 
         if resolution is None:
             M_values = np.arange(M_range[0], M_range[1], 0.1)
-            B_tilde_values = np.arange(B_tilde[0], B_tilde[1], 0.05)
+            B_tilde_values = np.arange(B_tilde_range[0], B_tilde_range[1], 0.05)
         else:
+            print(M_range)
             M_values = np.linspace(M_range[0], M_range[1], resolution[0])
-            B_tilde_values = np.linspace(B_tilde[0], B_tilde[1], resolution[1])
+            B_tilde_values = np.linspace(B_tilde_range[0], B_tilde_range[1], resolution[1])
 
         parameter_values = tuple(product(M_values, B_tilde_values))
 
@@ -774,6 +791,32 @@ class SierpinskiTriangularLattice(TriangularLattice):
         }
         return generic_save_to_h5(data_dict, fbasename, directory, doOverwrite, *args, **kwargs)
 
+    def plot_site_removal_comparison(self, *args, **kwargs):
+        tri_X, tri_Y = self.ParentLattice.X, self.ParentLattice.Y
+        frac_X, frac_Y = self.X, self.Y
+
+        fig, axs = plt.subplots(1, 2, figsize=(10,5))
+        axs[0].scatter(tri_X, tri_Y, c='r', s=15)
+        axs[0].scatter(frac_X, frac_Y, c='k', s=15)
+        axs[1].scatter(frac_X, frac_Y, c='k', s=15)
+        for ax in axs.flatten():
+            ax.axis("off")
+            ax.set_aspect("equal")
+
+        fig.suptitle("Generation {}".format(self.generation), fontsize=16)
+        fig.tight_layout()
+        plt.show()
+
+    def plot_site_NN_removal(self, *args, **kwargs):
+        fig, ax = plt.subplots(1, 1, figsize=(10,5))
+
+        self.ParentLattice.plot(ax, NN_color="red", site_color="red")
+        self.plot(ax)
+        ax.axis("off")
+        ax.set_aspect("equal")
+        ax.set_title("")
+        plt.tight_layout()
+        plt.show()
 
 
 
@@ -874,7 +917,7 @@ def plot_imshow(fig, ax, X_values, Y_values, Z_values, cmap='Spectral', plotColo
     return fig, ax
 
 
-def plot_from_file(filename:str):
+def plot_from_file(filename:str, Atilde:float):
     with h5py.File(filename, "r") as f:
         M_data = f["M_values"][:]
         B_tilde_data = f["B_tilde_values"][:]
@@ -898,7 +941,7 @@ def plot_from_file(filename:str):
 
     ax.set_xlim([np.min(M_data), np.max(M_data)])
     ax.set_ylim([np.min(B_tilde_data), np.max(B_tilde_data)])
-    ax.set_title(filename.split("/")[-1].split(".")[0], fontsize=16)
+    ax.set_title(filename.split("/")[-1].split(".")[0]+f"Atilde={Atilde}", fontsize=16)
     plt.tight_layout()
     return fig, ax
 
@@ -906,7 +949,12 @@ def plot_from_file(filename:str):
 
 # -----------------------------------------------------------------------
 if __name__ == "__main__":
-    lattice = SierpinskiTriangularLattice(True, 3)
-    fout = lattice.compute_phase_diagram("triangular", resolution=(21, 21), A_tilde=1., doOverwrite=False)
-    plot_from_file(fout)
-    plt.show()
+    FracLat = SierpinskiTriangularLattice(True, 6)
+    FracLat.ParentLattice.info
+
+    t0 = time()
+    H = FracLat.compute_hamiltonian(method="renorm", M=0., B_tilde=0., B=1.0, t=1.0, A_tilde=0.0)
+    P = FracLat.compute_projector(H)
+    bott = FracLat.compute_bott_index(P, X=FracLat.X, Y=FracLat.Y)
+    print("Bott index:", bott)
+    print("Time taken:", time() - t0)
