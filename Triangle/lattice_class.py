@@ -722,16 +722,20 @@ class SierpinskiTriangularLattice(TriangularLattice):
         parameter_values = tuple(product(M_values, B_tilde_values))
 
         def worker_function(parameters, *args, **kwargs):
-            M, B_tilde = parameters
-            hamiltonian = self.compute_hamiltonian(method=method, M=M, B_tilde=B_tilde, B=B, t=t, A_tilde=A_tilde, *args, **kwargs)
-            if np.isnan(hamiltonian).any():
+            try:
+                M, B_tilde = parameters
+                hamiltonian = self.compute_hamiltonian(method=method, M=M, B_tilde=B_tilde, B=B, t=t, A_tilde=A_tilde, *args, **kwargs)
+                if np.isnan(hamiltonian).any():
+                    return [M, B_tilde, np.nan]
+                projector = self.compute_projector(hamiltonian)
+                if method != "triangular":
+                    bott_index = self.compute_bott_index(projector)
+                else:
+                    bott_index = self.compute_bott_index(projector, X = self.ParentLattice.X, Y = self.ParentLattice.Y)
+                return [M, B_tilde, bott_index]
+            except Exception as e:
+                print(f"Error at (M = {M:.2f}, B_tilde = {B_tilde:.2f}):", e)
                 return [M, B_tilde, np.nan]
-            projector = self.compute_projector(hamiltonian)
-            if method != "triangular":
-                bott_index = self.compute_bott_index(projector)
-            else:
-                bott_index = self.compute_bott_index(projector, X = self.ParentLattice.X, Y = self.ParentLattice.Y)
-            return [M, B_tilde, bott_index]
         
         data = generic_multiprocessing(worker_function, parameter_values, n_jobs=4, *args, **kwargs)
         M_data, B_tilde_data, bott_data = np.array(data).T
@@ -953,8 +957,8 @@ if __name__ == "__main__":
     FracLat.ParentLattice.info
 
     t0 = time()
-    H = FracLat.compute_hamiltonian(method="renorm", M=0., B_tilde=0., B=1.0, t=1.0, A_tilde=0.0)
-    P = FracLat.compute_projector(H)
-    bott = FracLat.compute_bott_index(P, X=FracLat.X, Y=FracLat.Y)
-    print("Bott index:", bott)
-    print("Time taken:", time() - t0)
+    fname = FracLat.compute_phase_diagram("renorm", resolution=(45, 9))
+    print("\nTime taken:", time() - t0)
+
+    fig, ax = plot_from_file(fname, Atilde=0.0)
+    plt.savefig(fname.replace(".h5", ".png"))
