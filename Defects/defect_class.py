@@ -5,6 +5,10 @@ import matplotlib.ticker as ticker
 import scipy.linalg as spla
 from matplotlib.widgets import Slider
 import inspect
+from joblib import Parallel, delayed
+from tqdm_joblib import tqdm, tqdm_joblib
+
+
 
 class DefectSquareLattice:
     def __init__(self, side_length:int, defect_type:str, pbc:bool = True, frenkel_pair_index:int = 0, doLargeDefect:bool = False, *args, **kwargs):
@@ -98,7 +102,10 @@ class DefectSquareLattice:
     @property
     def lattice(self):
         if self.defect_type == "interstitial":
-            print("Warning: Lattice coordinates must be halved for interstitial defects.")
+            print("Warning: Lattice coordinates must be halved for 'interstitial' defects.")
+            print("Called from line:", inspect.currentframe().f_back.f_lineno)
+        if self.defect_type == "frenkel_pair":
+            print("Warning: Lattice coordinates must be halved for 'frenkel pair' defects.")
             print("Called from line:", inspect.currentframe().f_back.f_lineno)
         return self._lattice
     @property
@@ -155,7 +162,7 @@ class DefectSquareLattice:
 
         return lattice
 
-    def generate_interstitial_lattice(self, *args, **kwargs):
+    def generate_interstitial_lattice(self):
         if self.side_length % 2 == 1:
             raise ValueError("Side length must be even for a single interstitial in the center.")
         Y, X = np.where(self._pristine_lattice >= 0)
@@ -166,16 +173,13 @@ class DefectSquareLattice:
         if self._doLargeDefect:
             for i in [-1, 0, 1]:
                 for j in [-1, 0, 1]:
-                    if abs(i) + abs(j) == 2:
-                        continue
-                    coordinates = np.concatenate((coordinates, np.array([[x_mean + i], [y_mean + j]])), axis=1)
+                    if abs(i) + abs(j) != 2:
+                        coordinates = np.concatenate((coordinates, np.array([[x_mean + i], [y_mean + j]])), axis=1)
         else:
             coordinates = np.concatenate((coordinates, np.array([[x_mean], [y_mean]])), axis=1)
 
-        coordinates = np.round(coordinates * 2).astype(int)
-        sort_idx = np.lexsort((coordinates[0], coordinates[1]))
-        coordinates = coordinates[:, sort_idx]
-        coordinates = np.unique(coordinates, axis=1)
+        coordinates = np.unique(np.round(coordinates * 2).astype(int), axis=1)
+        coordinates = coordinates[:, np.lexsort((coordinates[0], coordinates[1]))]
 
         interstitial_lattice = np.full((np.max(coordinates[1])+1, np.max(coordinates[0])+1), -1)
         interstitial_lattice[coordinates[1], coordinates[0]] = np.arange(len(coordinates[0]))
@@ -240,14 +244,14 @@ class DefectSquareLattice:
 
         theta = np.arctan2(dy, dx)  
         dr = np.sqrt(dx ** 2 + dy ** 2)
-        distance_mask = (dr <= 1.0) & (dr > 0.0)
 
-        principal_mask = (((dx == 0) & (dy != 0)) | ((dx != 0) & (dy == 0))) & (distance_mask)
-        diagonal_mask  = ((np.isclose(np.abs(dx), np.abs(dy), atol=1e-3)) & (dx != 0)) & (distance_mask)
+        principal_mask = (((dx == 0) & (dy != 0)) | ((dx != 0) & (dy == 0))) & ((dr <= 1 + 1e-6) & (dr > 1e-6))
+        diagonal_mask  = ((np.isclose(np.abs(dx), np.abs(dy), atol=1e-4)) & (dx != 0)) & ((dr <= 1/np.sqrt(2) + 1e-6) & (dr > 1e-6))
         hopping_mask = principal_mask | diagonal_mask
     
         d_cos = np.where(hopping_mask, np.cos(theta), 0. + 0.j)
         d_sin = np.where(hopping_mask, np.sin(theta), 0. + 0.j)
+
         amplitude = np.where(hopping_mask, np.exp(1. - dr), 0. + 0.j)
 
         Cx_plus_Cy = amplitude / 2
@@ -259,10 +263,11 @@ class DefectSquareLattice:
         self._Sy = Sy
         self._I = np.eye(Sx.shape[0], dtype=complex)
 
+
     # endregion
 
     # region Computation
-    def compute_hamiltonian(self, M_background:float, M_substitution:float = None, t:float = 1.0, t0:float = 1.0, *args, **kwargs):
+    def compute_hamiltonian(self, M_background:float, M_substitution:float = None, t:float = 1.0, t0:float = 1.0):
 
         if self.defect_type in ["vacancy", "none"]:
             onsite_mass = M_background * self.I
@@ -270,9 +275,8 @@ class DefectSquareLattice:
             if M_substitution is None:
                 raise ValueError("M_substitution must be provided for 'substitution', 'interstitial', or 'frenkel pair' defects.")
             onsite_mass = M_background * self.I
+            onsite_mass[self.defect_indices, self.defect_indices] = M_substitution
 
-            for defect_index in self.defect_indices:
-                onsite_mass[defect_index, defect_index] = M_substitution
 
         #fig, ax = plt.subplots()
         #ax.scatter(self.X, self.Y, facecolor='none', edgecolor='black', label='Sites')
@@ -286,14 +290,16 @@ class DefectSquareLattice:
         #cbar.set_ticks(np.sort(np.unique(onsite_mass.diagonal().real)))
         #ax.set_title(f"m_back={M_background}, m_sub={M_substitution}")
         #plt.show()
+        if M_substitution is None:
+            M_substitution = 1.
+        d1 = t * self.Sx * np.sign(M_substitution)
+        d2 = t * self.Sy * np.sign(M_substitution)
+        d3 = onsite_mass + t0 * (self.Cx_plus_Cy) * np.sign(M_substitution)
 
-        d1 = t * self.Sx
-        d2 = t * self.Sy
-        d3 = onsite_mass + t0 * (self.Cx_plus_Cy)
         hamiltonian = np.kron(d1, self.pauli_matrices[0]) + np.kron(d2, self.pauli_matrices[1]) + np.kron(d3, self.pauli_matrices[2])
         return hamiltonian
 
-    def compute_projector(self, hamiltonian, *args, **kwargs):
+    def compute_projector(self, hamiltonian):
         eigenvalues, eigenvectors = spla.eigh(hamiltonian, overwrite_a=True)
         lower_band = np.sort(eigenvalues)[:eigenvalues.size // 2]
         highest_lower_band = lower_band[-1]
@@ -304,7 +310,7 @@ class DefectSquareLattice:
         projector = eigenvectors @ D_herm_conj
         return projector
 
-    def compute_bott_index(self, projector:np.ndarray, *args, **kwargs):
+    def compute_bott_index(self, projector:np.ndarray):
         X = np.repeat(self.X, 2)
         Y = np.repeat(self.Y, 2)
         Lx = np.max(X) - np.min(X)
@@ -321,6 +327,15 @@ class DefectSquareLattice:
         A = I - projector + projector @ x_unitary_proj @ y_unitary_proj @ x_unitary_dagger_proj @ y_unitary_dagger_proj
         bott_index = round(np.imag(np.sum(np.log(spla.eigvals(A)))) / (2 * np.pi))
         return bott_index
+
+    def compute_local_chern_operator(self, hamiltonian, *args, **kwargs):
+        projector = self.compute_projector(hamiltonian)
+        X = np.diag(np.repeat(self.X, 2))
+        Y = np.diag(np.repeat(self.Y, 2))
+
+        Q = np.eye(projector.shape[0], dtype=np.complex128) - projector
+        C_L = -4 * np.pi * np.imag(projector @ X @ Q @ Y @ projector)
+        return C_L
 
     def compute_LDOS(self, hamiltonian:np.ndarray, number_of_states:int = 2, *args, **kwargs):
         eigenvalues, eigenvectors = spla.eigh(hamiltonian, overwrite_a=True)
@@ -349,7 +364,7 @@ class DefectSquareLattice:
         }
         return data_dict
 
-    def _compute_for_figure(self, m_background:float, m_substitution:float):
+    def _compute_for_figure(self, m_background:float, m_substitution:float, number_of_states:float):
         def _average_over_frenkel_pair():
             all_LDOS = []
             all_x = []
@@ -392,7 +407,7 @@ class DefectSquareLattice:
             hamiltonian = self.compute_hamiltonian(m_background, m_substitution)
             projector = self.compute_projector(hamiltonian)
             bott_index = self.compute_bott_index(projector)
-            ldos_dict = self.compute_LDOS(hamiltonian, number_of_states=2)
+            ldos_dict = self.compute_LDOS(hamiltonian, number_of_states)
             LDOS, eigenvalues, gap, bandwidth, ldos_idxs = ldos_dict["LDOS"], ldos_dict["eigenvalues"], ldos_dict["gap"], ldos_dict["bandwidth"], ldos_dict["ldos_idxs"]
             X, Y = self.X, self.Y
         return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
@@ -401,8 +416,7 @@ class DefectSquareLattice:
 
     # region Plotting
     def plot_spectrum_ldos(self, m_background_values:"list[float]" = [2.5, 1.0, -1.0, -2.5], 
-                             m_substitution_values:"list[float] | None" = None, doLargeDefectFigure:bool = False):
-        
+                             m_substitution_values:"list[float] | None" = None, doLargeDefectFigure:bool = False, number_of_states:int = 2): 
         def plot_ldos_ax(ldos_ax:plt.Axes, LDOS, X, Y):
             # Dynamically set marker size based on number of points and axes size
             bbox = ldos_ax.get_window_extent().transformed(ldos_ax.figure.dpi_scale_trans.inverted())
@@ -410,8 +424,8 @@ class DefectSquareLattice:
             area = width * height
             N = len(X)
             # Heuristic: marker area is a fraction of axes area divided by number of points
-            marker_area = max(area / (N * 3), 10)
-            ldos_ax.scatter(X, Y, c=LDOS, s=marker_area, cmap='jet')
+            marker_area = max(area / (N * 10), 0)
+            scat = ldos_ax.scatter(X, Y, c=LDOS, s=marker_area, cmap='jet')
             ldos_ax.set_xticks([np.min(X), (np.max(X) + np.min(X)) / 2, np.max(X)])
             ldos_ax.set_yticks([np.min(X), (np.max(X) + np.min(X)) / 2, np.max(X)])
             tick_labels = [np.min(X) + 1, (np.max(X) + np.min(X)) // 2 + 1, np.max(X) + 1]
@@ -421,7 +435,7 @@ class DefectSquareLattice:
             ldos_ax.set_ylabel(r"$y$", fontsize=20)
             ldos_ax.set_aspect('equal')
             return ldos_ax
-
+        
         def plot_spectrum_ax(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_label:str, ldos_idxs:np.ndarray):
             x_values = np.arange(len(eigenvalues))
             idxs_mask = np.isin(x_values, ldos_idxs)
@@ -467,11 +481,11 @@ class DefectSquareLattice:
                     continue
                 
                 if j == 1 and doLargeDefectFigure and self.defect_type in ["none", "vacancy"]:
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution)
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, number_of_states)
                 elif doLargeDefectFigure and self.defect_type not in ["none", "vacancy"]:
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution)
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, number_of_states)
                 else:
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution)
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, number_of_states)
                 
                 LDOS -= np.min(LDOS)
                 if np.max(LDOS) > 0:
@@ -498,7 +512,7 @@ class DefectSquareLattice:
                 cbar.ax.tick_params(labelsize=20)
                 cbar.ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%1.f'))
 
-        plt.tight_layout()
+        
         if n_rows == 1:
             plt.subplots_adjust(top=0.8)
         else:
@@ -509,6 +523,7 @@ class DefectSquareLattice:
                 fig.text((2*i+1)/(2 * len(m_background_values)), 0.85, set_labels[i], fontsize=36, ha='center')
             else:
                 fig.text((2*i+1)/(2 * len(m_background_values)), 0.95, set_labels[i], fontsize=36, ha='center')
+        plt.tight_layout()
         return fig, axs
 
     def plot_distances(self, idx:int = None, cmap:str = "inferno", doLargeDefectFigure:bool = False, *args, **kwargs):
@@ -580,192 +595,188 @@ class DefectSquareLattice:
         plt.tight_layout()
         plt.show()
         
-    def animate_plot_distances(self, cmap="inferno", doLargeDefectFigure=False):
-        fig, axs = plt.subplots(1, 3, figsize=(10, 5))
-        plt.subplots_adjust(bottom=0.2)
-
-        if doLargeDefectFigure:
-            Sx, Sy, Cx_plus_Cy = self.LargeDefectLattice.Sx, self.LargeDefectLattice.Sy, self.LargeDefectLattice.Cx_plus_Cy
-            X, Y = self.LargeDefectLattice.X, self.LargeDefectLattice.Y
+    def plot_lcm(self, m_background_values:"list[float]" = [2.5, 1.0, -1.0, -2.5], 
+                             m_substitution_values:"list[float] | None" = None, doLargeDefectFigure:bool = False):
+        # Get shape of the figure based on the defect type
+        if m_substitution_values is None:
+            m_substitution_values = np.array(m_background_values).copy()
+        if self.defect_type in ["none", "vacancy"]:
+            m_substitution_values = [None] if doLargeDefectFigure is False else [None] * 2
+            n_cols, n_rows = len(m_background_values), len(m_substitution_values)
         else:
-            Sx, Sy, Cx_plus_Cy = self.Sx, self.Sy, self.Cx_plus_Cy
-            X, Y = self.X, self.Y
+            n_cols, n_rows = len(m_background_values), len(m_substitution_values) - 1
 
-        distances = [Sx.imag, Sy.imag, Cx_plus_Cy.real]
-        labels = ["Sx.imag", "Sy.imag", "Cx_plus_Cy.real"]
-        N = len(X)
-        idx0 = N // 2
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
 
-        scatters = []
-        for i, (distance, label) in enumerate(zip(distances, labels)):
-            axs[i].set_title(label)
-            axs[i].set_xlabel("X")
-            axs[i].set_ylabel("Y")
-            sc = axs[i].scatter(X, Y, c=distance[idx0], cmap=cmap, zorder=0, s=25)
-            axs[i].scatter(X[idx0], Y[idx0], s=100, facecolors='none', edgecolors='red', zorder=1)
-            axs[i].set_aspect('equal')
-            scatters.append(sc)
+        if n_rows == 1:
+            axs = np.array([axs])
 
-        cbar = fig.colorbar(scatters[0], ax=axs, orientation='vertical')
-        cbar.set_label("Distance to site", rotation=270, labelpad=15)
+        for i, m_background in enumerate(m_background_values):
+            good_m_sub_vals = np.array(m_substitution_values)[np.array(m_substitution_values) != m_background]
+            for j, m_substitution in enumerate(good_m_sub_vals):
+                if m_substitution == m_background:
+                    continue
 
-        ax_slider = plt.axes([0.2, 0.05, 0.6, 0.03])
-        slider = Slider(ax_slider, 'Index', 0, N-1, valinit=idx0, valstep=1)
+                if (j == 1 and doLargeDefectFigure and self.defect_type in ["none", "vacancy"]) or (doLargeDefectFigure and self.defect_type not in ["none", "vacancy"]):
+                    H = self.LargeDefectLattice.compute_hamiltonian(m_background, m_substitution)
+                    diagonal_values = np.diag(self.LargeDefectLattice.compute_local_chern_operator(H))
+                    X, Y = self.LargeDefectLattice.X, self.LargeDefectLattice.Y
+                else:
+                    H = self.compute_hamiltonian(m_background, m_substitution)
+                    diagonal_values = np.diag(self.compute_local_chern_operator(H))
+                    X, Y = self.X, self.Y
 
-        def update(val):
-            idx = int(slider.val)
-            for i, (distance, sc) in enumerate(zip(distances, scatters)):
-                sc.set_array(distance[idx])
-                axs[i].collections[1].set_offsets([[X[idx], Y[idx]]])  # update red circle
-            fig.canvas.draw_idle()
 
-        slider.on_changed(update)
-        plt.show()
+                # Remove n% of the width from each side of the lattice for X, Y, and the colormap
+                width = X.max() - X.min()
+                height = Y.max() - Y.min()
+                edge_width = 0.1
+                x_min = X.min() + edge_width * width
+                x_max = X.max() - edge_width * width
+                y_min = Y.min() + edge_width * height
+                y_max = Y.max() - edge_width * height
 
-    def animate_spectrum_ldos(self, m_back_range=(-3, 3), m_sub_range=(-3, 3), num_points=25, number_of_states=2, doLargeDefectFigure=False):
-        """
-        Interactive animation of spectrum and LDOS with two sliders for m_back and m_sub.
-        Args:
-            m_back_range: tuple, (min, max) for m_back slider
-            m_sub_range: tuple, (min, max) for m_sub slider
-            num_points: int, number of slider steps
-            number_of_states: int, number of states for LDOS
-            doLargeDefectFigure: bool, use LargeDefectLattice if True
-        """
-        import matplotlib.pyplot as plt
-        from matplotlib.widgets import Slider
-        import numpy as np
+                mask = (X >= x_min) & (X <= x_max) & (Y >= y_min) & (Y <= y_max)
+                X_bulk = X[mask]
+                Y_bulk = Y[mask]
+                diagonal_values = diagonal_values[::2][mask] + diagonal_values[1::2][mask]
 
-        m_back_values = np.linspace(m_back_range[0], m_back_range[1], num_points)
-        m_sub_values = np.linspace(m_sub_range[0], m_sub_range[1], num_points)
+                scat = axs[j, i].scatter(X_bulk, Y_bulk, s=50, c=diagonal_values, cmap='jet', edgecolors='black', linewidths=0.5)
+                axs[j, i].set_aspect('equal')
 
-        fig, (ax_spec, ax_ldos) = plt.subplots(1, 2, figsize=(12, 5))
-        plt.subplots_adjust(bottom=0.25)
+                x_ticks = [X_bulk.min(), (X_bulk.min() + X_bulk.max()) / 2, X_bulk.max()]
+                y_ticks = [Y_bulk.min(), (Y_bulk.min() + Y_bulk.max()) / 2, Y_bulk.max()]
 
-        # Initial values
-        m_back0 = m_back_values[num_points // 2]
-        m_sub0 = m_sub_values[num_points // 2]
+                axs[j, i].set_xticks(x_ticks, minor=False)
+                axs[j, i].set_xticklabels([str(int(label + 1)) for label in x_ticks], fontsize=16)
+                axs[j, i].set_yticks(y_ticks, minor=False)
+                axs[j, i].set_yticklabels([str(int(label + 1)) for label in y_ticks], fontsize=16)
 
-        def get_data(m_back, m_sub):
-            if doLargeDefectFigure and hasattr(self, 'LargeDefectLattice'):
-                LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_back, m_sub)
+                axs[j, i].set_xlabel(r"$X$", fontsize=20)
+                axs[j, i].set_ylabel(r"$Y$", fontsize=20)
+
+                if self.defect_type in ["none", "vacancy"]:
+                    axmassname = ""
+                elif self.defect_type in ["substitution"]:
+                    axmassname = fr"$m_0^{{\text{{sub}}}}={m_substitution}$"
+                else:
+                    axmassname = fr"$m_0^{{\text{{int}}}}={m_substitution}$"
+                axs[j, i].set_title(axmassname, fontsize=20)
+
+                cbar = plt.colorbar(scat, ax=axs[j, i], orientation='vertical', fraction=0.046, pad=0.04)
+                cbar.set_ticks(np.linspace(np.min(diagonal_values), np.max(diagonal_values), 5))
+                cbar.ax.tick_params(labelsize=16)
+                cbar.ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%1.2f'))
+
+        plt.tight_layout()
+        if n_rows == 1:
+            plt.subplots_adjust(top=0.9)
+        else:
+            plt.subplots_adjust(top=0.9)
+        set_labels = [f"({lab})" for lab in "abcdefghijklmnopqrstuvwxyz"[:len(m_background_values)]]
+        for i, m_background in enumerate(m_background_values):
+            label_xpos = axs[0, i].get_position().x0 + axs[0, i].get_position().width / 2
+            label_ypos = axs[0, i].get_position().y1 + 0.07
+            if n_rows == 1:
+                fig.text(label_xpos, label_ypos, set_labels[i], fontsize=36, ha='center')
             else:
-                LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_back, m_sub)
-            LDOS = LDOS - np.min(LDOS)
-            if np.max(LDOS) > 0:
-                LDOS = LDOS / np.max(LDOS)
-            return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
+                fig.text(label_xpos, label_ypos, set_labels[i], fontsize=36, ha='center')
 
-        LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = get_data(m_back0, m_sub0)
+        return fig, axs
 
-        # Plot spectrum
-        x_values = np.arange(len(eigenvalues))
-        idxs_mask = np.isin(x_values, ldos_idxs)
-        scat_spec_bg = ax_spec.scatter(x_values[~idxs_mask], eigenvalues[~idxs_mask], s=25, color='black', zorder=0)
-        scat_spec_sel = ax_spec.scatter(x_values[idxs_mask], eigenvalues[idxs_mask], s=25, color='red', zorder=1)
-        ax_spec.set_xlabel(r"$n$", fontsize=16)
-        ax_spec.set_ylabel(r"$E_n$", fontsize=16)
-        spec_title = ax_spec.set_title(f"Gap = {gap:.2f}, Bott = {bott_index:.2f}\nm_back={m_back0:.2f}, m_sub={m_sub0:.2f}")
-
-        # Plot LDOS
-        scat_ldos = ax_ldos.scatter(X, Y, c=LDOS, s=25, cmap='inferno')
-        ax_ldos.set_xlabel(r"$x$", fontsize=16)
-        ax_ldos.set_ylabel(r"$y$", fontsize=16)
-        ax_ldos.set_aspect('equal')
-        cbar = fig.colorbar(scat_ldos, ax=ax_ldos, orientation='vertical')
-        cbar.set_label("LDOS", fontsize=14)
-
-        # Sliders
-        axcolor = 'lightgoldenrodyellow'
-        ax_m_back = plt.axes([0.15, 0.12, 0.65, 0.03], facecolor=axcolor)
-        ax_m_sub = plt.axes([0.15, 0.06, 0.65, 0.03], facecolor=axcolor)
-        slider_m_back = Slider(ax_m_back, 'm_back', m_back_range[0], m_back_range[1], valinit=m_back0, valstep=(m_back_values[1]-m_back_values[0]))
-        slider_m_sub = Slider(ax_m_sub, 'm_sub', m_sub_range[0], m_sub_range[1], valinit=m_sub0, valstep=(m_sub_values[1]-m_sub_values[0]))
-
-        def update(val=None):
-            m_back = slider_m_back.val
-            m_sub = slider_m_sub.val
-            LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = get_data(m_back, m_sub)
-            # Update spectrum
-            x_values = np.arange(len(eigenvalues))
-            idxs_mask = np.isin(x_values, ldos_idxs)
-            scat_spec_bg.set_offsets(np.c_[x_values[~idxs_mask], eigenvalues[~idxs_mask]])
-            scat_spec_sel.set_offsets(np.c_[x_values[idxs_mask], eigenvalues[idxs_mask]])
-            # Update LDOS
-            scat_ldos.set_offsets(np.c_[X, Y])
-            scat_ldos.set_array(LDOS)
-            # Update titles
-            spec_title.set_text(f"Gap = {gap:.2f}, Bott = {bott_index:.2f}\nm_back={m_back:.2f}, m_sub={m_sub:.2f}")
-            fig.canvas.draw_idle()
-
-        slider_m_back.on_changed(update)
-        slider_m_sub.on_changed(update)
-        plt.show()
-
+    def plot_bott_phase_diagram(self):
+        pass
     # endregion
 
-def BI_PD():
-    d_type = "none"
-    sys_size = 15
-    Lattice = DefectSquareLattice(sys_size, d_type, frenkel_pair_index=None)
-    bott_vals = []
-    for M in np.linspace(-4., 4., 51):
-        H = Lattice.compute_hamiltonian(M, None)
-        projector = Lattice.compute_projector(H)
-        bott_index = Lattice.compute_bott_index(projector)
-        bott_vals.append(bott_index)
+    # region Parallel Computation
 
-    fig, ax = plt.subplots()
-    ax.scatter(np.linspace(-4., 4., 51), bott_vals, s=25, color='black')
-    ax.set_xlabel(r"$m_0$", fontsize=18)
-    ax.set_ylabel("Bott Index", fontsize=18)
-    ax.set_yticks([-1, 0, 1])
-    ax.set_xticks([-4, -2, 0, 2, 4])
-    for tick in [-4, -2, 0, 2, 4]:
-        ax.axvline(tick, color='gray', linestyle='--', linewidth=0.5, alpha=0.5)
-
-    ax.tick_params(axis='both', which='major', labelsize=16)
-    plt.tight_layout()
-    plt.savefig("BI_PD.png")
-    plt.show()
-
-def main():
-    for method in ["interstitial"]:
-        if method in ["none", "vacancy", "substitution", "frenkel_pair"]:
-            side_length = 25
+    @staticmethod
+    def generic_multiprocessing(func:callable, parameter_values:tuple, n_jobs:int = -1, progress_title:str = "Progress bar without a title.", doProgressBar:bool = True, *args, **kwargs):
+        if doProgressBar:
+            with tqdm_joblib(tqdm(total=len(parameter_values), desc=progress_title)) as progress_bar:
+                data = Parallel(n_jobs=n_jobs)(delayed(func)(params, *args, **kwargs) for params in parameter_values)
         else:
-            side_length = 14
-        for flag in [True]:
-            if flag and method in ["none", "frenkel_pair"]:
-                continue
-            if not flag and method in ["vacancy"]:
-                continue
+            data = Parallel(n_jobs=n_jobs)(delayed(func)(params, *args, **kwargs) for params in parameter_values)
+        return data
+    
+    def _compute_bott_from_parameters(self, parameters:tuple):
+        m_background, m_substitution = parameters
+        if m_substitution is None:
+            m_substitution = m_background
+        hamiltonian = self.compute_hamiltonian(m_background, m_substitution)
+        projector = self.compute_projector(hamiltonian)
+        bott_index = self.compute_bott_index(projector)
+        return [m_background, m_substitution, bott_index]
 
-            SDLattice = DefectSquareLattice(side_length, method, frenkel_pair_index=0)
-            SDLattice.plot_spectrum_ldos(doLargeDefectFigure=flag)
-            if flag:
-                plt.savefig(f"temp.png")
-                #plt.savefig(f"large_{method}_LDOS.png")
+    def plot_bott_phase_diagram(self, m_background_values:"list[float]", m_substitution_values:"list[float] | None" = None, num_jobs:int = -1):
+        parameters = tuple(product(m_background_values, m_substitution_values)) if m_substitution_values is not None else tuple(product(m_background_values, [None]))
+        data = self.generic_multiprocessing(
+            func = self._compute_bott_from_parameters, 
+            parameter_values = parameters, 
+            n_jobs = num_jobs, 
+            progress_title = "Computing Bott Index", 
+            doProgressBar = True
+        )
+        data = np.array(data, dtype=float)
+        data = data[np.lexsort((data[:, 0], data[:, 1]))]
+
+        fig, ax = plt.subplots(figsize=(10, 6))
+        mb_vals, ms_vals, b_vals = data[:, 0], data[:, 1], data[:, 2]
+
+        if m_substitution_values is not None:
+            for i in range(len(m_substitution_values)):
+                ax.scatter(mb_vals[ms_vals == m_substitution_values[i]], b_vals[ms_vals == m_substitution_values[i]], 
+                        s=25, label=f"$m_0^{{\\text{{sub}}}}={m_substitution_values[i]}$", color=f"C{i}", alpha=0.5)
+        else:
+            ax.scatter(mb_vals, b_vals, s=25, color='black')
+        
+        ax.set_xlabel(r"$m_0^{\text{back}}$", fontsize=18)
+        ax.set_ylabel("Bott Index", fontsize=18)
+        ax.set_yticks([-1, 0, 1])
+        ax.set_xticks([-4, -2, 0, 2, 4])
+        for tick in [-4, -2, 0, 2, 4]:
+            ax.axvline(tick, color='gray', linestyle='--', linewidth=0.5, alpha=0.5)
+        
+        ax.legend()
+        plt.show()
+            
+    # endregion
+
+
+def generate_ldos_figures(defect_types: list = ["none", "vacancy", "substitution", "interstitial", "frenkel_pair"], base_side_length: int = 24, directory:str = "./Defects/temp/LDOS/"):
+    for defect_type in defect_types:
+        side_length = base_side_length
+        if defect_type != "interstitial":
+            side_length = base_side_length + 1
+
+        for dLDF in [False, True]:
+            if defect_type == "none" and dLDF:
+                continue
+            if defect_type == "vacancy" and not dLDF:
+                continue
+            Lattice = DefectSquareLattice(side_length, defect_type)
+
+            Lattice.plot_spectrum_ldos(doLargeDefectFigure=dLDF, number_of_states=2)
+
+            if defect_type == "none":
+                title = "SL"
             else:
-                plt.savefig(f"temp.png")
-                #plt.savefig(f"{method}_LDOS.png")
+                title = defect_type
+            
+            if dLDF and defect_type != "vacancy":
+                plt.savefig(directory + f"large_{title}_LDOS.png")
+            else:
+                plt.savefig(directory + f"{title}_LDOS.png")
 
-def main2():
-    defect_type = "interstitial"
-    sl_base = 0
-    side_length = sl_base + 1 if defect_type != "interstitial" else sl_base
+def probe_lattice_instance(defect_type:str = "interstitial", base_side_length:int = 16):
+    side_length = base_side_length if defect_type == "interstitial" else base_side_length + 1
     Lattice = DefectSquareLattice(side_length, defect_type, pbc=True)
-    Lattice.LargeDefectLattice.plot_distances()
-    m_back, m_sub = 1.0, 2.5
-    H1 = Lattice.compute_hamiltonian(m_back, m_sub)
-    H2 = Lattice.compute_hamiltonian(-m_back, -m_sub)
-
 
     plotHamiltonians = 0
     plotEigvals = 0
     plotEigvecs = 0
     plotCoupling = 0
-    plotEigvalRange = 0
+    plotEigvalRange = 1
 
     if plotEigvecs:
         eigvecs1 = spla.eigh(H1, overwrite_a=True)[1]
@@ -806,8 +817,8 @@ def main2():
         fig, axs = plt.subplots(1, 3, figsize=(15, 5))
         m_sub_values = np.linspace(-4.0, 4.0, 25)
         for i, m_sub in enumerate(m_sub_values):
-            H1 = Lattice.LargeDefectLattice.compute_hamiltonian(m_back, m_sub)
-            H2 = Lattice.LargeDefectLattice.compute_hamiltonian(-m_back, -m_sub)
+            H1, osm1 = Lattice.compute_hamiltonian(m_back, m_sub)
+            H2, osm2 = Lattice.compute_hamiltonian(-m_back, -m_sub)
             eigvals1, _ = spla.eigh(H1, overwrite_a=True)
             eigvals2, _ = spla.eigh(H2, overwrite_a=True)
             # Only get the center fifth of eigenvalues
@@ -822,6 +833,13 @@ def main2():
             else:
                 eigval_matrix1 = np.vstack([eigval_matrix1, eigvals1[np.newaxis, :]])
                 eigval_matrix2 = np.vstack([eigval_matrix2, eigvals2[np.newaxis, :]])
+
+            if i == 0:
+                osm_matrix1 = osm1[np.newaxis, :]
+                osm_matrix2 = osm2[np.newaxis, :]
+            else:
+                osm_matrix1 = np.vstack([osm_matrix1, osm1[np.newaxis, :]])
+                osm_matrix2 = np.vstack([osm_matrix2, osm2[np.newaxis, :]])
         # Show the eigenvalue matrix as an image: each row is the spectrum for a given m_sub
         im1 = axs[0].imshow(eigval_matrix1, aspect='auto', cmap='viridis', origin='lower',
                            extent=[0, eigval_matrix1.shape[1], -2.5, 2.5])
@@ -829,18 +847,40 @@ def main2():
                            extent=[0, eigval_matrix2.shape[1], -2.5, 2.5])
         im3 = axs[2].imshow(eigval_matrix1 - eigval_matrix2, aspect='auto', cmap='viridis', origin='lower',
                            extent=[0, eigval_matrix1.shape[1], -2.5, 2.5])
-        
-        for ax in axs:
+
+        for ax in axs.flatten()[[0, 1, 2]]:
             ax.set_xlabel('Eigenvalue Index')
             ax.set_ylabel('m_sub Value Index')
-        axs[0].set_title('Eigenvalues vs m_sub (each row is spectrum)')
-        axs[1].set_title('Eigenvalues vs -m_sub (each row is spectrum)')
+        axs[0].set_title(f'Eigenvalues vs m_sub $(m_{{back}}={m_back})$\n(each row is spectrum)')
+        axs[1].set_title(f'Eigenvalues vs -m_sub $(m_{{back}}={m_back})$\n(each row is spectrum)')
         axs[2].set_title('Difference of Eigenvalues (H1 - H2)')
         plt.colorbar(im1, ax=axs[0], orientation='vertical', label='Eigenvalue')
         plt.colorbar(im2, ax=axs[1], orientation='vertical', label='Eigenvalue')
         plt.colorbar(im3, ax=axs[2], orientation='vertical', label='Eigenvalue Difference (H1 - H2)')
+
         plt.tight_layout()
         
+        fig2, axs2 = plt.subplots(2, 3, figsize=(10, 5))
+        arrs = [H1, H2, H1 - H2]
+        titles = ["H1", "H2", "(H1 - H2)"]
+        ims = []
+        for i, (arr, title) in enumerate(zip(arrs, titles)):
+            im0 = axs2[0, i].imshow(np.real(arr), cmap='Spectral')
+            axs2[0, i].set_title(f"{title} Real Part")
+            im00 = axs2[1, i].imshow(np.imag(arr), cmap='Spectral')
+            axs2[1, i].set_title(f"{title} Imaginary Part")
+            ims.append(im0)
+            ims.append(im00)
+            for ax in axs2[:, i]:
+                ax.set_xticks([])
+                ax.set_yticks([])
+        
+        for im, ax in zip(ims, axs2.flatten()):
+            cbar = fig2.colorbar(im, ax=ax, orientation='vertical')
+            cbar.set_label("Value", rotation=270, labelpad=15)
+            im.set_clim(-1, 1)
+
+        plt.tight_layout()
         plt.show()
 
     if plotEigvals:
@@ -904,15 +944,29 @@ def main2():
                 ax.grid(which='major', color='black', linestyle='--', linewidth=1.0)
         plt.show()
 
-if __name__ == "__main__":
-    import time
-    t0 = time.time()
-    Lattice = DefectSquareLattice(18, "interstitial")
+def generate_lcm_figures(defect_types: list = ["none", "vacancy", "substitution", "interstitial", "frenkel_pair"], base_side_length: int = 24, directory:str = "./Defects/temp/LDOS/"):
+    for defect_type in defect_types:
+        side_length = base_side_length
+        if defect_type != "interstitial":
+            side_length = base_side_length + 1
 
-    #Lattice.LargeDefectLattice.animate_spectrum_ldos()
-    #for mb in [1.0, -1.0]:
-    #    for ms in [2.5, 1.0, -1.0, -2.5]:
-    #        H = Lattice.LargeDefectLattice.compute_hamiltonian(mb, ms)
-    Lattice.plot_spectrum_ldos(m_background_values=[1.0, -1.0], m_substitution_values=[2.5, 1.0, -1.0, -2.5], doLargeDefectFigure=False)
-    plt.savefig("temp.png")
-    print(f"Time taken: {time.time() - t0:.2f} seconds")
+        for dLDF in [True, False]:
+            if defect_type == "none" and dLDF:
+                continue
+            if defect_type == "vacancy" and not dLDF:
+                continue
+            Lattice = DefectSquareLattice(side_length, defect_type, pbc=True)
+            Lattice.plot_lcm(doLargeDefectFigure=dLDF)
+
+            if defect_type == "none":
+                title = "SL"
+            else:
+                title = defect_type
+            if dLDF and defect_type != "vacancy":
+                plt.savefig(directory + f"large_{title}_LCM.png")
+            else:
+                plt.savefig(directory + f"{title}_LCM.png")
+
+
+if __name__ == "__main__":
+    pass
