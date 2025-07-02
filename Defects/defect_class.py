@@ -3,11 +3,11 @@ from matplotlib import pyplot as plt
 from itertools import product
 import matplotlib.ticker as ticker
 import scipy.linalg as spla
-from matplotlib.widgets import Slider
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import inspect
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm, tqdm_joblib
-
+from mpl_toolkits.mplot3d import Axes3D
 
 
 class DefectSquareLattice:
@@ -351,10 +351,6 @@ class DefectSquareLattice:
         gap = abs(np.max(eigenvalues[lower_idxs]) - np.min(eigenvalues[upper_idxs]))
         bandwidth = np.max(eigenvalues) - np.min(eigenvalues)
 
-        LDOS -= np.min(LDOS)
-        if np.max(LDOS) > 0:
-            LDOS /= np.max(LDOS)
-
         data_dict = {
             "LDOS": LDOS,
             "eigenvalues": eigenvalues,
@@ -412,10 +408,40 @@ class DefectSquareLattice:
             X, Y = self.X, self.Y
         return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
 
+    def _compute_for_figure_disorder(self, m_background:float, m_substitution:float, number_of_states:float, disorder_strength:float, n_iterations:int = 10):
+        hamiltonian = self.compute_hamiltonian(m_background, m_substitution)
+
+        def _worker(hamiltonian, i):
+            # Make a copy to avoid modifying the shared array in parallel jobs
+            hamiltonian_local = hamiltonian.copy()
+            disorder = np.random.uniform(-disorder_strength / 2, disorder_strength / 2, size=hamiltonian_local.shape[0])
+            disorder -= np.mean(disorder)
+            hamiltonian_local += np.diag(disorder)
+
+            projector = self.compute_projector(hamiltonian_local)
+            bott_index = self.compute_bott_index(projector)
+            ldos_dict = self.compute_LDOS(hamiltonian_local, number_of_states)
+            LDOS, eigenvalues, gap, bandwidth, ldos_idxs = ldos_dict["LDOS"], ldos_dict["eigenvalues"], ldos_dict["gap"], ldos_dict["bandwidth"], ldos_dict["ldos_idxs"]
+            X, Y = self.X, self.Y
+            return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
+    
+        with tqdm_joblib(tqdm(total=n_iterations, desc=f"{self.defect_type} : m_back={m_background}  : m_sub={m_substitution}")) as progress_bar:
+            data = Parallel(n_jobs=-1)(delayed(_worker)(hamiltonian, i) for i in range(n_iterations))
+        
+        all_LDOS, all_eigenvalues, all_gap, all_bott_index, all_X, all_Y, all_ldos_idxs = zip(*data)
+        LDOS = np.mean(all_LDOS, axis=0)
+        eigenvalues = np.mean(all_eigenvalues, axis=0)
+        gap = np.mean(all_gap)
+        bott_index = np.mean(all_bott_index)
+        X = all_X[0]
+        Y = all_Y[0]
+        return LDOS, eigenvalues, gap, bott_index, X, Y, all_ldos_idxs[0]
+
+
     # endregion
 
     # region Plotting
-    def plot_spectrum_ldos(self, m_background_values:"list[float]" = [2.5, 1.0, -1.0, -2.5], 
+    def OLD_plot_spectrum_ldos(self, m_background_values:"list[float]" = [2.5, 1.0, -1.0, -2.5], 
                              m_substitution_values:"list[float] | None" = None, doLargeDefectFigure:bool = False, number_of_states:int = 2): 
         def plot_ldos_ax(ldos_ax:plt.Axes, LDOS, X, Y):
             # Dynamically set marker size based on number of points and axes size
@@ -684,9 +710,201 @@ class DefectSquareLattice:
 
         return fig, axs
 
-    def plot_bott_phase_diagram(self):
-        pass
+    def plot_spectrum_ldos(self, doLargeDefectFigure:bool = False, doDisorder:bool = False, n_iterations:int = 10):
+        def plot_spectrum_ax(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_label:str, ldos_idxs:np.ndarray):
+            x_values = np.arange(len(eigenvalues))
+            idxs_mask = np.isin(x_values, ldos_idxs)
+            spectrum_ax.scatter(x_values[~idxs_mask], eigenvalues[~idxs_mask], s=25, color = 'black', zorder = 0)
+            spectrum_ax.scatter(x_values[ idxs_mask], eigenvalues[ idxs_mask], s=25, color = 'red',   zorder = 1)
+            spectrum_ax.set_xticks([])
+            spectrum_ax.set_xlabel(r"$n$", fontsize=20)
+            spectrum_ax.set_ylabel(r"$E_n$", fontsize=20)
+            spectrum_ax.tick_params(axis='y', labelsize=20)
+            spectrum_ax.annotate(
+                scatter_label,
+                xy=(0.95, 0.025),
+                xycoords='axes fraction',
+                ha='right',
+                va='bottom',
+                fontsize=16,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.0)
+            )
+
+        def plot_ldos_ax(ax:plt.Axes, LDOS, X, Y, doScatter:bool = False):
+            if doScatter:
+                if self.side_length <= 15:
+                    dot_size = 25
+                elif self.side_length <= 20:
+                    dot_size = 10
+                else:
+                    dot_size = 5
+
+                scat = ax.scatter(X, Y, c=LDOS, s=dot_size, cmap='jet')
+                ax.set_xticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+                ax.set_yticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+                ax.set_xticklabels([str(int(np.min(X) + 1)), "$L_x$", str(int(np.max(X) + 1))], fontsize=14)
+                ax.set_yticklabels([str(int(np.min(X) + 1)), "$L_y$", str(int(np.max(X) + 1))], fontsize=14)
+                ax.set_aspect('equal')
+            else:
+                # Do 3d plot
+                box = ax.get_position()
+                surf_ax = fig.add_axes([box.x0, box.y0 + box.height * 0.5, box.width * 0.5, box.height * 0.5], projection='3d')
+                surf = surf_ax.plot_trisurf(X, Y, LDOS, cmap='inferno', linewidth=0.2, antialiased=False)
+                surf_ax.set_xticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+                surf_ax.set_yticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+                surf_ax.set_xticklabels([str(int(np.min(X) + 1)), "$L_x$", str(int(np.max(X) + 1))], fontsize=14)
+                surf_ax.set_yticklabels([str(int(np.min(X) + 1)), "$L_y$", str(int(np.max(X) + 1))], fontsize=14)
+                surf.set_clim(vmin=0)
+
+                surf_ax.set_zticklabels([])
+                surf_ax.set_zlabel("")
+                surf_ax.set_facecolor((1, 1, 1, 0))
+                surf_ax.grid(False)
+                # Remove the color of the pane (make it fully transparent)
+                #surf_ax.xaxis.set_pane_color((1, 1, 1, 0))
+                #surf_ax.yaxis.set_pane_color((1, 1, 1, 0))
+                #surf_ax.zaxis.set_pane_color((1, 1, 1, 0))
+
+                cax = inset_axes(
+                    surf_ax, 
+                    width="7.5%",  # width as a percentage of parent
+                    height="100%",  # height as a percentage of parent
+                    bbox_to_anchor=(0.1, 0.425, 1, 0.4),  # (x0, y0, width, height) in axes fraction
+                    bbox_transform=surf_ax.transAxes,
+                    borderpad = 0.0
+                )
+                cbar = fig.colorbar(surf_ax.collections[0], cax=cax)
+                formatter = ticker.ScalarFormatter(useMathText = True)
+                formatter.set_powerlimits((0,  0))
+                formatter.set_scientific(True)
+                formatter.format = "%.1f"
+                cbar.formatter = formatter
+                cbar.update_ticks()
+
+                cbar.ax.yaxis.offsetText.set_position((5., 1.0))
+                cbar.ax.yaxis.offsetText.set_fontsize(14)
+                cbar.ax.tick_params(labelsize=14)
+
+            return surf_ax
+        
+        m_background_values = [2.5, 1.0, -1.0, -2.5]
+        m_substitution_values = [2.5, 1.0, -1.0, -2.5]
+
+        if self.defect_type in ["none", "vacancy"]:
+            m_substitution_values = [None] if doLargeDefectFigure is False else [None] * 2
+            n_cols, n_rows = len(m_background_values), len(m_substitution_values)
+        else:
+            n_cols, n_rows = len(m_background_values), len(m_substitution_values) - 1
+
+        scale = 6
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(scale * n_cols, scale * n_rows))
+        plt.subplots_adjust(wspace = 0.4)
+
+        if self.defect_type not in ["none", "vacancy"]:
+            plt.subplots_adjust(top=0.9)
+            set_labels = [f"({lab})" for lab in "abcdefghijklmnopqrstuvwxyz"[:len(m_background_values)]]
+            for i, m_background in enumerate(m_background_values):
+                label_xpos = axs[0, i].get_position().x0 + axs[0, i].get_position().width / 2
+                label_ypos = axs[0, i].get_position().y1 + 0.045
+                if n_rows == 1:
+                    fig.text(label_xpos, label_ypos, set_labels[i], fontsize=36, ha='center')
+                else:
+                    fig.text(label_xpos, label_ypos, set_labels[i], fontsize=36, ha='center')
+
+        if n_rows == 1:
+            axs = np.array([axs])
+
+        for j, m_background in enumerate(m_background_values):
+            good_m_sub_vals = np.array(m_substitution_values)[np.array(m_substitution_values) != m_background]
+            for i, m_substitution in enumerate(good_m_sub_vals):
+                if doDisorder:
+                    None_Lattice = DefectSquareLattice(self.side_length, "none", pbc=self.pbc)
+                    _, _, gap_none, _, _, _, _ = None_Lattice._compute_for_figure(m_background, m_substitution, 2)
+                    disorder_strength = gap_none * 0.25
+    
+
+                if i == 1 and doLargeDefectFigure and self.defect_type in ["vacancy"]:
+                    if doDisorder:
+                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
+                elif doLargeDefectFigure and self.defect_type not in ["vacancy"]:
+                    if doDisorder:
+                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
+                else:
+                    if doDisorder:
+                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, 2)
+                
+                if doDisorder:
+                    LDOS = d_LDOS
+                    eigenvalues = d_eigenvalues
+                    bott_index = d_bott_index
+                    X = d_X
+                    Y = d_Y
+                    ldos_idxs = d_ldos_idxs
+                    undisordered_gap = gap
+                    disordered_gap = d_gap
+
+                ax = axs[i, j]
+
+                if self.defect_type in ["none", "vacancy"]:
+                    param_name = f"$m_0={m_background}$"
+                elif self.defect_type in ["substitution"]:
+                    param_name = f"$m_0^{{\\text{{sub}}}}={m_substitution}$"
+                else:
+                    param_name = f"$m_0^{{\\text{{int}}}}={m_substitution}$"
+
+                if doDisorder:
+                    gap_label = f"Gap = {disordered_gap:.2f}"
+                    w_label = f"\n$W = {disorder_strength:.2f}$"
+                    perc_label = f"\nGap$\\Delta={(disordered_gap - undisordered_gap) / undisordered_gap * 100:.2f}\\%$"
+                    label = gap_label + "\n" + param_name + f"\n$BI = {bott_index}$" + w_label + perc_label
+                else:
+                    label = f"Gap = {gap:.2f}" + "\n" + param_name + f"\n$BI = {bott_index}$"
+
+                plot_spectrum_ax(ax, eigenvalues, label, ldos_idxs)
+
+                #inset_ax = inset_axes(
+                #    ax,
+                #    width="100%",  # width as a percentage of parent
+                #    height="100%",  # height as a percentage of parent
+                #    bbox_to_anchor=(0.1, 0.60, 0.375, 0.375),  # (x0, y0, width, height) in axes fraction
+                #    bbox_transform=ax.transAxes,
+                #    loc='upper left',
+                #    borderpad=0
+                #)
+                #cax = inset_axes(
+                #    inset_ax, 
+                #    width="5%",  # width as a percentage of parent
+                #    height="100%",  # height as a percentage of parent
+                #    bbox_to_anchor=(0.1, 0.3, 1, 0.6),  # (x0, y0, width, height) in axes fraction
+                #    bbox_transform=inset_ax.transAxes,
+                #    borderpad = 0.0
+                #)
+
+                surf_ax = plot_ldos_ax(ax, LDOS, X, Y)
+                #cbar = fig.colorbar(inset_ax.collections[0], cax=cax)
+                #formatter = ticker.ScalarFormatter(useMathText = True)
+                #formatter.set_powerlimits((0,  0))
+                #formatter.set_scientific(True)
+                #formatter.format = "%.1f"
+                #cbar.formatter = formatter
+                #cbar.update_ticks()
+
+                #cbar.ax.yaxis.offsetText.set_position((10., 1.05))
+                #cbar.ax.yaxis.offsetText.set_fontsize(14)
+                #cbar.ax.tick_params(labelsize=14)
+                
+                #inset_ax.set_facecolor((1, 1, 1, 0.8))
+                #inset_ax.set_zorder(10)
+
+        return fig, axs
+
     # endregion
+
+
+
 
     # region Parallel Computation
 
@@ -730,20 +948,30 @@ class DefectSquareLattice:
         else:
             ax.scatter(mb_vals, b_vals, s=25, color='black')
         
-        ax.set_xlabel(r"$m_0^{\text{back}}$", fontsize=18)
-        ax.set_ylabel("Bott Index", fontsize=18)
+        ax.set_xlabel(r"$m_0$", fontsize=20)
+        ax.set_ylabel("Bott Index", fontsize=20)
         ax.set_yticks([-1, 0, 1])
-        ax.set_xticks([-4, -2, 0, 2, 4])
+        xticks = [-4, -2, 0, 2, 4]
+        ax.set_xticks(xticks)
+
+        phase_labels = ["Trivial", "$\\Gamma$ Phase", "$M$ Phase", "Trivial"]
+        cmap = plt.get_cmap("viridis")
+        colors = ['white', cmap(0.5), cmap(0.0), 'white']
+
+        for i in range(len(xticks) - 1):
+            #ax.axvspan(xticks[i], xticks[i+1], color=colors[i], alpha=0.15)
+            ax.text((xticks[i] + xticks[i+1]) / 2, 0.8, phase_labels[i], fontsize=20, ha='center', va='center', color='black')
+
+        ax.tick_params(axis='both', labelsize=18)
         for tick in [-4, -2, 0, 2, 4]:
-            ax.axvline(tick, color='gray', linestyle='--', linewidth=0.5, alpha=0.5)
-        
-        ax.legend()
-        plt.show()
-            
+            ax.axvline(tick, color='black', linestyle='--', linewidth=0.5, alpha=0.5)
+
+        return fig, ax
     # endregion
 
 
-def generate_ldos_figures(defect_types: list = ["none", "vacancy", "substitution", "interstitial", "frenkel_pair"], base_side_length: int = 24, directory:str = "./Defects/temp/LDOS/"):
+def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "substitution", "interstitial", "frenkel_pair"], base_side_length: int = 24, 
+                     directory:str = "./Defects/Plots/LDOS/", doDisorder:bool = False, n_iterations:int = 10):
     for defect_type in defect_types:
         side_length = base_side_length
         if defect_type != "interstitial":
@@ -754,19 +982,31 @@ def generate_ldos_figures(defect_types: list = ["none", "vacancy", "substitution
                 continue
             if defect_type == "vacancy" and not dLDF:
                 continue
+            if defect_type == "frenkel_pair" and dLDF:
+                continue
             Lattice = DefectSquareLattice(side_length, defect_type)
 
-            Lattice.plot_spectrum_ldos(doLargeDefectFigure=dLDF, number_of_states=2)
-
+            if lcm_or_ldos == "lcm":
+                Lattice.plot_lcm(doLargeDefectFigure=dLDF)
+            elif lcm_or_ldos == "ldos":
+                Lattice.plot_spectrum_ldos(dLDF, doDisorder, n_iterations)
+            else:
+                raise ValueError("lcm_or_ldos must be 'lcm' or 'ldos'")
+            
             if defect_type == "none":
                 title = "SL"
             else:
                 title = defect_type
             
+            if doDisorder:
+                title += "_disorder"
+
             if dLDF and defect_type != "vacancy":
-                plt.savefig(directory + f"large_{title}_LDOS.png")
+                plt.savefig(directory + f"large_{title}_" + lcm_or_ldos.upper() + ".png")
             else:
-                plt.savefig(directory + f"{title}_LDOS.png")
+                plt.savefig(directory + f"{title}_" + lcm_or_ldos.upper() + ".png")
+
+            print(f"Saved figure for {defect_type} with dLDF={dLDF} in {directory + f'{title}_{lcm_or_ldos.upper()}.png'}")
 
 def probe_lattice_instance(defect_type:str = "interstitial", base_side_length:int = 16):
     side_length = base_side_length if defect_type == "interstitial" else base_side_length + 1
@@ -944,29 +1184,12 @@ def probe_lattice_instance(defect_type:str = "interstitial", base_side_length:in
                 ax.grid(which='major', color='black', linestyle='--', linewidth=1.0)
         plt.show()
 
-def generate_lcm_figures(defect_types: list = ["none", "vacancy", "substitution", "interstitial", "frenkel_pair"], base_side_length: int = 24, directory:str = "./Defects/temp/LDOS/"):
-    for defect_type in defect_types:
-        side_length = base_side_length
-        if defect_type != "interstitial":
-            side_length = base_side_length + 1
 
-        for dLDF in [True, False]:
-            if defect_type == "none" and dLDF:
-                continue
-            if defect_type == "vacancy" and not dLDF:
-                continue
-            Lattice = DefectSquareLattice(side_length, defect_type, pbc=True)
-            Lattice.plot_lcm(doLargeDefectFigure=dLDF)
-
-            if defect_type == "none":
-                title = "SL"
-            else:
-                title = defect_type
-            if dLDF and defect_type != "vacancy":
-                plt.savefig(directory + f"large_{title}_LCM.png")
-            else:
-                plt.savefig(directory + f"{title}_LCM.png")
 
 
 if __name__ == "__main__":
-    pass
+    generate_figures("ldos", defect_types=["substitution", "interstitial"], base_side_length=24, directory="./", doDisorder=True, n_iterations = 25)
+    #plt.show()
+    #Lattice = DefectSquareLattice(15, "vacancy", pbc=True)
+    #Lattice.plot_disorder(doLargeDefectFigure=True)
+    #plt.savefig('temp.png')
