@@ -13,12 +13,13 @@ from scipy.ndimage import gaussian_filter
 
 
 class DefectSquareLattice:
-    def __init__(self, side_length:int, defect_type:str, pbc:bool = True, frenkel_pair_index:int = 0, doLargeDefect:bool = False, *args, **kwargs):
+    def __init__(self, side_length:int, defect_type:str, pbc:bool = True, frenkel_pair_index:int = 0, doLargeDefect:bool = False, schottky_distance:int = 1, *args, **kwargs):
         self._pbc = pbc
         self._side_length = side_length
         self._defect_type = defect_type
         self._doLargeDefect = doLargeDefect
         self._frenkel_pair_index = frenkel_pair_index
+        self._schottky_distance = schottky_distance
 
         pauli1 = np.array([[0, 1], [1, 0]], dtype=complex)
         pauli2 = np.array([[0, -1j], [1j, 0]], dtype=complex)
@@ -27,8 +28,10 @@ class DefectSquareLattice:
 
         self._pristine_lattice = self.generate_lattice() 
         if self.defect_type == "interstitial" and self.side_length % 2 == 1:
-            raise ValueError("Side length must be even for interstitial defects.")
-        elif self.side_length % 2 == 0:
+            raise ValueError("Side length must be even for interstitial defect.")
+        elif self.defect_type == "schottky" and (self.side_length + self._schottky_distance) % 2 != 1:
+            raise ValueError("Side length + schottky distance must be odd for schottky defect.")
+        elif self.defect_type not in ["interstitial", "schottky"] and self.side_length % 2 == 0:
             raise ValueError("Side length must be odd for non-interstitial defects.")
         
         match self.defect_type:
@@ -65,6 +68,9 @@ class DefectSquareLattice:
                 if frenkel_pair_index not in range(8):
                     raise ValueError(f"Frenkel pair index must be between 0 and 7, got {frenkel_pair_index}.")
                 self._lattice, self._defect_indices = self.compute_frenkel_pair_lattice(frenkel_pair_index)
+            case "schottky":
+                self._lattice, self._defect_indices = self.generate_schottky_lattice()
+
             case _:
                 raise ValueError(f"Unknown defect type: {defect_type}")
 
@@ -218,6 +224,13 @@ class DefectSquareLattice:
         new_y, new_x = np.where(new_lattice >= 0)[:]
         defect_index = np.argwhere(new_x%2).flatten()[0]
         return new_lattice, [defect_index]
+
+    def generate_schottky_lattice(self):
+        lattice = self._pristine_lattice.copy()
+        up_parity_idx = lattice[self.side_length // 2 + self._schottky_distance // 2, self.side_length // 2 + self._schottky_distance // 2]
+        down_parity_idx = lattice[self.side_length // 2 - self._schottky_distance // 2, self.side_length // 2 - self._schottky_distance // 2]
+        return lattice, [up_parity_idx, down_parity_idx]
+
 
     def compute_distances(self, *args, **kwargs):
         dx = self.X - self.X[:, None]
@@ -1214,5 +1227,5 @@ if __name__ == "__main__":
     #Lattice.plot_disorder(doLargeDefectFigure=True)
     #plt.savefig('temp.png')
 
-    Lattice = DefectSquareLattice(15, "substitution")
-    Lattice.compare_interpolation(doGaussianBlur=True, doInterpolation=False)
+    Lattice = DefectSquareLattice(18, "schottky", schottky_distance=7)
+    Lattice.plot_defect_idxs()
