@@ -277,9 +277,116 @@ def probe_point():
     plt.show()
 
 
+    def OLD_plot_spectrum_ldos(self, m_background_values:"list[float]" = [2.5, 1.0, -1.0, -2.5], 
+                             m_substitution_values:"list[float] | None" = None, doLargeDefectFigure:bool = False, number_of_states:int = 2): 
+        def plot_ldos_ax(ldos_ax:plt.Axes, LDOS, X, Y):
+            # Dynamically set marker size based on number of points and axes size
+            bbox = ldos_ax.get_window_extent().transformed(ldos_ax.figure.dpi_scale_trans.inverted())
+            width, height = bbox.width * ldos_ax.figure.dpi, bbox.height * ldos_ax.figure.dpi
+            area = width * height
+            N = len(X)
+            # Heuristic: marker area is a fraction of axes area divided by number of points
+            marker_area = max(area / (N * 10), 0)
+            scat = ldos_ax.scatter(X, Y, c=LDOS, s=marker_area, cmap='jet')
+            ldos_ax.set_xticks([np.min(X), (np.max(X) + np.min(X)) / 2, np.max(X)])
+            ldos_ax.set_yticks([np.min(X), (np.max(X) + np.min(X)) / 2, np.max(X)])
+            tick_labels = [np.min(X) + 1, (np.max(X) + np.min(X)) // 2 + 1, np.max(X) + 1]
+            ldos_ax.set_xticklabels([str(int(label)) for label in tick_labels], fontsize=20)
+            ldos_ax.set_yticklabels([str(int(label)) for label in tick_labels], fontsize=20)
+            ldos_ax.set_xlabel(r"$x$", fontsize=20)
+            ldos_ax.set_ylabel(r"$y$", fontsize=20)
+            ldos_ax.set_aspect('equal')
+            return ldos_ax
+        
+        def plot_spectrum_ax(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_label:str, ldos_idxs:np.ndarray):
+            x_values = np.arange(len(eigenvalues))
+            idxs_mask = np.isin(x_values, ldos_idxs)
+            spectrum_ax.scatter(x_values[~idxs_mask], eigenvalues[~idxs_mask], s=25, color = 'black', zorder = 0)
+            spectrum_ax.scatter(x_values[ idxs_mask], eigenvalues[ idxs_mask], s=25, color = 'red',   zorder = 1)
+            spectrum_ax.set_xticks([])
+            spectrum_ax.set_xlabel(r"$n$", fontsize=20)
+            spectrum_ax.set_ylabel(r"$E_n$", fontsize=20)
+            spectrum_ax.tick_params(axis='y', labelsize=20)
+            spectrum_ax.annotate(
+                scatter_label,
+                xy=(0.05, 0.95),
+                xycoords='axes fraction',
+                ha='left',
+                va='top',
+                fontsize=16,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.0)
+            )
 
+        if m_substitution_values is None:
+            m_substitution_values = np.array(m_background_values).copy()
 
+        # Get shape of the figure based on the defect type
+        if self.defect_type in ["none", "vacancy"]:
+            m_substitution_values = [None] if doLargeDefectFigure is False else [None] * 2
+            n_cols, n_rows = 2 * len(m_background_values), len(m_substitution_values)
+        else:
+            n_cols, n_rows = 2 * len(m_background_values), len(m_substitution_values) - 1
 
+        fig, axs = plt.subplots(n_rows, n_cols, figsize=(4*n_cols, 4*n_rows))
+
+        if n_rows == 1:
+            axs = np.array([axs])
+
+        for i, m_background in enumerate(m_background_values):
+            spectrum_axs = axs[:, 0 + 2 * i].flatten()
+            ldos_axs = axs[:, 1 + 2 * i].flatten()
+            
+            good_m_sub_vals = np.array(m_substitution_values)[np.array(m_substitution_values) != m_background]
+
+            for j, (spectrum_ax, ldos_ax, m_substitution) in enumerate(zip(spectrum_axs, ldos_axs, good_m_sub_vals)):
+                if m_substitution == m_background:
+                    continue
+                
+                if j == 1 and doLargeDefectFigure and self.defect_type in ["none", "vacancy"]:
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, number_of_states)
+                elif doLargeDefectFigure and self.defect_type not in ["none", "vacancy"]:
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, number_of_states)
+                else:
+                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, number_of_states)
+                
+                LDOS -= np.min(LDOS)
+                if np.max(LDOS) > 0:
+                    LDOS /= np.max(LDOS)
+                
+                plot_ldos_ax(ldos_ax, LDOS, X, Y)
+                if self.defect_type in ["none", "vacancy"]:
+                    param_name = r"$m_0=$"+f"{m_background}"
+                elif self.defect_type in ["substitution"]:
+                    param_name = f"$m_0^{{\\text{{sub}}}}=$"+f"{m_substitution}"
+                else:
+                    param_name = f"$m_0^{{\\text{{int}}}}=$"+f"{m_substitution}"
+
+                plot_spectrum_ax(spectrum_ax, eigenvalues, f"Gap = {gap:.2f}\nBott Index = {bott_index}\n"+param_name, ldos_idxs)
+
+                if False:
+                    if self.defect_type not in ["none", "vacancy"]:
+                        spectrum_ax.annotate(f"$m_0^{{sub}}$ = {m_substitution}", xy=(-0.25, 0.5), xycoords='axes fraction', ha='center', fontsize=12, rotation=90, va='center')
+                    else:
+                        spectrum_ax.annotate(f"$m_0^{{back}}$ = {m_background}", xy=(-0.25, 0.5), xycoords='axes fraction', ha='center', fontsize=12, rotation=90, va='center')
+
+                cbar = fig.colorbar(ldos_ax.collections[0], ax=ldos_ax, orientation='vertical', fraction=0.046, pad=0.04)
+                cbar.ax.yaxis.set_ticks([0.0, 1.0])
+                cbar.ax.tick_params(labelsize=20)
+                cbar.ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%1.f'))
+
+        
+        if n_rows == 1:
+            plt.subplots_adjust(top=0.8)
+        else:
+            plt.subplots_adjust(top=0.9)
+        set_labels = [f"({lab})" for lab in "abcdefghijklmnopqrstuvwxyz"[:len(m_background_values)]]
+        for i, m_background in enumerate(m_background_values):
+            if n_rows == 1:
+                fig.text((2*i+1)/(2 * len(m_background_values)), 0.85, set_labels[i], fontsize=36, ha='center')
+            else:
+                fig.text((2*i+1)/(2 * len(m_background_values)), 0.95, set_labels[i], fontsize=36, ha='center')
+        plt.tight_layout()
+        return fig, axs
 
 
 
