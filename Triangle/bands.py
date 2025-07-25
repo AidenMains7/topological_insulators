@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def plot_bands():
     # Define parameters
-    M = 8.0
+    M = 2.0
     A_tilde = 1.0
     B = 1.0
     B_tilde = 0.0
@@ -26,6 +26,14 @@ def plot_bands():
         return d
 
 
+    def square_d_vector(kx, ky, M):
+        t, t0 = 1.0, 1.0
+        d1 = t * np.sin(kx)
+        d2 = t * np.sin(ky)
+        d3 = M + t0 * (np.cos(kx) + np.cos(ky))
+        return np.array([d1, d2, d3])
+
+
     # Define high symmetry points
     point_pos_dict = {
         "G": np.array([0, 0]),
@@ -44,10 +52,32 @@ def plot_bands():
         "Mp": r"$M_{+1}$",
     }
 
+
+    
+    square_point_pos_dict = {
+        "G": np.array([0, 0]),
+        "M": np.array([np.pi, np.pi]),
+        "X": np.array([np.pi, 0]),
+        "Y": np.array([0, np.pi]),
+    }
+    square_point_label_dict = {
+        "G": r"$\Gamma$",
+        "M": r"$M$",
+        "X": r"$X$",
+        "Y": r"$Y$",
+    }
+
+
+
     # Path through the BZ
     path_keys = ["Kp", "G", "M0", "Kp"]
     path = [point_pos_dict[key] for key in path_keys]
     labels = [point_label_dict[key] for key in path_keys]
+
+    path_keys = ["G", "X", "M", "Y", "G"]
+    path = [square_point_pos_dict[key] for key in path_keys]
+    labels = [square_point_label_dict[key] for key in path_keys]
+
     k_vals = []
     energies = []
     colors = []
@@ -57,11 +87,16 @@ def plot_bands():
     pauli2 = np.array([[0, -1j], [1j, 0]], dtype=complex)
     pauli3 = np.array([[1, 0], [0, -1]], dtype=complex)
 
+    doTri = False
+
     for i in range(len(path)-1):
         start, end = path[i], path[i+1]
         for alpha in np.linspace(0, 1, N):
             kx, ky = start + alpha * (end - start)
-            d = triangular_d_vector(kx, ky, M, B_tilde, B, t1, A_tilde)
+            if doTri:
+                d = triangular_d_vector(kx, ky, M, B_tilde, B, t1, A_tilde)
+            else:
+                d = square_d_vector(kx, ky, M)
             H = np.kron(d[0], pauli1) + np.kron(d[1], pauli2) + np.kron(d[2], pauli3)
             eigenvalues, eigenvectors = np.linalg.eig(H)
             alpha1, beta1 = eigenvectors[0].real
@@ -91,7 +126,11 @@ def plot_bands():
     ax.set_ylabel("Energy")
     ax.set_xlabel("Location in BZ")
     pathlabel = " → ".join(labels)
-    ax.set_title(f"Energy Bands on {pathlabel} : (M={M}, " + r"$\tilde{B}$" + f"={B_tilde}, " + r"$\tilde{A}$" + f"={A_tilde})")
+
+    if doTri:
+        ax.set_title(f"Energy Bands on {pathlabel} : (M={M}, " + r"$\tilde{B}$" + f"={B_tilde}, " + r"$\tilde{A}$" + f"={A_tilde})")
+    else:
+        ax.set_title(f"Energy Bands on {pathlabel} : (M={M})")
     ax.grid(True)
     plt.tight_layout()
     plt.show()

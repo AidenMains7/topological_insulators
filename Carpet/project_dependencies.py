@@ -724,6 +724,10 @@ def main():
     print(H.shape)
 
 if __name__ == "__main__":
-    np.set_printoptions(threshold=np.inf)
-    main()
+    pd, lat = precompute("square", 3, 0, True, None)
+    I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy = wannier_symmetry(lat, True, n=1)
 
+    y, x = np.where(lat >= 0)
+    plt.scatter(x, y, c=Cx_plus_Cy[101].real)
+    plt.colorbar()
+    plt.show()
