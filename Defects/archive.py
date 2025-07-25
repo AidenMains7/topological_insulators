@@ -390,3 +390,234 @@ def probe_point():
 
 
 
+def probe_lattice_instance(defect_type:str = "interstitial", base_side_length:int = 16):
+    side_length = base_side_length if defect_type == "interstitial" else base_side_length + 1
+    Lattice = DefectSquareLattice(side_length, defect_type, pbc=True)
+
+    plotHamiltonians = 0
+    plotEigvals = 0
+    plotEigvecs = 0
+    plotCoupling = 0
+    plotEigvalRange = 1
+
+    if plotEigvecs:
+        eigvecs1 = spla.eigh(H1, overwrite_a=True)[1]
+        eigvecs2 = spla.eigh(H2, overwrite_a=True)[1]
+        fig, axs = plt.subplots(1, 2, figsize=(10, 5))
+        X, Y = Lattice.X, Lattice.Y
+        axs[0].scatter(X, Y, c=np.real(eigvecs1[:, eigvecs1.shape[0] // 2])[0::2], cmap='inferno', s=50)
+        axs[1].scatter(X, Y, c=np.real(eigvecs2[:, eigvecs2.shape[0] // 2])[1::2], cmap='inferno', s=50)
+
+        axs[0].set_aspect('equal')
+        axs[1].set_aspect('equal')
+        plt.show()
+
+    if plotHamiltonians:
+        fig, axs = plt.subplots(2, 2, figsize=(10, 5))
+        axs[0, 0].imshow(np.real(H1), cmap='Spectral')
+        axs[0, 0].set_title("H1 Real Part")
+        axs[0, 1].imshow(np.imag(H1), cmap='Spectral')
+        axs[0, 1].set_title("H1 Imaginary Part")
+
+        axs[1, 0].imshow(np.real(H2), cmap='Spectral')
+        axs[1, 0].set_title("H2 Real Part")
+        axs[1, 1].imshow(np.imag(H2), cmap='Spectral')
+        axs[1, 1].set_title("H2 Imaginary Part")
+
+        for ax in axs.flat:
+            ax.label_outer()
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for index in Lattice.defect_indices:
+                ax.hlines(y=index-0.5, xmin=0, xmax=H1.shape[0], color='black', linestyle='--', linewidth=1.0)
+                ax.hlines(y=index+0.5, xmin=0, xmax=H1.shape[0], color='black', linestyle='--', linewidth=1.0)
+        plt.tight_layout()
+        plt.show()
+
+    if plotEigvalRange:
+        m_back = 1.0
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        m_sub_values = np.linspace(-4.0, 4.0, 25)
+        for i, m_sub in enumerate(m_sub_values):
+            H1, osm1 = Lattice.compute_hamiltonian(m_back, m_sub)
+            H2, osm2 = Lattice.compute_hamiltonian(-m_back, -m_sub)
+            eigvals1, _ = spla.eigh(H1, overwrite_a=True)
+            eigvals2, _ = spla.eigh(H2, overwrite_a=True)
+            # Only get the center fifth of eigenvalues
+            center = eigvals1.size // 2
+            number = 10
+            eigvals1 = eigvals1[center - number : center + number]
+            eigvals2 = eigvals2[center - number : center + number]
+            # Stack eigenvalues as rows for imshow
+            if i == 0:
+                eigval_matrix1 = eigvals1[np.newaxis, :]
+                eigval_matrix2 = eigvals2[np.newaxis, :]
+            else:
+                eigval_matrix1 = np.vstack([eigval_matrix1, eigvals1[np.newaxis, :]])
+                eigval_matrix2 = np.vstack([eigval_matrix2, eigvals2[np.newaxis, :]])
+
+            if i == 0:
+                osm_matrix1 = osm1[np.newaxis, :]
+                osm_matrix2 = osm2[np.newaxis, :]
+            else:
+                osm_matrix1 = np.vstack([osm_matrix1, osm1[np.newaxis, :]])
+                osm_matrix2 = np.vstack([osm_matrix2, osm2[np.newaxis, :]])
+        # Show the eigenvalue matrix as an image: each row is the spectrum for a given m_sub
+        im1 = axs[0].imshow(eigval_matrix1, aspect='auto', cmap='viridis', origin='lower',
+                           extent=[0, eigval_matrix1.shape[1], -2.5, 2.5])
+        im2 = axs[1].imshow(eigval_matrix2, aspect='auto', cmap='viridis', origin='lower',
+                           extent=[0, eigval_matrix2.shape[1], -2.5, 2.5])
+        im3 = axs[2].imshow(eigval_matrix1 - eigval_matrix2, aspect='auto', cmap='viridis', origin='lower',
+                           extent=[0, eigval_matrix1.shape[1], -2.5, 2.5])
+
+        for ax in axs.flatten()[[0, 1, 2]]:
+            ax.set_xlabel('Eigenvalue Index')
+            ax.set_ylabel('m_sub Value Index')
+        axs[0].set_title(f'Eigenvalues vs m_sub $(m_{{back}}={m_back})$\n(each row is spectrum)')
+        axs[1].set_title(f'Eigenvalues vs -m_sub $(m_{{back}}={m_back})$\n(each row is spectrum)')
+        axs[2].set_title('Difference of Eigenvalues (H1 - H2)')
+        plt.colorbar(im1, ax=axs[0], orientation='vertical', label='Eigenvalue')
+        plt.colorbar(im2, ax=axs[1], orientation='vertical', label='Eigenvalue')
+        plt.colorbar(im3, ax=axs[2], orientation='vertical', label='Eigenvalue Difference (H1 - H2)')
+
+        plt.tight_layout()
+        
+        fig2, axs2 = plt.subplots(2, 3, figsize=(10, 5))
+        arrs = [H1, H2, H1 - H2]
+        titles = ["H1", "H2", "(H1 - H2)"]
+        ims = []
+        for i, (arr, title) in enumerate(zip(arrs, titles)):
+            im0 = axs2[0, i].imshow(np.real(arr), cmap='Spectral')
+            axs2[0, i].set_title(f"{title} Real Part")
+            im00 = axs2[1, i].imshow(np.imag(arr), cmap='Spectral')
+            axs2[1, i].set_title(f"{title} Imaginary Part")
+            ims.append(im0)
+            ims.append(im00)
+            for ax in axs2[:, i]:
+                ax.set_xticks([])
+                ax.set_yticks([])
+        
+        for im, ax in zip(ims, axs2.flatten()):
+            cbar = fig2.colorbar(im, ax=ax, orientation='vertical')
+            cbar.set_label("Value", rotation=270, labelpad=15)
+            im.set_clim(-1, 1)
+
+        plt.tight_layout()
+        plt.show()
+
+    if plotEigvals:
+        eig1, eigvec1 = spla.eigh(H1, overwrite_a=True)
+        eig2, eigvec2 = spla.eigh(H2, overwrite_a=True)
+        fig, axs = plt.subplots(3, 1, figsize=(8, 12))
+
+        axs[0].scatter(np.arange(len(eig1)), eig1, label='H1 Eigenvalues', color='black', s=25)
+        axs[1].scatter(np.arange(len(eig2)), eig2, label='H2 Eigenvalues', color='black', s=25)
+        axs[2].scatter(np.arange(len(eig1)), eig1 - eig2, label='H1 - H2 Eigenvalues Difference', color='black', s=25)
+        titles = ["Eigenvalues of H1", "Eigenvalues of H2", "Difference of Eigenvalues (H1 - H2)"]
+        for ax, title in zip(axs, titles):
+
+            ax.set_xlabel('State Index')
+            ax.set_ylabel('Eigenvalue')
+            ax.set_title(title)
+        plt.tight_layout()
+        plt.show()
+
+    if plotCoupling:
+        for index in Lattice.LargeDefectLattice.defect_indices:
+            fig, axs = plt.subplots(1, 2, figsize=(8, 8))
+            axs[0].set_aspect('equal')
+            axs[1].set_aspect('equal')
+            #ax.scatter(Lattice.LargeDefectLattice.X, Lattice.LargeDefectLattice.Y, s=25, edgecolors='black', facecolors='none')
+            # Prepare the data for imshow
+            x = Lattice.LargeDefectLattice.X.astype(int)
+            y = Lattice.LargeDefectLattice.Y.astype(int)
+            values1 = abs((H1[index][::2] + H1[index][1::2]).real)
+            values1 = abs((H2[index][::2] + H2[index][1::2]).real)
+            # Create a 2D grid for imshow for both Hamiltonians
+            grid_shape = (y.max() + 1, x.max() + 1)
+            value_grid1 = np.full(grid_shape, np.nan)
+            value_grid2 = np.full(grid_shape, np.nan)
+            values1 = ((H1[index][::2] + H1[index][1::2]).real)
+            values2 = ((H2[index][::2] + H2[index][1::2]).real)
+            value_grid1[y, x] = values1
+            value_grid2[y, x] = values2
+
+            im1 = axs[0].imshow(value_grid1, origin='lower', cmap='viridis',
+                        extent=[x.min() - 0.5, x.max() + 0.5, y.min() - 0.5, y.max() + 0.5])
+            im2 = axs[1].imshow(value_grid2, origin='lower', cmap='viridis',
+                        extent=[x.min() - 0.5, x.max() + 0.5, y.min() - 0.5, y.max() + 0.5])
+
+            axs[0].scatter(x[index], y[index], c='red', s=50)
+            axs[1].scatter(x[index], y[index], c='red', s=50)
+
+            cbar1 = plt.colorbar(im1, ax=axs[0], orientation='vertical')
+            cbar2 = plt.colorbar(im2, ax=axs[1], orientation='vertical')
+            cbar1.set_label("Value (H1)", rotation=270, labelpad=15)
+            cbar2.set_label("Value (H2)", rotation=270, labelpad=15)
+            # Normalize colorbars to range -1 to 1
+            im1.set_clim(-1, 1)
+            im2.set_clim(-1, 1)
+            cbar1.set_ticks([-1, 0, 1])
+            cbar2.set_ticks([-1, 0, 1])
+
+            for ax in axs:
+                ax.set_xticks(np.arange(x.min() - 0.5, x.max() + 1, 1.0), minor=False)
+                ax.set_yticks(np.arange(y.min() - 0.5, y.max() + 1, 1.0), minor=False)
+                ax.grid(which='major', color='black', linestyle='--', linewidth=1.0)
+        plt.show()
+
+
+
+    def plot_wannier(self, idx:int = None):
+        if  idx is None:
+            idx = len(self.X) // 2
+        
+        arrays = [self.Sx.imag, self.Sy.imag, self.Cx_plus_Cy.real]
+        fig, axs = plt.subplots(1, 3, figsize=(15, 5))
+        for ax, array, label in zip(axs, arrays, ["Sx.imag", "Sy.imag", "Cx_plus_Cy.real"]):
+            ax.set_title(label)
+            ax.set_xlabel("X")
+            ax.set_ylabel("Y")
+            ax.scatter(self.X, self.Y, c=array[idx], cmap='viridis', s=25)
+            ax.scatter(self.X[idx], self.Y[idx], s=100, facecolors='none', edgecolors='red')
+            ax.set_aspect('equal')
+        # Normalize colorbar to all plots
+        vmin = min(np.min(np.real(array[idx])) for array in arrays)
+        vmax = max(np.max(np.real(array[idx])) for array in arrays)
+        for ax, array in zip(axs, arrays):
+            sc = ax.collections[0]
+            sc.set_clim(vmin, vmax)
+            cbar = fig.colorbar(sc, ax=ax)
+            # Set colorbar ticks to unique values in all three plots
+            all_vals = np.concatenate([np.real(array[idx]).flatten() for array in arrays])
+            unique_ticks = np.unique(all_vals)
+            cbar.set_ticks(unique_ticks)
+            cbar.set_label("Value", rotation=270, labelpad=15)
+        plt.tight_layout()
+        plt.show()
+        
+
+
+
+
+#7-7-2025
+    def compute_distances(self, *args, **kwargs):
+        dx = self.X - self.X[:, None]
+        dy = self.Y - self.Y[:, None]
+        if self.pbc:
+            multipliers = tuple(product([-1, 0, 1], repeat=2))
+            shifts = [(i * self.side_length, j * self.side_length) for i, j in multipliers]
+
+            x_shifted = np.empty((dx.shape[0], dx.shape[1], len(shifts)), dtype=dx.dtype)
+            y_shifted = np.empty((dy.shape[0], dy.shape[1], len(shifts)), dtype=dy.dtype)
+            for i, (dx_shift, dy_shift) in enumerate(shifts):
+                x_shifted[:, :, i] = dx + dx_shift
+                y_shifted[:, :, i] = dy + dy_shift
+
+            distances = x_shifted**2 + y_shifted**2
+            minimal_hop = np.argmin(distances, axis = -1)
+            i_idxs, j_idxs = np.indices(minimal_hop.shape)
+
+            dx = x_shifted[i_idxs, j_idxs, minimal_hop]
+            dy = y_shifted[i_idxs, j_idxs, minimal_hop]
+        self._dx, self._dy = dx, dy
