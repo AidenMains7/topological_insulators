@@ -724,8 +724,10 @@ def main():
     print(H.shape)
 
 if __name__ == "__main__":
-    pd, lat = precompute("square", 3, 0, True, None)
-    I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy = wannier_symmetry(lat, True, n=1)
+    pd, lat = precompute("square", 3, 0, True, 1)
+    I, Sx, Sy, Cx_plus_Cy, CxSy, SxCy, CxCy = wannier_fourier(lat, True)
+
+    print(Sx.shape)
 
     y, x = np.where(lat >= 0)
     plt.scatter(x, y, c=Cx_plus_Cy[101].real)

@@ -37,6 +37,9 @@ class DefectSquareLattice:
         self._schottky_distance = schottky_distance
         self._schottky_type = schottky_type
 
+        if defect_type == "schottky" and schottky_type not in [0, 1, 2]:
+            raise ValueError("schottky_type must be 0, 1, or 2 for 'schottky' defects. Got {}".format(schottky_type))
+
         # Pauli matrices for Hamiltonian computation
         pauli_x = np.array([[0, 1], [1, 0]], dtype=complex)
         pauli_y = np.array([[0, -1j], [1j, 0]], dtype=complex)
@@ -190,18 +193,25 @@ class DefectSquareLattice:
         lattice = self._pristine_lattice.copy()
     
         center_idx = self.side_length // 2
-        lattice[center_idx, center_idx] = -1
+        
         vacant_positions = []
 
+        vidxs = []
         if self._doLargeDefect:
             for i in [-1, 0, 1]:
                 for j in [-1, 0, 1]:
                     if abs(i) + abs(j) == 2:
                         continue
+                    vidxs.append(lattice[center_idx + i, center_idx + j])
                     lattice[center_idx + i, center_idx + j] = -1
                     vacant_positions.append((center_idx + i, center_idx + j))
+        else:
+            vidxs.append(lattice[center_idx, center_idx])
+            lattice[center_idx, center_idx] = -1
+            
 
         self._vacant_positions = vacant_positions
+        self._vacant_indices = vidxs
         return lattice
 
     def compute_interstitial_lattice(self):
@@ -384,15 +394,15 @@ class DefectSquareLattice:
             onsite_mass[self.defect_indices, self.defect_indices] = M_substitution
         else:
             onsite_mass = M_background * self.I
+            M_substitution = 1.
 
-        # Hopping vector terms
+        # Hopping vector term
         d1 = t * self.Sx
         d2 = t * self.Sy
+        d3 = onsite_mass + t0 * (self.Cx_plus_Cy) #* np.sign(M_substitution)
 
-        if M_substitution is None: # If no substitution mass is provided, set at a positive value so np.sign() does not return NaN.
-            M_substitution = 1.0
-        d3 = onsite_mass + t0 * (self.Cx_plus_Cy) * np.sign(M_substitution) # Symmetrize (comment out and look at the LDOS for "interstitial", m_back = -1.0, m_sub = -2.5)
-        
+
+        self._d1, self._d2, self._d3 = d1, d2, d3
         # Construct the tight-binding Hamiltonian
         hamiltonian = np.kron(d1, self.pauli_matrices[0]) + np.kron(d2, self.pauli_matrices[1]) + np.kron(d3, self.pauli_matrices[2])
 
@@ -479,6 +489,7 @@ class DefectSquareLattice:
             all_y = []
             all_eigenvalues = []
             all_gap = []
+            all_bandwidth = []
             all_bott = []
             for frenkel_pair_index in range(8):
                 NewLattice = DefectSquareLattice(self.side_length, self.defect_type, pbc=self.pbc, frenkel_pair_index=frenkel_pair_index)
@@ -492,11 +503,13 @@ class DefectSquareLattice:
                 all_y.append(NewLattice.Y)
                 all_eigenvalues.append(eigenvalues)
                 all_gap.append(gap)
+                all_bandwidth.append(bandwidth)
                 all_bott.append(bott_index)
             all_LDOS = np.concatenate(all_LDOS, axis=0)
             all_x = np.concatenate(all_x, axis=0)
             all_y = np.concatenate(all_y, axis=0)
             all_gap = np.mean(all_gap)
+            bandwidth = np.mean(all_bandwidth)
             all_bott = np.mean(all_bott)
             coords = np.stack((all_x, all_y), axis=1)
             unique_coords, inverse_indices = np.unique(coords, axis=0, return_inverse=True)
@@ -507,7 +520,7 @@ class DefectSquareLattice:
             eigenvalues = np.mean(all_eigenvalues, axis=0)
             X, Y = unique_coords[:, 0], unique_coords[:, 1]
             bott_index = np.mean(all_bott)
-            return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
+            return LDOS, eigenvalues, gap, bandwidth, bott_index, X, Y, ldos_idxs
 
         if self.defect_type == "frenkel_pair":
             LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = _average_over_frenkel_pair()
@@ -518,7 +531,7 @@ class DefectSquareLattice:
             ldos_dict = self.compute_LDOS(hamiltonian, number_of_states)
             LDOS, eigenvalues, gap, bandwidth, ldos_idxs = ldos_dict["LDOS"], ldos_dict["eigenvalues"], ldos_dict["gap"], ldos_dict["bandwidth"], ldos_dict["ldos_idxs"]
             X, Y = self.X, self.Y
-        return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
+        return LDOS, eigenvalues, gap, bandwidth, bott_index, X, Y, ldos_idxs
 
     def _compute_for_figure_disorder(self, m_background:float, m_substitution:float, number_of_states:float, disorder_strength:float, n_iterations:int = 10, n_jobs:int = -1):
         """
@@ -545,19 +558,20 @@ class DefectSquareLattice:
             ldos_dict = self.compute_LDOS(hamiltonian_local, number_of_states)
             LDOS, eigenvalues, gap, bandwidth, ldos_idxs = ldos_dict["LDOS"], ldos_dict["eigenvalues"], ldos_dict["gap"], ldos_dict["bandwidth"], ldos_dict["ldos_idxs"]
             X, Y = self.X, self.Y
-            return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
+            return LDOS, eigenvalues, gap, bandwidth, bott_index, X, Y, ldos_idxs
     
         with tqdm_joblib(tqdm(total=n_iterations, desc=f"{self.defect_type} : m_back={m_background}  : m_sub={m_substitution}")) as progress_bar:
             data = Parallel(n_jobs=-1)(delayed(_worker)(hamiltonian, i) for i in range(n_iterations))
         
-        all_LDOS, all_eigenvalues, all_gap, all_bott_index, all_X, all_Y, all_ldos_idxs = zip(*data)
+        all_LDOS, all_eigenvalues, all_gap, all_bandwidth, all_bott_index, all_X, all_Y, all_ldos_idxs = zip(*data)
         LDOS = np.mean(all_LDOS, axis=0)
         eigenvalues = np.mean(all_eigenvalues, axis=0)
         gap = np.mean(all_gap)
+        bandwidth = np.mean(all_bandwidth)
         bott_index = np.mean(all_bott_index)
         X = all_X[0]
         Y = all_Y[0]
-        return LDOS, eigenvalues, gap, bott_index, X, Y, all_ldos_idxs[0]
+        return LDOS, eigenvalues, gap, bandwidth, bott_index, X, Y, all_ldos_idxs[0]
 
     # endregion
 
@@ -665,6 +679,7 @@ class DefectSquareLattice:
         The function supports disorder averaging and interpolation for smoother visualization.
 
         For "none" and "vacancy" defect types, the substitution mass is set to None. 
+        For "frenkel_pair" defect type, we average over all possible Frenkel pair configurations (8 possible).
         """
         def plot_spectrum_ax(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_label:str, ldos_idxs:np.ndarray):
             # Plot the energy spectrum for the given eigenvalues
@@ -835,26 +850,30 @@ class DefectSquareLattice:
             for i, m_substitution in enumerate(good_m_sub_vals):
                 if doDisorder:
                     None_Lattice = DefectSquareLattice(self.side_length, "none", pbc=self.pbc)
-                    _, _, gap_none, _, _, _, _ = None_Lattice._compute_for_figure(m_background, m_substitution, 2)
-                    disorder_strength = gap_none * 0.25
+                    _, _, gap_none, bw_none, _, _, _, _ = None_Lattice._compute_for_figure(m_background, m_substitution, 2)
+                    disorder_strength = bw_none * 0.25
 
                 if self.defect_type == "schottky":
                     Lat = DefectSquareLattice(self.side_length, "schottky", pbc=self.pbc, schottky_type=i, schottky_distance=self._schottky_distance)
                     if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = Lat._compute_for_figure(m_background, m_substitution, 2, disorder_strength, n_iterations)
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = Lat._compute_for_figure(m_background, m_substitution, 2)
+                        d_LDOS, d_eigenvalues, d_gap, d_bw, d_bott_index, d_X, d_Y, d_ldos_idxs = Lat._compute_for_figure(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bw, bott_index, X, Y, ldos_idxs = Lat._compute_for_figure(m_background, m_substitution, 2)
+                    X, Y = X, Y
                 elif i == 1 and doLargeDefectFigure and self.defect_type in ["vacancy"]:
                     if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
+                        d_LDOS, d_eigenvalues, d_gap, d_bw, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bw, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
+                    X, Y = X, Y
                 elif doLargeDefectFigure and self.defect_type not in ["vacancy"]:
                     if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
+                        d_LDOS, d_eigenvalues, d_gap, d_bw, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bw, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
+                    X, Y = X, Y
                 else:
                     if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
-                    LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, 2)
+                        d_LDOS, d_eigenvalues, d_gap, d_bw, d_bott_index, d_X, d_Y, d_ldos_idxs = self._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
+                    LDOS, eigenvalues, gap, bw, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, 2)
+                    X, Y = X, Y
                 
                 if doDisorder:
                     LDOS = d_LDOS
@@ -979,7 +998,7 @@ class DefectSquareLattice:
 
 
 def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "schottky", "substitution", "interstitial", "frenkel_pair"], base_side_length: int = 24, schottky_distance: int = 3, 
-                     directory:str = ".", doDisorder:bool = False, n_iterations:int = 10):
+                     directory:str = "./", doDisorder:bool = False, n_iterations:int = 10):
     """
     Generate figures for the specified defect types and save them to the given directory.
     Parameters:
@@ -1006,7 +1025,7 @@ def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "
             if lcm_or_ldos == "lcm":
                 Lattice.plot_lcm(doLargeDefectFigure=dLDF)
             elif lcm_or_ldos == "ldos":
-                Lattice.plot_spectrum_ldos(dLDF, doDisorder, n_iterations)
+                Lattice.plot_spectrum_ldos(doLargeDefectFigure=dLDF, doDisorder=doDisorder, n_iterations=n_iterations)
             else:
                 raise ValueError("lcm_or_ldos must be 'lcm' or 'ldos'")
             
@@ -1026,14 +1045,80 @@ def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "
             print(f"Saved figure for {defect_type} with dLDF={dLDF} in {fname}")
 
 
-if __name__ == "__main__":
+def multiprocessing_gap_comparison(Lat1, Lat2, m_back_values, m_sub_values, n_jobs = -1):
+    parameters = tuple(product(m_back_values, m_sub_values))
+    def worker(i):
+        m_back, m_sub = parameters[i]
+        _, _, gap_pristine, _, _, _, _, _ = Lat1._compute_for_figure(m_back, m_sub, 2)
+        _, _, gap_defect,   _, _, _, _, _ = Lat2._compute_for_figure(m_back, m_sub, 2)
+        return (gap_pristine, gap_defect)
+    
+    with tqdm_joblib(tqdm(total=len(parameters), desc="Computing gaps")) as progress_bar:
+        gap_values = Parallel(n_jobs=n_jobs)(delayed(worker)(i) for i in range(len(parameters)))
+    return gap_values
+
+
+def gap_comparison(side_length, defect_type):
+    Pristine = DefectSquareLattice(side_length + side_length % 2 - 1, "none", pbc=True)
+    Defect = DefectSquareLattice(side_length, defect_type, pbc=True)
+
+    m_sub_range = (-6.0, 6.0)
+
+    resolution = 51
+    m_sub_values = np.linspace(m_sub_range[0], m_sub_range[1], resolution)
+
+    m_back_values = [2.5, 1.0, -1.0, -2.5]
+
+    gap_values = []
+    x_vals = []
+
+    for m_back in m_back_values:
+        if m_back < -2.0:
+            good_msub_values = m_sub_values[m_sub_values >= -2.0]
+        elif m_back > 2.0:
+            good_msub_values = m_sub_values[m_sub_values <= 2.0]
+        elif m_back < 0.0 and m_back > -2.0:
+            good_msub_values = m_sub_values[(m_sub_values <= -2.0) | (m_sub_values >= 0.0)]
+        elif m_back > 0.0 and m_back < 2.0:
+            good_msub_values = m_sub_values[(m_sub_values <= 0.0) | (m_sub_values >= 2.0)]
+
+        gap_values.append(multiprocessing_gap_comparison(Pristine, Defect, [m_back], good_msub_values))
+        x_vals.append(good_msub_values)
+
+    fig, axs = plt.subplots(len(m_back_values), 1, figsize = (10, 4 * len(m_back_values)), sharex=True)
+    if len(m_back_values) == 1:
+        axs = np.array([axs])
+    
+    for i, m_back in enumerate(m_back_values):
+        gap_set = gap_values[i]
+        pristine_gaps, defect_gaps = zip(*gap_set)
+
+        axs[i].scatter(x_vals[i], pristine_gaps, s=25, label="Pristine", color='blue', alpha=0.5)
+        axs[i].scatter(x_vals[i], defect_gaps, s=25, label=f"Defect $m_0^{{\\text{{back}}}}={m_back}$", color='red', alpha=0.5)
+
+        axs[i].set_xlabel(r"$m_0^{\text{sub}}$", fontsize=20)
+        axs[i].set_ylabel("Gap", fontsize=20)
+        axs[i].legend(loc='lower left', fontsize=16)
+
+        xticks = [-6, -4, -2, 0, 2, 4, 6]
+        axs[i].set_xticks(xticks)
+        axs[i].axhline(0, color='black', linestyle='--', linewidth=0.5, alpha=0.5)
+        for tick in xticks:
+            axs[i].axvline(tick, color='black', linestyle='--', linewidth=0.5, alpha=0.5)
+    
+
+    fig.suptitle(f"Gap Comparison for {defect_type} Defect Type\n$L={side_length}$", fontsize=24)
+    plt.tight_layout()
+
+
+def main():
     doPlotDistances = 0
-    doPlotDefects   = 0
-    plotLDOS = 1
+    doPlotDefects   = 1
+    plotLDOS = 0
     batchFigureGeneration = 0
 
     useLargeDefect = False
-    Lattice = DefectSquareLattice(side_length = 25, defect_type = "vacancy", pbc = True)
+    Lattice = DefectSquareLattice(side_length = 24, defect_type = "schottky", pbc = True, schottky_type = 0)
     
     # Plot the distances between the provided site and other sites in the lattice
     if doPlotDistances:
@@ -1043,10 +1128,13 @@ if __name__ == "__main__":
 
     # Plot the lattice with defects highlighted
     if doPlotDefects:
+
+        # For schottky, try using schottky_type = 0, 1, 2 in the Lattice constructor.
         if useLargeDefect:
             Lattice.LargeDefectLattice.plot_defect_idxs()
         else:
             Lattice.plot_defect_idxs()
+
         plt.show()
 
     # Plot the LDOS spectrum for the defect lattice
@@ -1063,5 +1151,34 @@ if __name__ == "__main__":
         generate_figures("ldos", ["none", "vacancy", "schottky", "substitution", "interstitial", "frenkel_pair"], base_side_length=14)
 
 
+if __name__ == "__main__":
+    #Lat = DefectSquareLattice(14, "interstitial")
+    #m_sub = -2.5
+    #H = Lat.compute_hamiltonian(-1.0, m_sub)
+    #ldos_dict = Lat.compute_LDOS(H, 2)
+    #print(ldos_dict["gap"])
+
+    if False:
+        index = Lat.system_size // 2
+        def plot_matrix(matrix):
+            print((matrix[index].sum() - m_sub) / 4)
+            fig, ax = plt.subplots(figsize=(8, 8))
+            ax.scatter(Lat.X, Lat.Y, s=50, edgecolors='black', c = matrix[index])
+            ax.scatter(Lat.X[index], Lat.Y[index], s=150, facecolors='none', edgecolors='red', linewidth=1.5, cmap='jet')
+            cbar = plt.colorbar(ax.collections[0], ax=ax, orientation='vertical', label="LDOS at site {}".format(index))
+            cbar.set_ticks(np.unique(matrix[index]))
+            cbar.ax.set_yticklabels(np.round(cbar.get_ticks(), 2))
+
+        plot_matrix(Lat.dx)
+        plt.show()
 
 
+    if True:
+        generate_figures("ldos", ["interstitial"], 14)
+        for defect_type in ["interstitial"]:
+            if defect_type in ["interstitial", "schottky"]:
+                sl = 14
+            else:
+                sl = 15
+            #gap_comparison(sl, defect_type)
+            #plt.savefig(defect_type + "_no_fix.png")
