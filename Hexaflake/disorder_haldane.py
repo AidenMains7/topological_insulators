@@ -8,296 +8,7 @@ from joblib import Parallel, delayed
 from multiprocessing import Manager
 from time import time
 from fractions import Fraction
-
-
-def compute_hexagon(n):
-	"""
-	Construct a boolean 2D array that represents a large hexagonal honeycomb lattice composed of.
-	The size of the array is determined by the parameter n, which influences the dimensions.
-
-	Args:
-		n (int): An integer controlling the size of the resulting hexagon.
-
-	Returns:
-		np.ndarray: A 2D boolean array where True indicates the presence of
-			a lattice site in the hexagon, and False indicates empty space.
-	"""
-
-	# Create end_piece array which forms the left and right edges of the lattice.
-	end_piece = np.full((3 ** (n + 1), 3 * ((3 ** n - 1) // 2)), False, dtype=bool)
-	for i in range((3 ** n - 1) // 2):
-		start = (3 ** (n + 1) - 1) // 2 - 3 * i
-		indices_1 = start + 2 * np.arange(3 * i + 1)
-		indices_2 = start - 1 + 2 * np.arange(3 * i + 2)
-		end_piece[indices_1, 3 * i] = True
-		end_piece[indices_2, 3 * i + 1] = True
-
-	# Create a repeated column of unit cell width to fill the middle section of the lattice.
-	column = np.full((3 ** (n + 1), 6), False, dtype=bool)
-	column[1::2, (0, 4)] = 1
-	column[::2, (1, 3)] = 1
-
-	# Repeat column to fill horizontal space, minus a strip at the end.
-	middle = np.tile(column, (1, (3 ** n + 1) // 2))[:, :-1]
-
-	# Combine the end pieces and the middle portion horizontally.
-	hexagon_array = np.hstack((end_piece, middle, np.fliplr(end_piece)))
-
-	return hexagon_array
-
-
-def compute_hexaflake(n):
-	"""
-	Construct a boolean 2D array that represents a hexaflake pattern of order n.
-	The hexaflake is created by recursively appending smaller hexagons around
-	an initial hexagon shape, scaled by factors of 3.
-
-	Args:
-		n (int): The iteration order of the hexaflake. Higher values produce
-			more fractal detail.
-
-	Returns:
-		np.ndarray: A 2D boolean array marking the presence of sites in the
-			hexaflake (True) and empty space (False).
-	"""
-
-	# Directions in which to replicate the smaller hexagons.
-	directions = np.array([[2, 0], [1, 1], [-1, 1], [-2, 0], [-1, -1], [1, -1]])
-	# Scale factors determine how far to offset for each recursion level.
-	scale_factors = 3 ** np.arange(1, n + 1)
-
-	# Start with the 6 directions and build up by adding scaled copies.
-	discrete_coordinates = directions.copy()
-	for scale in scale_factors:
-		offsets = scale * directions
-		new_coordinates = []
-		for offset in [[0, 0]] + offsets.tolist():
-			new_coordinates.extend(discrete_coordinates + offset)
-		discrete_coordinates = np.array(new_coordinates)
-
-	x_discrete, y_discrete = discrete_coordinates.T
-
-	# Shift coordinates so there are no negative indices.
-	x_discrete += 3 ** (n + 1) - 1
-	y_discrete += (3 ** (n + 1) - 1) // 2
-
-	# Create the array for the hexaflake pattern.
-	hexaflake_array = np.full(
-		(3 ** (n + 1), 2 * 3 ** (n + 1) - 1),
-		False,
-		dtype=bool
-	)
-	hexaflake_array[y_discrete, x_discrete] = True
-
-	return hexaflake_array
-
-
-def compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC):
-	"""
-	Compute the discrete differences in x and y coordinates between all pairs of points.
-	If periodic boundary conditions (PBC) are enabled, the code accounts for wrapping
-	by shifting the lattice in possible directions and selecting the minimal distance.
-
-	Args:
-		x_discrete (np.ndarray): 1D array of x-coordinates of points.
-		y_discrete (np.ndarray): 1D array of y-coordinates of points.
-		PBC (bool): Flag indicating whether to apply periodic boundary conditions.
-
-	Returns:
-		tuple:
-			- (np.ndarray) delta_x_discrete: 2D array of differences in x-coordinates.
-			- (np.ndarray) delta_y_discrete: 2D array of differences in y-coordinates.
-	"""
-
-	if not PBC:
-		# Simple difference if no periodic boundary conditions.
-		delta_x_discrete = x_discrete[np.newaxis, :] - x_discrete[:, np.newaxis]
-		delta_y_discrete = y_discrete[np.newaxis, :] - y_discrete[:, np.newaxis]
-	else:
-		# Attempt all relevant shifts in the 2D lattice so that the distance is minimized.
-		a = round(np.sqrt(2 * x_discrete.size - 3))
-		b = (a + 3) // 2
-		c = (a - 3) // 2
-		d = 2 * a - b
-		e = 2 * a - c
-
-		# Potential shifts for wrapping.
-		shifts = np.array([
-			[0, 0],
-			[-3, a],
-			[3, -a],
-			[d, b],
-			[-d, -b],
-			[-e, c],
-			[e, -c]
-		])
-
-		# Shift coordinates according to each shift vector.
-		shifted_x = (
-				shifts[:, 0][:, np.newaxis, np.newaxis] +
-				x_discrete[np.newaxis, :, np.newaxis]
-		)
-		shifted_y = (
-				shifts[:, 1][:, np.newaxis, np.newaxis] +
-				y_discrete[np.newaxis, :, np.newaxis]
-		)
-
-		# Calculate all candidate distances.
-		distances = ((1 / 2) * (x_discrete[np.newaxis, np.newaxis, :] - shifted_x)) ** 2 + \
-					((np.sqrt(3) / 2) * (y_discrete[np.newaxis, np.newaxis, :] - shifted_y)) ** 2
-
-		# Identify the shift index yielding the minimal distance for each pair (i,j).
-		idx_array = np.argmin(distances, axis=0)
-
-		i_indices, j_indices = np.indices(idx_array.shape)
-
-		# Retrieve the corresponding differences that gave the minimum distance.
-		delta_x_discrete = x_discrete[np.newaxis, np.newaxis, :] - shifted_x
-		delta_y_discrete = y_discrete[np.newaxis, np.newaxis, :] - shifted_y
-		delta_x_discrete = delta_x_discrete[idx_array, i_indices, j_indices]
-		delta_y_discrete = delta_y_discrete[idx_array, i_indices, j_indices]
-
-	return delta_x_discrete.astype(np.int64), delta_y_discrete.astype(np.int64)
-
-
-def compute_hopping_arrays(delta_x_discrete, delta_y_discrete):
-
-	NN = ((np.abs(delta_x_discrete) ==  2) & (delta_y_discrete == 0)) | \
-		 ((np.abs(delta_x_discrete) == 1) & (np.abs(delta_y_discrete) == 1))
-
-	NNN = ((delta_x_discrete ==  0) & (np.abs(delta_y_discrete) == 2)) | \
-		 ((np.abs(delta_x_discrete) == 3) & (np.abs(delta_y_discrete) == 1))
-
-	CCW_directions = np.array([[1, -1, 1, 0], [1, 1, -1, 1], [-1, 0, -1, -1], [-1, 1, -1, 0], [-1, -1, 1, -1], [1, 0, 1, 1]], dtype=np.int8)
-
-	i, j = np.where(NNN)
-
-	k = np.argmax(NN[i] & NN[j], axis=1)
-
-	x_i_to_k, y_i_to_k = delta_x_discrete[i, k], delta_y_discrete[i, k]
-	x_k_to_j, y_k_to_j = delta_x_discrete[k, j], delta_y_discrete[k, j]
-
-	NNN_directions = np.sign(np.array([x_i_to_k, y_i_to_k, x_k_to_j, y_k_to_j]).T).astype(np.int8)
-
-	CCW = np.any(np.all(CCW_directions[None, :, :] == NNN_directions[:, None, :], axis=2), axis=1)
-
-	NNN_CCW = np.full_like(NNN, False)
-	NNN_CCW[i, j] = CCW
-
-	return NN, NNN_CCW
-
-
-def compute_geometric_data(n, PBC, return_dx_dy=False, print_info=False):
-
-	hexagon_array = compute_hexagon(n)
-	y_discrete, x_discrete = np.where(hexagon_array)
-
-	sublattice_array = np.zeros_like(hexagon_array)
-	sublattice_array[:, ::3] = hexagon_array[:, ::3] #one of the sublattices
-	sublattice = ~sublattice_array[y_discrete, x_discrete] #opposite of former
-
-	stagger_sublattices = np.empty(sublattice.size, dtype=np.int64)
-	stagger_sublattices[::2] = np.sort(np.where(sublattice)[0])
-	stagger_sublattices[1::2] = np.sort(np.where(~sublattice)[0])
-	x_discrete, y_discrete = x_discrete[stagger_sublattices], y_discrete[stagger_sublattices]
-
-
-	hexaflake_array = compute_hexaflake(n)
-	hexaflake = hexaflake_array[y_discrete, x_discrete]
-
-	if print_info:
-		print(f"Generation: {n}")
-		print(f"Honeycomb # filled sites: {y_discrete.size}")
-		print(f"Hexaflake # filled sites: {np.where(hexaflake)[0].size}")
-
-
-	delta_x_discrete, delta_y_discrete = compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC)
-
-	NN, NNN_CCW = compute_hopping_arrays(delta_x_discrete, delta_y_discrete)
-
-	x = (1 / 2) * (x_discrete - 3 ** (n + 1) + 1)
-	y = (np.sqrt(3) / 4) * (2 * y_discrete - 3 ** (n + 1) + 1)
-
-	geometric_data = {
-		'x': x,
-		'y': y,
-		'hexaflake': hexaflake,
-		'NN': NN,
-		'NNN_CCW': NNN_CCW,
-		'x_discrete': x_discrete,
-		'y_discrete': y_discrete
-	}
-
-	if return_dx_dy:
-		geometric_data['delta_x_discrete'] = delta_x_discrete
-		geometric_data['delta_y_discrete'] = delta_y_discrete
-
-	return geometric_data
-
-
-def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
-
-	valid_methods = ['hexagon', 'site_elim', 'renorm']
-	if method not in valid_methods:
-		raise ValueError(f"Invalid method '{method}'. Options are {valid_methods}.")
-
-	NN = geometric_data['NN']
-	NNN_CCW = geometric_data['NNN_CCW']
-	hexaflake = geometric_data['hexaflake']
-
-	H = np.zeros(NN.shape, dtype=np.complex128)
-	np.fill_diagonal(H, M*((-1)**(np.arange(H.shape[0]))))
-	H[NN] = -t1
-	H[NNN_CCW] = -t2 * np.sin(phi)*1j
-	H[NNN_CCW.T] = t2 * np.sin(phi)*1j
-
-	if method == 'renorm':
-		H_aa = H[np.ix_(hexaflake, hexaflake)]
-		H_bb = H[np.ix_(~hexaflake, ~hexaflake)]
-		H_ab = H[np.ix_(hexaflake, ~hexaflake)]
-		H_ba = H[np.ix_(~hexaflake, hexaflake)]
-
-		H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
-
-	elif method == 'site_elim':
-		H = H[np.ix_(hexaflake, hexaflake)]
-
-	return H
-
-
-def triangular_basis(x, y):
-
-	a1 = (np.sqrt(3) / 2) * x - 0.5 * y
-	a2 = (np.sqrt(3) / 2) * x + 0.5 * y
-
-	return a1, a2
-
-
-def compute_bott_index(eigen_data):
-
-	eigenvalues, eigenvectors, x, y = [eigen_data[key] for key in 'eigenvalues, eigenvectors, x, y'.split(', ')]
-	lower_band = np.argsort(eigenvalues)[:eigenvalues.size // 2]
-	V = eigenvectors[:, lower_band]
-
-	N = round((np.sqrt(2 * x.size - 3) - 3) / 2 + 2)
-	L = np.sqrt(3) * N
-
-	a1, a2 = triangular_basis(x, y)
-
-	U1 = np.exp(1j * 2 * np.pi * a1 / L)[:, np.newaxis]
-	U2 = np.exp(1j * 2 * np.pi * a2 / L)[:, np.newaxis]
-
-	U1_proj = V.conj().T @ (V * U1)
-	U2_proj = V.conj().T @ (V * U2)
-
-	A = U2_proj @ U1_proj @ U2_proj.conj().T @ U1_proj.conj().T
-
-	eigenvaluesA = sp.linalg.eigvals(A, overwrite_a=True)
-	trace_logA = np.sum(np.log(eigenvaluesA))
-
-	bott = round(np.imag(trace_logA) / (2 * np.pi))
-
-	return bott
+from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_sparse_hamiltonian
 
 
 def compute_bott_from_hamiltonian(H, method, geometry_data):
@@ -345,7 +56,7 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 	def worker_function(parameters):
 		phi, M = parameters
 		try:
-			H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data)
+			H = compute_sparse_hamiltonian(method, M, phi, t1, t2, geometry_data)
 			bott = compute_bott_from_hamiltonian(H, method, geometry_data)
 			return [phi, M, bott]
 		
@@ -375,7 +86,7 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 def compute_disorder_iterations(phi, M, method, strength, t1, t2, geometry_data, iterations=100, n_jobs=-2, show_progress=False):
 
 	def worker_function(i):
-		clean_H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data)
+		clean_H = compute_sparse_hamiltonian(method, M, phi, t1, t2, geometry_data)
 		disorder_arr = compute_disorder_array(strength, clean_H.shape[0], 1)
 		disorder_H = clean_H + disorder_arr
 		bott = compute_bott_from_hamiltonian(disorder_H, method, geometry_data)
@@ -614,7 +325,6 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	
 	X_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
 	X_tick_labels = [pi_tick_labels(value) for value in X_ticks]
-	print(X_tick_labels)
 	Y_ticks = [-3*np.sqrt(3), -2*np.sqrt(3), -np.sqrt(3), 0, np.sqrt(3), 2*np.sqrt(3), 3*np.sqrt(3)]
 	Y_tick_labels = [f"{i:.2f}" for i in Y_ticks]
 	tick_dict = {'X_ticks': X_ticks, 'X_tick_labels': X_tick_labels, 'Y_ticks': Y_ticks, 'Y_tick_labels': Y_tick_labels}
@@ -696,11 +406,11 @@ def compute_many_phase_diagrams(generation=2, dimensions=(50,50), iterations=100
 
 
 if __name__ == "__main__":
-	#compute_many_phase_diagrams()
-	make_large_figure(2, (50,50), ['hexagon', 'renorm', 'site_elim'], 
-				   disorder_strengths=[1.0, 3.0, 5.0, 7.0, 9.0, 11.0],
+	compute_many_phase_diagrams(2, (51, 51), iterations=25, n_jobs=-1, directory="./Hexaflake/Data/")
+	make_large_figure(3, (51,51), ['hexagon', 'renorm', 'site_elim'], 
+				   disorder_strengths=[0.0, 1.0, 2.0, 3.0],
 				   directory="Haldane_Disorder_Data/Res2500_Avg100/", 
 				   cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
 				   row_labels=['Hexagon', 'Renormalization', 'Site Elimination'],
-				   title="Bott Index Phase Diagram Varying With Disorder", image_filename="Haldane_Disorder_Data/Res2500_Avg100/PhaseDiagram.png")
+				   title="Bott Index Phase Diagram Varying With Disorder", image_filename="./Hexaflake/Figures/PhaseDiagram.png")
 	

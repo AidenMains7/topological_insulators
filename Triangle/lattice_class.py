@@ -953,12 +953,14 @@ def plot_from_file(filename:str, Atilde:float):
 
 # -----------------------------------------------------------------------
 if __name__ == "__main__":
-    FracLat = SierpinskiTriangularLattice(True, 6)
+    FracLat = SierpinskiTriangularLattice(True, 5)
+    FracLat.info
     FracLat.ParentLattice.info
 
-    t0 = time()
-    fname = FracLat.compute_phase_diagram("renorm", resolution=(45, 9))
-    print("\nTime taken:", time() - t0)
+    if False:
+        t0 = time()
+        fname = FracLat.compute_phase_diagram("renorm", resolution=(45, 9))
+        print("\nTime taken:", time() - t0)
 
-    fig, ax = plot_from_file(fname, Atilde=0.0)
-    plt.savefig(fname.replace(".h5", ".png"))
+        fig, ax = plot_from_file(fname, Atilde=0.0)
+        plt.savefig(fname.replace(".h5", ".png"))

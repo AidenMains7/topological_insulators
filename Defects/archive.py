@@ -958,4 +958,207 @@ def defect_lattices_plot():
 
 
 
+    # jiaxin stuff
     
+if False:
+    ## Figure 4
+    Lattice = DefectSquareLattice(Lx=14, Ly=14, defect_type="schottky", pbc=True, schottky_distance=1)
+    Lattice.plot_spectrum_ldos(doInterpolation=True)
+    plt.savefig('temp.png')
+
+    # Indices of schottky defects
+    print(Lattice.defect_indices)
+
+
+
+
+    doPlotDistances = 0
+    doPlotDefects   = 0
+    plotLDOS = 0
+    batchFigureGeneration = 0
+    useLargeDefect = 0
+
+    ## Figure 2
+    # We use m_background as the general name for the background mass. For "none", "vacancy", and "schottky", this is the only mass and called m0.
+    # Lattice = DefectSquareLattice(Lx=15, Ly=15, defect_type="none", pbc=True)
+    # Lattice.plot_spectrum_ldos(m_background_values=[2.5, 1.0, -1.0, -2.5], doInterpolation=False) # you may change the background mass values here
+    # plt.show()
+
+    ## Figure 3
+    # Lattice = DefectSquareLattice(Lx=15, Ly=15, defect_type="vacancy", pbc=True)
+    # Lattice.plot_spectrum_ldos(m_background_values=[2.5, 1.0, -1.0, -2.5], doLargeDefectFigure=False, doInterpolation=False)
+    # plt.show()
+
+    ## Figure 4
+    # Lattice = DefectSquareLattice(Lx=14, Ly=14, defect_type="schottky", pbc=True, schottky_distance=1)
+    # Lattice.plot_spectrum_ldos(doInterpolation=False)
+    # plt.show()
+
+    ## Figure 6
+    # Lattice = DefectSquareLattice(Lx=15, Ly=15, defect_type="substitution", pbc=True)
+    # Lattice.plot_spectrum_ldos(m_background_values=[2.5, 1.0, -1.0, -2.5], doLargeDefectFigure=False, doInterpolation=False) # For Figure 7, set doLargeDefectFigure=True
+    # plt.show()
+
+    ## Figure 8
+    # Lattice = DefectSquareLattice(Lx=14, Ly=14, defect_type="interstitial", pbc=True)
+    # Lattice.plot_spectrum_ldos(m_background_values=[2.5, 1.0, -1.0, -2.5], doLargeDefectFigure=False, doInterpolation=False) # For Figure 9, set doLargeDefectFigure=True
+    # plt.show()
+
+    ## Figure 10
+    # Lattice = DefectSquareLattice(Lx=15, Ly=15, defect_type="frenkel_pair", pbc=True)
+    # Lattice.plot_spectrum_ldos(m_background_values=[2.5, 1.0, -1.0, -2.5], doInterpolation=False)
+    # plt.show()
+
+    # Figures beyond this are done using disorder as:
+    # Lattice = DefectSquareLattice(Lx=15, Ly=15, defect_type="none", pbc=True)
+    # Lattice.plot_spectrum_ldos(m_background_values=[2.5, 1.0, -1.0, -2.5], doInterpolation=False, doDisorder=True, n_iterations=25) # you may change the background mass values here
+    # plt.show()
+
+    # You can export the Hamiltonian via the following:
+    # Example lattice
+    # Lx = 7; Ly = 5; defect_type = 'none'
+
+    defect_type = 'schottky'; schottky_type = 0; Lx = 14; Ly = 14; m_substitution = -1
+    # defect_type = 'schottky'; schottky_type = 0; Lx = 6; Ly = 6; m_substitution = -1
+    
+    # defect_type = 'substitution'; Lx = 15; Ly = 15; m_substitution = 2.5
+    # defect_type = 'substitution'; Lx = 7; Ly = 5; m_substitution = -2.5
+
+    # defect_type = 'interstitial'; Lx = 14; Ly = 14; m_substitution = -2.5
+    # defect_type = 'interstitial'; Lx = 6; Ly = 6; m_substitution = -2.5
+
+    # defect_type = 'frenkel_pair'; Lx = 15; Ly = 15; m_substitution = -1
+    # defect_type = 'frenkel_pair'; Lx = 7; Ly = 5; m_substitution = -1
+
+    m_background = 1.0
+    match defect_type:
+        case 'schottky':
+            Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=defect_type, schottky_type=schottky_type, pbc=True)
+            H = Lattice.compute_hamiltonian(M_background=m_background, M_substitution=m_substitution, t=1.0, t0=1.0)
+        case 'substitution':
+            Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=defect_type, pbc=True)
+            H = Lattice.compute_hamiltonian(M_background=m_background, M_substitution=m_substitution, t=1.0, t0=1.0)
+        case 'interstitial':
+            Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=defect_type, pbc=True)
+            H = Lattice.compute_hamiltonian(M_background=m_background, M_substitution=m_substitution, t=1.0, t0=1.0)
+        case 'frenkel_pair':
+            Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=defect_type, pbc=True)
+            H = Lattice.compute_hamiltonian(M_background=m_background, M_substitution=m_substitution, t=1.0, t0=1.0)
+        case _:
+            Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=defect_type, pbc=True)
+            H = Lattice.compute_hamiltonian(M_background=m_background, M_substitution=None, t=1.0, t0=1.0)
+
+    # To export the index or location of the site:
+    # Here is a visualization (which is quite messy to look at)
+    fig, ax = plt.subplots(figsize=(8, 8))
+    Y, X = np.where(Lattice.lattice >= -1)
+    ax.scatter(X, Y, s=50, edgecolors='black', facecolors='black', linewidth=0.)
+    for x, y, label in zip(X, Y, Lattice.lattice.flatten().astype(str)):
+        ax.text(x, y, label, fontsize=12, ha='center', va='center', color='red')
+    ax.set_aspect('equal')
+    # plt.show()
+
+    # You can get the position of a site from above by its index:
+    # -1 corresponds to a vacancy
+    index = 11
+    x_pos = Lattice.X[index]
+    y_pos = Lattice.Y[index]
+    print(f"Position of site {index}: ({x_pos}, {y_pos})")
+
+    # Alternatively, you can get the position of a site by its index in the lattice:
+    x_pos = 1
+    y_pos = 1
+    index = Lattice.lattice[y_pos, x_pos]
+    print(f"Index of site at position ({x_pos}, {y_pos}): {index}")
+
+    # To print the Hamiltonian corresponding to a specific site, you can do:
+    print(H[np.ix_([2 * index, 2 * index + 1], [2 * index, 2 * index + 1])]) 
+
+    # Number of sites
+    print(f"Number of sites in the lattice: {Lattice.system_size}")
+    # Dimensions of hamiltonian
+    print(f"Dimensions of the Hamiltonian: {H.shape}")
+    # Please note that due to the parity (pauli matrices), every two rows/columns correspond to a single site in the lattice.
+    # So for we would do
+    # H[2 * index, 2 * index] to find the diagonal element corresponding to the site at index `index` pertaining to up parity
+    # H[2 * index + 1, 2 * index + 1] to find the diagonal element corresponding to the site at index `index` pertaining to down parity
+
+    # Export the Hamiltonian to a file
+    script_path = os.path.abspath(__file__)
+    script_dir = os.path.dirname(script_path)
+    script_basename = os.path.splitext(os.path.basename(script_path))[0]
+    print(f"{script_basename}")
+    target_dir = os.path.join(script_dir, 'data')
+    os.makedirs(target_dir, exist_ok=True)
+    # labeled file name
+    match defect_type:
+        case 'schottky':
+            output_filename = f"{script_basename}_Lx{Lx}Ly{Ly}_mbkgd{m_background}_{defect_type}_msub{m_substitution}.mat"
+        case 'substitution':
+            output_filename = f"{script_basename}_Lx{Lx}Ly{Ly}_mbkgd{m_background}_{defect_type}_msub{m_substitution}.mat"
+        case 'interstitial':
+            output_filename = f"{script_basename}_Lx{Lx}Ly{Ly}_mbkgd{m_background}_{defect_type}_msub{m_substitution}.mat"
+        case 'frenkel_pair':
+            output_filename = f"{script_basename}_Lx{Lx}Ly{Ly}_mbkgd{m_background}_{defect_type}_msub{m_substitution}.mat"
+        case _:
+            output_filename = f"{script_basename}_Lx{Lx}Ly{Ly}_mbkgd{m_background}_{defect_type}.mat"
+
+    full_output_path = os.path.join(target_dir, output_filename)
+    mat_dict = {
+        'H': H,
+        'Lx': Lx,
+        'Ly': Ly,
+        'defect_type': defect_type,
+        'm_background': m_background,
+        'm_substitution': m_substitution,
+        'x_pos': Lattice.X,
+        'y_pos': Lattice.Y
+    } # dictionary for variables
+    #scipy.io.savemat(full_output_path, mat_dict)
+    print(f"Saved file to {full_output_path}")
+
+    Lattice.plot_spectrum_ldos(doInterpolation=True)
+    plt.show()
+
+
+    # In the code I colloquially refer to the background mass as m_back or m_backround, however this also refers to m0.
+    # The pauli matrices are set in the __init__ method of the DefectSquareLattice class.
+    # I have added a parameter to the compute_hamiltonian method if you want to change them. Currently they take the form (see line 40):
+    # tau_x = np.array([[0, 1], [1, 0]], dtype=complex)
+    # tau_y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+    # tau_z = np.array([[1, 0], [0, -1]], dtype=complex)
+
+
+    # Plot the distances between the provided site and other sites in the lattice
+    if doPlotDistances:
+        site_index = Lattice.system_size // 2 - 11
+        Lattice.plot_distances(site_index, cmap='jet', doLargeDefectFigure = useLargeDefect)
+        plt.show()
+
+    # Plot the lattice with defects highlighted
+    if doPlotDefects:
+        if useLargeDefect:
+            Lattice.LargeDefectLattice.plot_defect_idxs()
+        else:
+            Lattice.plot_defect_idxs()
+        plt.show()
+
+    # Plot the LDOS spectrum for the defect lattice
+    if plotLDOS:
+        # For "none", "schottky", "frenkel_pair", doLargeDefectFigure does nothing.
+        # For "vacancy", it plots the large defect lattice as the second row and the small defect lattice as the first row.
+        # For "substitution", "interstitial", all plots pertain to the large defect.
+
+        # For "schottky", each row corresponds to a different schottky type as described in the  
+        Lattice.plot_spectrum_ldos(doLargeDefectFigure=useLargeDefect, doDisorder=False)
+        plt.show()
+    
+    if batchFigureGeneration:
+        generate_figures("ldos", ["none", "vacancy", "schottky", "substitution", "interstitial", "frenkel_pair"], 
+                         base_lx=24, base_ly=24)
+        
+
+
+
+
+
