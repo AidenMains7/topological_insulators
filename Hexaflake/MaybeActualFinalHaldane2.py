@@ -527,6 +527,13 @@ def plot_phase_diagram(phase_data, cmap='viridis', outputfile='temp.png'):
 
 
 if __name__ == '__main__':
+	hex = compute_hexagon(4)
+	flake = compute_hexaflake(4)
+
+	print(f"Number of sites in hexagon: {np.sum(hex)}")
+	print(f"Number of sites in hexaflake: {np.sum(flake)}")
+
+if False:
 	methods = ['hexagon', 'site_elim', 'renorm']
 	generations = [2, 3]
 	resolutions = [201, 51]

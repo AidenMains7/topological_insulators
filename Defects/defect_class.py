@@ -1110,18 +1110,35 @@ def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "
 
 
 if __name__ == "__main__":
-    direc = "./Defects/Plots/Figures/"
-    methods = ["substitution"]
-    sizes = [25]
-    for method, Lx in zip(methods, sizes):
-        for doInterp in [True]:
-            for dLDF in [True]:
-                Lat = DefectSquareLattice(Lx, Lx, method)
-                Lat.plot_spectrum_ldos(doInterpolation = doInterp, doLargeDefectFigure = dLDF)
-                if dLDF:
-                    plt.savefig(direc + f"{method}_{Lx}_{doInterp}_LD.svg")
-                else:
-                    plt.savefig(direc + f"{method}_{Lx}_{doInterp}.svg")
+
+    Lattice = DefectSquareLattice(14, 14, "interstitial")
+    bi_values = []
+    m_values = np.linspace(-4.0, 4.0, 30)
+    for m in m_values:
+        H = Lattice.compute_hamiltonian(M_background=m, M_substitution=m)
+        proj = Lattice.compute_projector(H)
+        BI = Lattice.compute_bott_index(proj)
+        bi_values.append(BI)
+
+    plt.scatter(m_values, bi_values)
+    for v in [-4, -2, 0, 2, 4]:
+        plt.axvline(v, color='black', linestyle='--', linewidth=0.5, alpha=0.5)
+    plt.show()
+
+
+    if False:
+        direc = "./Defects/Plots/Figures/"
+        methods = ["substitution"]
+        sizes = [25]
+        for method, Lx in zip(methods, sizes):
+            for doInterp in [True]:
+                for dLDF in [True]:
+                    Lat = DefectSquareLattice(Lx, Lx, method)
+                    Lat.plot_spectrum_ldos(doInterpolation = doInterp, doLargeDefectFigure = dLDF)
+                    if dLDF:
+                        plt.savefig(direc + f"{method}_{Lx}_{doInterp}_LD.svg")
+                    else:
+                        plt.savefig(direc + f"{method}_{Lx}_{doInterp}.svg")
 
     if False:
         base_sl = 6
