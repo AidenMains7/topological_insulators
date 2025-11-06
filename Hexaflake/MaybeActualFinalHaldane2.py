@@ -92,7 +92,7 @@ def compute_hexaflake(n):
 	return hexaflake_array
 
 
-def compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC):
+def old_compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC):
 	"""
 	Compute the discrete differences in x and y coordinates between all pairs of points.
 	If periodic boundary conditions (PBC) are enabled, the code accounts for wrapping
@@ -158,6 +158,94 @@ def compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC):
 		delta_y_discrete = delta_y_discrete[idx_array, i_indices, j_indices]
 
 	return delta_x_discrete.astype(np.int64), delta_y_discrete.astype(np.int64)
+
+
+def compute_dx_and_dy_discrete(x_discrete, y_discrete, PBC, chunk_size=500):
+    """
+    Compute discrete differences in a highly memory-efficient way using chunking.
+
+    This version processes the data in row-based chunks to avoid creating
+    large intermediate (N, N) arrays, making it suitable for very large inputs
+    with limited RAM.
+
+    Args:
+        x_discrete (np.ndarray): 1D array of x-coordinates of points.
+        y_discrete (np.ndarray): 1D array of y-coordinates of points.
+        PBC (bool): Flag indicating whether to apply periodic boundary conditions.
+        chunk_size (int): The number of rows to process in each chunk.
+                          Smaller values use less RAM but may be slightly slower.
+
+    Returns:
+        tuple:
+            - (np.ndarray) delta_x_discrete: 2D array of differences in x-coordinates.
+            - (np.ndarray) delta_y_discrete: 2D array of differences in y-coordinates.
+    """
+    N = x_discrete.size
+
+    # The non-PBC case still creates two (N, N) arrays. If this is too large,
+    # the same chunking method would need to be applied here as well.
+    if not PBC:
+        delta_x_discrete = x_discrete[np.newaxis, :] - x_discrete[:, np.newaxis]
+        delta_y_discrete = y_discrete[np.newaxis, :] - y_discrete[:, np.newaxis]
+        return delta_x_discrete, delta_y_discrete
+
+    # --- PBC Calculation with Chunking ---
+
+    # Calculate shift vectors (same as original)
+    a = round(np.sqrt(2 * N - 3))
+    b = (a + 3) // 2
+    c = (a - 3) // 2
+    d = 2 * a - b
+    e = 2 * a - c
+    shifts = np.array([
+        [0, 0], [-3, a], [3, -a],
+        [d, b], [-d, -b], [-e, c], [e, -c]
+    ])
+
+    # Pre-calculate squared constants
+    C1_SQ = 0.25  # (1/2)^2
+    C2_SQ = 0.75  # (sqrt(3)/2)^2
+
+    # Pre-allocate the final full-size arrays in memory. This will be the
+    # largest memory allocation.
+    delta_x_final = np.empty((N, N), dtype=np.int64)
+    delta_y_final = np.empty((N, N), dtype=np.int64)
+
+    # Process the N x N matrix in horizontal chunks
+    for i in range(0, N, chunk_size):
+        start_row = i
+        end_row = min(i + chunk_size, N)
+        
+        # Select the 'i' coordinates for the current chunk
+        x_i_chunk = x_discrete[start_row:end_row, np.newaxis]
+        y_i_chunk = y_discrete[start_row:end_row, np.newaxis]
+        
+        # Initialize the results for this chunk with the 'no shift' case
+        # This creates temporary arrays of shape (chunk_size, N)
+        delta_x_chunk = x_discrete[np.newaxis, :] - x_i_chunk
+        delta_y_chunk = y_discrete[np.newaxis, :] - y_i_chunk
+        
+        min_sq_dist_chunk = C1_SQ * delta_x_chunk**2 + C2_SQ * delta_y_chunk**2
+
+        # Iterate through the remaining shifts
+        for shift_x, shift_y in shifts[1:]:
+            current_dx_chunk = delta_x_chunk - shift_x
+            current_dy_chunk = delta_y_chunk - shift_y
+            
+            current_sq_dist_chunk = C1_SQ * current_dx_chunk**2 + C2_SQ * current_dy_chunk**2
+            
+            update_mask = current_sq_dist_chunk < min_sq_dist_chunk
+            
+            # Update the chunk arrays where a shorter distance was found
+            min_sq_dist_chunk[update_mask] = current_sq_dist_chunk[update_mask]
+            delta_x_chunk[update_mask] = current_dx_chunk[update_mask]
+            delta_y_chunk[update_mask] = current_dy_chunk[update_mask]
+        
+        # Assign the finalized chunk to the correct slice of the output arrays
+        delta_x_final[start_row:end_row, :] = delta_x_chunk
+        delta_y_final[start_row:end_row, :] = delta_y_chunk
+
+    return delta_x_final, delta_y_final
 
 
 def compute_hopping_arrays(delta_x_discrete, delta_y_discrete):
@@ -334,10 +422,10 @@ def compute_eigen_data(method, M, phi, t1, t2, geometric_data):
 
 	x, y = geometric_data['x'], geometric_data['y']
 
-	H = compute_sparse_hamiltonian(method, M, phi, t1, t2, geometric_data)
+	H = compute_hamiltonian(method, M, phi, t1, t2, geometric_data)
 
 	eigenvalues, eigenvectors = sp.linalg.eigh(H, overwrite_a=True)
-
+	
 	if method in ['site_elim', 'renorm']:
 		hexaflake = geometric_data['hexaflake']
 		x, y = x[hexaflake], y[hexaflake]
@@ -526,15 +614,33 @@ def plot_phase_diagram(phase_data, cmap='viridis', outputfile='temp.png'):
 
 
 
+def main():
+	method = 'site_elim'
+	gen = 3
+	data = np.load('./Hexaflake/Data/'+f'phase_data_{method}_gen{gen}.npz')
+	bott, M_range, phi_range = data['bott_index_array'], data['M_range'], data['phi_range']
+	L_m, L_phi = bott.shape
+	M_values = np.linspace(M_range[0], M_range[1], L_m)
+	phi_values = np.linspace(phi_range[0], phi_range[1], L_phi)
+
+	values = np.vstack([M_values.repeat(L_phi), np.tile(phi_values, L_m), np.round(bott.flatten())])
+	nonzero_indices = np.argwhere(values[2] != 0)
+	nontrivial_mask = np.full(values[2].shape, False)	
+	nontrivial_mask[nonzero_indices] = True
+
+	phi_mask = np.where(values[1] > 0, True, False)
+	M_mask = np.where(values[0] >= 0, True, False)
+
+	mask = nontrivial_mask & phi_mask & M_mask
+
+	random_values = np.random.rand(mask.size)
+	percentage = 100.0
+	mask = mask & (random_values < percentage / 100)
+
+	plt.scatter(values[1, mask], values[0, mask], c=values[2, mask], cmap='viridis', vmin=-1, vmax=1)
+	plt.show()
+
+
 if __name__ == '__main__':
-	methods = ['hexagon', 'site_elim', 'renorm']
-	generations = [2, 3]
-	resolutions = [201, 51]
-
-	for method in methods:
-		for gen, resolution in zip(generations, resolutions):
-				phase_data = compute_phase_diagram(method=method, n=gen, resolution=resolution, n_jobs=4)
-				np.savez('./Hexaflake/Data/'+f'phase_data_{method}_gen{gen}.npz', **phase_data)
-				plot_phase_diagram(phase_data, outputfile=f'./Hexaflake/Figures/phase_diagram_{method}_gen{gen}.svg')
-
-		
+	eigen_data = compute_eigen_data('site_elim', 0, np.pi/2, 1, 1, compute_geometric_data(4, True, return_dx_dy=True))
+	bott = compute_bott_index(eigen_data)

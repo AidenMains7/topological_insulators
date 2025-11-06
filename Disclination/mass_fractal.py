@@ -6,7 +6,12 @@ from itertools import product
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm, tqdm_joblib
 import os, cProfile, pstats, time, h5py
+from matplotlib import colors
 
+try:
+    import cupy as cp
+except (ImportError, ModuleNotFoundError):
+    cp = None
 
 def profile_function(func):
     def wrapper(*args, **kwargs):
@@ -19,6 +24,31 @@ def profile_function(func):
         return result
     return wrapper
 
+def mean_time(func, n_iterations: int = 100, warmup: int = 0, *args, **kwargs):
+    """
+    Measure the execution time of `func(*args, **kwargs)` over `n_iterations`.
+    Optional `warmup` runs are executed first and not timed.
+    Returns a dict with mean, median, std and the raw times array.
+    """
+    # Warmup runs (not measured)
+    for _ in range(int(warmup)):
+        func(*args, **kwargs)
+
+    times = []
+    for _ in range(int(n_iterations)):
+        t0 = time.perf_counter()
+        func(*args, **kwargs)
+        t1 = time.perf_counter()
+        times.append(t1 - t0)
+
+    times = np.array(times, dtype=float)
+    return {
+        "mean": float(times.mean()),
+        "median": float(np.median(times)),
+        "std": float(times.std(ddof=0)),
+        "times": times
+    }
+
 
 # ---------------------------------------------------------- #
 # ---------------------------------------------------------- #
@@ -26,7 +56,7 @@ def profile_function(func):
 # region Geometry
 
 
-def generate_sierpinski_lattice(generation:int, pad_width:int) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+def generate_sierpinski_lattice(generation:int, pad_width:int, excludeCenter:bool = False) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     if (generation < 0):
         raise ValueError("Order of lattice must be >= 0.")
 
@@ -44,31 +74,99 @@ def generate_sierpinski_lattice(generation:int, pad_width:int) -> tuple[np.ndarr
 
         return carpet
     
-    #side length
     L = 3**generation
 
-    #square lattice
-    square_lat = np.arange(L*L).reshape((L,L))
-    carpet = _sierpinski_carpet(generation)
+    square_lattice = np.arange(L*L).reshape((L,L))
+    carpet_structure = _sierpinski_carpet(generation)
 
-    #pad width
     if (pad_width > 0):
-        carpet = np.pad(carpet,pad_width,mode='constant',constant_values=1)
+        carpet_structure = np.pad(carpet_structure,pad_width,mode='constant',constant_values=1)
 
-    #get indices of empty and filled sites 
-    flat = carpet.flatten()
-    holes = np.where(flat==0)[0]
-    fills = np.flatnonzero(flat)
+    flattened_lattice = carpet_structure.flatten()
+    hole_indices = np.where(flattened_lattice == 0)[0]
+    fill_indices = np.flatnonzero(flattened_lattice)
 
-    #construct fractal lattice
-    fractal_lat = np.full(flat.shape, -1, dtype=int)
-    fractal_lat[fills] = np.arange(fills.size)
-    fractal_lat = fractal_lat.reshape(carpet.shape)
+    fractal_lattice = np.full(flattened_lattice.shape, -1, dtype=int)
+    fractal_lattice[fill_indices] = np.arange(fill_indices.size)
+    fractal_lattice = fractal_lattice.reshape(carpet_structure.shape)
 
-    return square_lat, holes, fills
+    if excludeCenter:
+        center = (L // 2, L // 2)
+        radius = (L // 3 - 1) // 2
+        center_indices = square_lattice[center[0] - radius : center[0] + radius + 1, 
+                                        center[1] - radius : center[1] + radius + 1].flatten()
+        
+        mask = np.ones(L*L, dtype=bool)
+        mask[center_indices] = False
+    else:
+        mask = np.ones(L*L, dtype=bool)
 
 
-def calculate_square_hopping(lattice, pbc):
+    return {"lattice": square_lattice, 
+            "hole_indices": hole_indices, 
+            "fill_indices": fill_indices,
+            "center_mask": mask}
+
+
+def calculate_square_hopping(lattice: np.ndarray, pbc: bool) -> dict:
+    Ly, Lx = lattice.shape
+    N = Lx * Ly
+    
+    # Data for building sparse matrices (row_ind, col_ind, value)
+    Cx_data, Sx_data = [], []
+    Cy_data, Sy_data = [], []
+
+    for r in range(Ly):
+        for c in range(Lx):
+            i = r * Lx + c # Current site index
+
+            # Neighbor to the right (X+1)
+            c_right = (c + 1) % Lx if pbc else c + 1
+            if c_right < Lx:
+                j_right = r * Lx + c_right
+                # C_x = 0.5 * (T_x + T_x^\dagger)
+                Cx_data.append((i, j_right, 0.5))
+                Cx_data.append((j_right, i, 0.5))
+                # S_x = 0.5j * (T_x - T_x^\dagger)
+                Sx_data.append((i, j_right, 0.5j))
+                Sx_data.append((j_right, i, -0.5j))
+
+            # Neighbor below (Y+1)
+            r_down = (r + 1) % Ly if pbc else r + 1
+            if r_down < Ly:
+                j_down = r_down * Lx + c
+                # C_y = 0.5 * (T_y + T_y^\dagger)
+                Cy_data.append((i, j_down, 0.5))
+                Cy_data.append((j_down, i, 0.5))
+                # S_y = 0.5j * (T_y - T_y^\dagger)
+                Sy_data.append((i, j_down, 0.5j))
+                Sy_data.append((j_down, i, -0.5j))
+
+    # Create sparse matrices from the collected data
+    def to_coo(data, shape):
+        if not data: return spsp.coo_matrix(shape, dtype=complex)
+        rows, cols, vals = zip(*data)
+        return spsp.coo_matrix((vals, (rows, cols)), shape=shape)
+
+    Cx = to_coo(Cx_data, (N, N)).tocsr()
+    Sx = to_coo(Sx_data, (N, N)).tocsr()
+    Cy = to_coo(Cy_data, (N, N)).tocsr()
+    Sy = to_coo(Sy_data, (N, N)).tocsr()
+    I = spsp.eye(N, dtype=complex, format='csr')
+
+    # NNN terms can be built from NN terms
+    CxCy = Cx @ Cy
+    CySx = Cy @ Sx
+    CxSy = Cx @ Sy
+
+    wannier_dict = {
+        'Cx': Cx, 'Cy': Cy, 'Sx': Sx, 'Sy': Sy,
+        'CxCy': CxCy, 'CySx': CySx, 'CxSy': CxSy, 'I': I
+    }
+    return wannier_dict
+
+
+def old_calculate_square_hopping(lattice, pbc):
     y, x = np.where(lattice >= 0)[:]
 
     side_length = lattice.shape[0]
@@ -165,35 +263,27 @@ def generate_lattice_glass(generation:int, n_fractal_sites:int):
 # ---------------------------------------------------------- #
 # region Observables
 
-def calculate_hamiltonian(wannier_matrices, holes, fills, M_background, M_substitution, t:float = 1.0, t0:float = 1.0, doSparse:bool = True):
-    pauli1 = np.array([[0, 1], [1, 0]], dtype=complex)
-    pauli2 = np.array([[0, -1j], [1j, 0]], dtype=complex)
-    pauli3 = np.array([[1, 0], [0, -1]], dtype=complex)
+def calculate_hamiltonian(wannier_matrices:dict, geometry_dict:dict, 
+                          M_background:float, M_substitution:float, 
+                          t:float = 1.0, t0:float = 1.0):
+    pauli1 = spsp.csr_matrix([[0, 1], [1, 0]], dtype=complex)
+    pauli2 = spsp.csr_matrix([[0, -1j], [1j, 0]], dtype=complex)
+    pauli3 = spsp.csr_matrix([[1, 0], [0, -1]], dtype=complex)
 
     Cx, Cy, Sx, Sy, CxCy, CySx, CxSy, I = wannier_matrices.values()
+    lattice, hole_indices, fill_indices, mask = geometry_dict.values()
 
-    onsite_mass = I.copy()
-    for idx in holes:
-        onsite_mass[idx, idx] = M_background
-    for idx in fills:
-        onsite_mass[idx, idx] = M_substitution
+    mass_values = np.full(I.shape[0], M_background)
+    mass_values[fill_indices] = M_substitution
+    onsite_mass = spsp.diags(mass_values, format='csr')
 
-    if doSparse:
-        d1_sparse = t * Sx
-        d2_sparse = t * Sy
-        d3_sparse = onsite_mass.tocsr() - t0 * (Cx + Cy)
+    d1 = t * Sx
+    d2 = t * Sy
+    d3 = onsite_mass - t0 * (Cx + Cy)
+    hamiltonian = (spsp.kron(d1, pauli1) + spsp.kron(d2, pauli2) + spsp.kron(d3, pauli3)).tocsr()
 
-        pauli1_sparse = spsp.csr_matrix(pauli1)
-        pauli2_sparse = spsp.csr_matrix(pauli2)
-        pauli3_sparse = spsp.csr_matrix(pauli3)
-
-        hamiltonian = spsp.kron(d1_sparse, pauli1_sparse) + spsp.kron(d2_sparse, pauli2_sparse) + spsp.kron(d3_sparse, pauli3_sparse)
-        return hamiltonian
-    
-    d1 = t * Sx.toarray()
-    d2 = t * Sy.toarray()
-    d3 = onsite_mass.toarray() - t0 * (Cx.toarray() + Cy.toarray())
-    hamiltonian = np.kron(d1, pauli1) + np.kron(d2, pauli2) + np.kron(d3, pauli3)
+    parity_mask = np.repeat(mask, 2)
+    hamiltonian = hamiltonian[parity_mask, :][:, parity_mask]
     return hamiltonian
 
 
@@ -212,7 +302,6 @@ def calculate_projector(hamiltonian:np.ndarray, useGPU:bool = False, verbose:boo
 
     if useGPU: 
         try:
-            import cupy as cp
             xp = cp
             eigh_fn = cp.linalg.eigh
             backend = 'gpu'
@@ -248,8 +337,11 @@ def calculate_projector(hamiltonian:np.ndarray, useGPU:bool = False, verbose:boo
     return projector
 
 
-def calculate_bott_index(projector:np.ndarray, lattice:np.ndarray):
+def calculate_bott_index(projector:np.ndarray, lattice:np.ndarray, mask:np.ndarray):
     Y, X = np.where(lattice >= 0)[:]
+    X = X[mask]
+    Y = Y[mask]
+
     X = np.repeat(X, 2)
     Y = np.repeat(Y, 2)
     Lx, Ly = lattice.shape
@@ -295,6 +387,7 @@ def compute_LDOS(hamiltonian:np.ndarray, number_of_states:int = 2):
     }
     return data_dict
 
+
 # endregion
 # ---------------------------------------------------------- #
 # ---------------------------------------------------------- #
@@ -302,15 +395,16 @@ def compute_LDOS(hamiltonian:np.ndarray, number_of_states:int = 2):
 # region Phase
 
 
-def compute_phase_data(generation:int, M_background:float, M_substitution:float, t:float = 1.0, t0:float = 1.0, n_jobs:int = -1, pad_width:int = 0):
-    lattice, holes, fills = generate_sierpinski_lattice(generation=generation, pad_width=pad_width)
+def compute_phase_data(generation:int, M_background:np.ndarray, M_substitution:np.ndarray, t:float = 1.0, t0:float = 1.0, n_jobs:int = -1, pad_width:int = 0, excludeCenter:bool = False):
+    lattice_dict = generate_sierpinski_lattice(generation=generation, pad_width=pad_width, excludeCenter=excludeCenter)
+    lattice, mask = lattice_dict["lattice"], lattice_dict["center_mask"]
     wannier_matrices = calculate_square_hopping(lattice, pbc=True)
     parameter_values = tuple(product(M_background, M_substitution))
 
     def _compute_single_point(M_background_val, M_substitution_val):
-        H = calculate_hamiltonian(wannier_matrices, holes, fills, M_background_val, M_substitution_val, t, t0)
+        H = calculate_hamiltonian(wannier_matrices, lattice_dict, M_background_val, M_substitution_val, t, t0)
         P = calculate_projector(H)
-        bott = calculate_bott_index(P, lattice)
+        bott = calculate_bott_index(P, lattice, mask)
         return (M_background_val, M_substitution_val, bott)
 
     with tqdm_joblib(tqdm(total=len(parameter_values), desc="Computing Phase Data")) as progress_bar:
@@ -338,7 +432,7 @@ def open_phase_data(filename:str, directory:str = "./Disclination/PhaseData/") -
     return phase_data
 
 
-def plot_phase_data(filename, ax:plt.axes = None):
+def plot_phase_data(filename, ax:plt.axes = None, directory:str = "./Disclination/PhaseData/", doSave:bool = True, doShow:bool = False):
     phase_data = open_phase_data(filename)
 
     M_background_unique = np.unique(phase_data["M_background"])
@@ -348,34 +442,58 @@ def plot_phase_data(filename, ax:plt.axes = None):
         # 1D scatter plot
         doScat = True
     else:
-        Bott = phase_data["Bott"].reshape((M_background_unique.size, M_substitution_unique.size))
+        bott_data = phase_data["Bott"].reshape((M_background_unique.size, M_substitution_unique.size))
         doScat = False
 
     if ax == None:
-        fig, ax = plt.subplots(figsize=(8, 6))
+        fig, ax = plt.subplots(figsize=(8, 8))
 
     if not doScat:
-        im = ax.imshow(Bott, extent=(M_substitution_unique.min(), M_substitution_unique.max(), M_background_unique.min(), M_background_unique.max()), 
-                       origin='lower', cmap='RdBu', vmin=-1, vmax=1)
-        fig.colorbar(im, ax=ax, label='Bott Index')
-        ax.set_xlabel('Mass on Filled Sites (M_substitution)')
-        ax.set_ylabel('Mass on Empty Sites (M_background)')
+        im = ax.imshow(bott_data, extent=(M_substitution_unique.min(), M_substitution_unique.max(), M_background_unique.min(), M_background_unique.max()),
+                       origin='lower', cmap='viridis', vmin=-1, vmax=1)
+
+        cmap = plt.get_cmap('viridis', 3)
+        bounds = [-1.5, -0.5, 0.5, 1.5]
+        norm = colors.BoundaryNorm(bounds, cmap.N)
+        im.set_cmap(cmap)
+        im.set_norm(norm)
+        cbar = fig.colorbar(im, ax=ax, boundaries=bounds, ticks=[-1, 0, 1], spacing='proportional')
+        cbar.set_label('Bott Index', labelpad=15, fontsize=12)
+        ax.set_xlabel(f'$m^{{\\text{{sub}}}}$', fontsize=16)
+        ax.set_ylabel(f'$m^{{\\text{{back}}}}$', fontsize=16, rotation=0, labelpad=20)
+
+        xmin, xmax = ax.get_xlim()
+        ymin, ymax = ax.get_ylim()
+            
+        t = np.linspace(xmin, xmax, 101)
+        ax.plot(t, t, color='black', linestyle='--', linewidth=0.8, alpha=0.25)
+        for v in [-2.5, -1.0, 1.0, 2.5]:
+            ax.axvline(v, color='black', linestyle='--', linewidth=0.8, alpha=0.25)
+            ax.axhline(v, color='black', linestyle='--', linewidth=0.8, alpha=0.25)
+
+        ax.set_xticks([xmin, -2.5, -1.0, 0.0, 1.0, 2.5, xmax])
+        ax.set_yticks([ymin, -2.5, -1.0, 0.0, 1.0, 2.5, ymax])
+
     else:
         if len(M_substitution_unique) == 1:
             sc = ax.scatter(phase_data["M_background"], phase_data["Bott"], label=f"$M^{{\\text{{sub}}}}={M_substitution_unique[0]}$") 
-            ax.set_xlabel('Mass on Empty Sites (M_background)')     
+            ax.set_xlabel('$m^{{\\text{{back}}}}$')     
         else:
             sc = ax.scatter(phase_data["M_substitution"], phase_data["Bott"], label=f"$M^{{\\text{{back}}}}={M_background_unique[0]}$")
-            ax.set_xlabel('Mass on Filled Sites (M_substitution)')
+            ax.set_xlabel('$m^{{\\text{{sub}}}}$')
         ax.set_ylabel('Bott Index')
         ax.set_yticks([-1, 0, 1])
         ax.axhline(0, color='black', linestyle='--', linewidth=0.8)
         ax.legend()
 
+    plt.tight_layout()
+    ax.set_title(filename[:-4], fontsize=20, pad=15)
 
-    ax.set_title('Phase Diagram')
-    ax.grid(False)
-    plt.show()
+    if doSave:
+        plt.savefig(os.path.join(directory, filename.replace('.npz', '.png')))
+    if doShow:
+        plt.show()
+
 
 def compute_glass_phase_data(M_background_values:np.ndarray, M_substitution_values:np.ndarray, n_fractal_sites:int, n_iterations:int, generation:int = 2, n_jobs:int = -1):
     parameter_values = np.array(tuple(product(M_background_values, M_substitution_values)))
@@ -383,11 +501,12 @@ def compute_glass_phase_data(M_background_values:np.ndarray, M_substitution_valu
     total_computations = len(M_background_values) * len(M_substitution_values) * n_iterations
 
     def _compute_single_point(M_background_val, M_substitution_val):
-        lattice, holes, fills = generate_lattice_glass(generation=generation, n_fractal_sites=n_fractal_sites)
+        lattice_dict = generate_lattice_glass(generation=generation, n_fractal_sites=n_fractal_sites)
+        lattice, mask = lattice_dict["lattice"], lattice_dict["center_mask"]
         wannier_matrices = calculate_square_hopping(lattice, pbc=True)
-        H = calculate_hamiltonian(wannier_matrices, holes, fills, M_background_val, M_substitution_val, t=1.0, t0=1.0)
+        H = calculate_hamiltonian(wannier_matrices, lattice_dict["hole_indices"], lattice_dict["fill_indices"], M_background_val, M_substitution_val)
         P = calculate_projector(H)
-        bott = calculate_bott_index(P, lattice)
+        bott = calculate_bott_index(P, lattice, mask)
         return (M_background_val, M_substitution_val, bott)
     
     with tqdm_joblib(tqdm(total=total_computations, desc="Computing Glass Phase Data")) as progress_bar:
@@ -404,67 +523,126 @@ def compute_glass_phase_data(M_background_values:np.ndarray, M_substitution_valu
     print(results)
 
 
-
-
-
 # endregion
 # ---------------------------------------------------------- #
 # ---------------------------------------------------------- #
 # ---------------------------------------------------------- #
 
 
-def compute_save_plot_phase_diagram(m_substitution:float, directory:str = "./Disclination/PhaseData/", doOverwrite:bool = False):
-    M_substitution = [m_substitution]
-    M_background = np.linspace(-100.0, 100.0, 11)
-
-    filename = f"test.npz"
-
+def compute_save_plot_phase_diagram(generation:int, m_back_vals:np.ndarray, m_sub_vals:np.ndarray, filename:str="temp.npz", directory:str = "./Disclination/PhaseData/", doOverwrite:bool = False, excludeCenter:bool = False):
     if os.path.exists(os.path.join(directory, filename)) and not doOverwrite:
         print(f"File {filename} already exists")
     else:
-        phase_data = compute_phase_data(generation=3, M_background=M_background, M_substitution=M_substitution, n_jobs=-1)
+        phase_data = compute_phase_data(generation=generation, M_background=m_back_vals, M_substitution=m_sub_vals, n_jobs=-1, excludeCenter=excludeCenter)
         save_phase_data(phase_data, filename, doOverwrite=doOverwrite, directory=directory)
     phase_data = open_phase_data(filename, directory)
     plot_phase_data(filename)
 
 
 def main_single():
-    lattice, holes, fills = generate_sierpinski_lattice(generation=3, pad_width=0)
+    lattice_dict = generate_sierpinski_lattice(generation=3, pad_width=0)
+    lattice, mask = lattice_dict["lattice"], lattice_dict["center_mask"]
     wannier_matrices = calculate_square_hopping(lattice, pbc=True)
 
-    H = calculate_hamiltonian(wannier_matrices, holes, fills, 1.0, 1.0)
+    H = calculate_hamiltonian(wannier_matrices, lattice_dict, 1.0, 1.0)
     P = calculate_projector(H)
-    bott = calculate_bott_index(projector=P, lattice=lattice)
+    bott = calculate_bott_index(projector=P, lattice=lattice, mask=mask)
     return bott
 
 
-def make_big_plot():
+def make_big_plot(generation:int):
     fig, axs = plt.subplots(2, 2, figsize=(8, 8), sharex=True, sharey=True)
-    for i, f in enumerate([f"ms={v}.npz" for v in [-2.5, -1.0, 1.0, 2.5]]):
-        plot_phase_data(f, axs.flatten()[i])
+    for i, f in enumerate([f"g{generation}_ms={v}.npz" for v in [-2.5, -1.0, 1.0, 2.5]]):
+        plot_phase_data(f, axs.flatten()[i], doSave=False, doShow=False)
 
     plt.tight_layout()
     plt.subplots_adjust(hspace=0.5)
-    plt.savefig("./Disclination/PhaseData/" + "temp.png")
+    plt.savefig("./Disclination/PhaseData/" + f"g{generation}_big_plot.png")
     plt.show()
+
+
+def main(M_background, M_substitution, excludeCenter:bool):
+    lattice_dict = generate_sierpinski_lattice(generation=3, pad_width=0, excludeCenter=excludeCenter)
+    lattice, mask = lattice_dict["lattice"], lattice_dict["center_mask"]
+    H = calculate_hamiltonian(calculate_square_hopping(lattice, pbc=True), lattice_dict, M_background=M_background, M_substitution=M_substitution)
+    P = calculate_projector(H, useGPU=True, verbose=False)
+    bott = calculate_bott_index(P, lattice, mask)
+
+    LDOS = compute_LDOS(H.toarray(), number_of_states=2)["LDOS"]
+    Y, X = np.where(lattice >= 0)[:]
+    plt.figure(figsize=(8, 8))
+
+    fill_indices, hole_indices = lattice_dict["fill_indices"], lattice_dict["hole_indices"]
+    fill_mask = np.logical_and(np.isin(lattice.flatten(), fill_indices), mask)
+    hole_mask = np.logical_and(np.isin(lattice.flatten(), hole_indices), mask)
+
+    # Map LDOS (which is ordered over active sites where mask==True) to the lattice coordinates
+    Y_flat, X_flat = np.where(lattice >= 0)
+    active_site_indices = np.flatnonzero(mask)          # flattened indices of sites kept by mask
+    X_active = X_flat[mask]                             # X coords in same order as LDOS
+    Y_active = Y_flat[mask]                             # Y coords in same order as LDOS
+
+    # Select the active sites that are filled and index LDOS accordingly
+    LDOS /= np.max(LDOS)
+
+    filled_active_mask = np.isin(active_site_indices, fill_indices)
+    LDOS_filled = LDOS[filled_active_mask]
+
+    hole_active_mask = np.isin(active_site_indices, hole_indices)
+    LDOS_hole = LDOS[hole_active_mask]
+
+    plt.scatter(X_active[filled_active_mask], Y_active[filled_active_mask],
+                c=LDOS_filled, s=100, cmap='viridis', alpha=1.0, marker='^')
+    plt.scatter(X_active[hole_active_mask], Y_active[hole_active_mask],
+                c=LDOS_hole, s=100, cmap='viridis', alpha=1.0, marker='o')
+    plt.gca().set_aspect('equal', adjustable='box')
+    plt.title(f"LDOS ($M_{{back}}={M_background:.2f}, M_{{sub}}={M_substitution:.2f}, $BI$={bott:.0f}$)")
+    plt.colorbar(label='LDOS')
+    plt.show()
+    return bott
 
 
 if __name__ == "__main__":
+    plot1D = False
+    plot2D = True
 
-    compute_save_plot_phase_diagram(m_substitution=1.0, doOverwrite=True)
+
+    if plot1D:
+        m_sub_values = [-2.5, -1.0, 1.0, 2.5]
+        m_back = np.linspace(-2.0, 2.0, 251)
+        generation = 2
+        for m_sub in m_sub_values:
+            phase_data = compute_phase_data(generation, m_back, [m_sub])
+            save_phase_data(phase_data, filename=f"g{generation}_ms={m_sub}.npz", doOverwrite=True)
+            pass
+        make_big_plot(generation=generation)
+
+    if plot2D:
+        generation = 3
+        fname = [f"gen{generation}_mb_vs_ms.npz"]
+        vals = np.linspace(-2.5, 2.5, 101)
+        for fname in fname:
+            compute_save_plot_phase_diagram(generation, vals, vals, filename=fname, doOverwrite=True)
+
+        generation = 4
+        fname = [f"gen{generation}_mb_vs_ms.npz"]
+        vals = np.linspace(-2.5, 2.5, 25)
+        for fname in fname:
+            compute_save_plot_phase_diagram(generation, vals, vals, filename=fname, doOverwrite=True)
 
 
-    lat, fills, holes = generate_sierpinski_lattice(generation=3, pad_width=0)
-    H = calculate_hamiltonian(calculate_square_hopping(lat, pbc=True), holes, fills, M_background=4.0, M_substitution=1.0)
-    P = calculate_projector(H, useGPU=False, verbose=True)
-    bott = calculate_bott_index(P, lat)
-    print(bott)
 
-    LDOS = compute_LDOS(H.toarray(), number_of_states=2)["LDOS"]
 
-    Y, X = np.where(lat >= 0)[:]
-    plt.scatter(X, Y, c=LDOS, cmap='inferno')
-    plt.colorbar(label='LDOS')
-    plt.show()
+
+
+
+
+
+
+
+
+
+
+
+
     
-    #compute_glass_phase_data([1.0], [-1.0, 0.0, 1.0], n_fractal_sites=10, n_iterations=5, generation=2, n_jobs=4)

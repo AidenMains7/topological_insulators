@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from multiprocessing import Manager
 from time import time
 from fractions import Fraction
-from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_sparse_hamiltonian
+from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_hamiltonian
 
 
 def compute_bott_from_hamiltonian(H, method, geometry_data):
@@ -17,7 +17,7 @@ def compute_bott_from_hamiltonian(H, method, geometry_data):
 	if method in ['site_elim', 'renorm']:
 		hexaflake = geometry_data['hexaflake']
 		x, y = x[hexaflake], y[hexaflake]
-	return compute_bott_index({'x':x, 'y':y, 'eigenvalues':eigenvalues, 'eigenvectors':eigenvectors})
+	return compute_bott_index({'x':x, 'y':y, 'eigenvalues':eigenvalues, 'eigenvectors':eigenvectors, 'S':geometry_data['x'].size})
 
 #------------------------------------------------------------
 #------------------------------------------------------------
@@ -44,7 +44,6 @@ def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
 
 
 def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, n_jobs=-2, show_progress=True, directory='', fileOverwrite=False):
-	
 	M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
 	phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
 	geometry_data = compute_geometric_data(generation, True)
@@ -56,7 +55,7 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 	def worker_function(parameters):
 		phi, M = parameters
 		try:
-			H = compute_sparse_hamiltonian(method, M, phi, t1, t2, geometry_data)
+			H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data)
 			bott = compute_bott_from_hamiltonian(H, method, geometry_data)
 			return [phi, M, bott]
 		
@@ -86,7 +85,7 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 def compute_disorder_iterations(phi, M, method, strength, t1, t2, geometry_data, iterations=100, n_jobs=-2, show_progress=False):
 
 	def worker_function(i):
-		clean_H = compute_sparse_hamiltonian(method, M, phi, t1, t2, geometry_data)
+		clean_H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data)
 		disorder_arr = compute_disorder_array(strength, clean_H.shape[0], 1)
 		disorder_H = clean_H + disorder_arr
 		bott = compute_bott_from_hamiltonian(disorder_H, method, geometry_data)
@@ -276,9 +275,9 @@ def pi_tick_labels(value):
 		return 0
 	sign = "-" if fractional_value.numerator < 0 else ""
 	if abs(fractional_value.numerator) == 1:
-		numerator = "$\pi$"
+		numerator = "$\\pi$"
 	else:
-		numerator = f"{abs(fractional_value.numerator)}$\pi$"
+		numerator = f"{abs(fractional_value.numerator)}$\\pi$"
 	if fractional_value.denominator == 1:
 		return sign + numerator
 	else:
@@ -384,19 +383,25 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 			ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
 			ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
 
+	for ax in axs.flatten():
+		ax.set_xlim([0., np.pi])
+		ax.set_ylim([0., 3*np.sqrt(3)])
+
+
 	add_colorbar_to_figure(fig, axs, norm, cmap, "Bott Index")
 	if image_filename is not None:
 		plt.savefig(image_filename)
 	plt.show()
 
 
-def compute_many_phase_diagrams(generation=2, dimensions=(50,50), iterations=100, n_jobs=-2, directory="."):
+def compute_many_phase_diagrams(generation, disorder_strengthsm, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory="."):
 	if not os.path.exists(directory):
 		os.makedirs(directory)
 
-	for disorder_strength in [11.0]:
-		for method in ['renorm', 'site_elim', 'hexagon']:
-			clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory)
+	for disorder_strength in disorder_strengths:
+		for method in methods:
+			clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory,
+							  M_range=(0., 5.5), phi_range=(0., np.pi))
 			disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
 
 
@@ -406,11 +411,14 @@ def compute_many_phase_diagrams(generation=2, dimensions=(50,50), iterations=100
 
 
 if __name__ == "__main__":
-	compute_many_phase_diagrams(2, (51, 51), iterations=25, n_jobs=-1, directory="./Hexaflake/Data/")
-	make_large_figure(3, (51,51), ['hexagon', 'renorm', 'site_elim'], 
-				   disorder_strengths=[0.0, 1.0, 2.0, 3.0],
-				   directory="Haldane_Disorder_Data/Res2500_Avg100/", 
+	disorder_strengths = [5.0, 4.0, 3.0, 2.0, 1.0]
+	methods = ['site_elim']
+	titles = ['Pristine', 'Renormalization', 'Site Elimination']
+	compute_many_phase_diagrams(3, disorder_strengths, methods, (25, 25), iterations=100, n_jobs=4, directory="./Hexaflake/Data/")
+	make_large_figure(3, (25, 25), methods, 
+				   disorder_strengths=disorder_strengths,
+				   directory="./Hexaflake/Data/", 
 				   cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
-				   row_labels=['Hexagon', 'Renormalization', 'Site Elimination'],
+				   row_labels=titles,
 				   title="Bott Index Phase Diagram Varying With Disorder", image_filename="./Hexaflake/Figures/PhaseDiagram.png")
 	
