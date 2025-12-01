@@ -406,11 +406,15 @@ def compute_many_phase_diagrams(generation=2, dimensions=(50,50), iterations=100
 
 
 if __name__ == "__main__":
-	compute_many_phase_diagrams(2, (51, 51), iterations=25, n_jobs=-1, directory="./Hexaflake/Data/")
-	make_large_figure(3, (51,51), ['hexagon', 'renorm', 'site_elim'], 
-				   disorder_strengths=[0.0, 1.0, 2.0, 3.0],
-				   directory="Haldane_Disorder_Data/Res2500_Avg100/", 
-				   cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
-				   row_labels=['Hexagon', 'Renormalization', 'Site Elimination'],
-				   title="Bott Index Phase Diagram Varying With Disorder", image_filename="./Hexaflake/Figures/PhaseDiagram.png")
-	
+
+	clean_data = extract_data_from_h5_file('./Hexaflake/Data/')
+
+	if False:
+		compute_many_phase_diagrams(2, (51, 51), iterations=25, n_jobs=-1, directory="./Hexaflake/Data/")
+		make_large_figure(3, (51,51), ['hexagon', 'renorm', 'site_elim'], 
+					disorder_strengths=[0.0, 1.0, 2.0, 3.0],
+					directory="Haldane_Disorder_Data/Res2500_Avg100/", 
+					cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
+					row_labels=['Hexagon', 'Renormalization', 'Site Elimination'],
+					title="Bott Index Phase Diagram Varying With Disorder", image_filename="./Hexaflake/Figures/PhaseDiagram.png")
+		
