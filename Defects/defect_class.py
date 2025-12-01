@@ -10,6 +10,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import inspect
 from joblib import Parallel, delayed
 from tqdm_joblib import tqdm, tqdm_joblib
+import os, pstats, cProfile
 
 
 class DefectSquareLattice:
@@ -52,8 +53,8 @@ class DefectSquareLattice:
             raise ValueError("Both Lx and Ly must be even for interstitial defect.")
         elif self.defect_type == "schottky" and ((self.Lx + self.schottky_distance) % 2 != 1 or (self.Ly + self.schottky_distance) % 2 != 1):
             raise ValueError("Lx or Ly + schottky distance must be odd for schottky defect. They are {} and {}".format(self.Lx + self.schottky_distance, self.Ly + self.schottky_distance))
-        elif self.defect_type not in ["interstitial", "schottky"] and self.Lx % 2 == 0 and self.Ly % 2 == 0:
-            raise ValueError("Both Lx and Ly must be odd for non-interstitial defects.")
+        elif self.defect_type in ["vacancy", "substitution", "frenkel_pair"] and self.Lx % 2 == 0 and self.Ly % 2 == 0:
+            raise ValueError("Both Lx and Ly must be odd for vacancy, substitution, and frenkel_pair defects.")
 
         # Generate the defect lattice based on the defect type.
         match self.defect_type:
@@ -394,7 +395,8 @@ class DefectSquareLattice:
 
     # region Computation
     def compute_hamiltonian(self, M_background:float, M_substitution:float = None, t:float = 1.0, t0:float = 1.0, 
-                            tau_x:np.ndarray = None, tau_y:np.ndarray = None, tau_z:np.ndarray = None):
+                            tau_x:np.ndarray = None, tau_y:np.ndarray = None, tau_z:np.ndarray = None,
+                            delta1:float = 0.0, delta2:float = 0.0, delta3:float = 0.0):
         """Compute the Hamiltonian for the defect lattice based on the defect type and provided parameters.
         
         Parameters:
@@ -431,8 +433,19 @@ class DefectSquareLattice:
 
         hamiltonian = np.kron(d1, tau_x) + np.kron(d2, tau_y) + np.kron(d3, tau_z)
 
+
+        # For the Non-Hermitian skin effect
+        if abs(delta1) + abs(delta2) + abs(delta3) != 0.0:
+            H_ah1 = delta1 * 1j * tau_x
+            H_ah2 = delta2 * 1j * tau_y
+            H_ah3 = delta3 * 1j * tau_z
+            H_AH = np.kron(self.I, H_ah1 + H_ah2 + H_ah3)
+            hamiltonian += H_AH
+
         if self.defect_type == "schottky":
+            # We do not do this for vacancy or frenkel_pair as the site is removed entirely.
             hamiltonian = hamiltonian[np.ix_(self._mask, self._mask)]  # Remove rows and columns corresponding to the defects
+
         return hamiltonian
 
     def compute_projector(self, hamiltonian:np.ndarray):
@@ -598,7 +611,13 @@ class DefectSquareLattice:
         bott_index = np.mean(all_bott_index)
         X = all_X[0]
         Y = all_Y[0]
-        return LDOS, eigenvalues, gap, bott_index, X, Y, all_ldos_idxs[0]
+        data_dict = {"LDOS": LDOS, "eigenvalues": eigenvalues, "gap": gap, "bott_index": bott_index, "X": X, "Y": Y, "ldos_idxs": all_ldos_idxs[0], "disorder_strength": disorder_strength, "n_iterations": n_iterations} 
+
+        direc = "./Defects/Data/Disorder/"
+        fname = f"{self.defect_type}_Lx{self.Lx}_Ly{self.Ly}_mback{m_background}_msub{m_substitution}.npz"
+        if self.defect_type == "frenkel_pair":
+            fname = f"{self.defect_type}_Lx{self.Lx}_Ly{self.Ly}_mback{m_background}_msub{m_substitution}_fp{self._frenkel_pair_index}.npz"
+        np.savez(direc+fname, **data_dict)
 
     # endregion
 
@@ -942,8 +961,6 @@ class DefectSquareLattice:
                 else:
                     surf_ax = plot_ldos_ax(ax, LDOS, X, Y)
 
-                
-        
         return fig, axs
     
     # endregion
