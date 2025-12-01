@@ -330,6 +330,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
 	global_min, global_max = global_bounds(clean_bott_data+disorder_bott_data)
 	norm = plt.Normalize(vmin=global_min, vmax=global_max)
+	norm = plt.Normalize(vmin=-1.0, vmax=0.)
 	
 	files_array = np.empty((len(methods), len(disorder_strengths)), dtype=object)
 	for i, method in enumerate(methods):
@@ -394,7 +395,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	plt.show()
 
 
-def compute_many_phase_diagrams(generation, disorder_strengthsm, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory="."):
+def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory="."):
 	if not os.path.exists(directory):
 		os.makedirs(directory)
 
@@ -411,14 +412,18 @@ def compute_many_phase_diagrams(generation, disorder_strengthsm, methods, dimens
 
 
 if __name__ == "__main__":
-	disorder_strengths = [5.0, 4.0, 3.0, 2.0, 1.0]
-	methods = ['site_elim']
+	compute_these_disorder_strengths = []
+	plot_these_disorder_strengths = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+	methods = ['hexagon']
 	titles = ['Pristine', 'Renormalization', 'Site Elimination']
-	compute_many_phase_diagrams(3, disorder_strengths, methods, (25, 25), iterations=100, n_jobs=4, directory="./Hexaflake/Data/")
-	make_large_figure(3, (25, 25), methods, 
-				   disorder_strengths=disorder_strengths,
-				   directory="./Hexaflake/Data/", 
-				   cmap="Spectral", plotUndisordered=True, plotSineBoundary=True,
+	res = (25, 25)
+	generation = 3
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=100, n_jobs=5, directory="./Hexaflake/Data/")
+	make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
+				   disorder_strengths=plot_these_disorder_strengths,
+				   directory="./Hexaflake/Data/",
+				   cmap="inferno", plotUndisordered=True, plotSineBoundary=True,
 				   row_labels=titles,
-				   title="Bott Index Phase Diagram Varying With Disorder", image_filename="./Hexaflake/Figures/PhaseDiagram.png")
+				   title=f"Generation {generation}\nRobustness Over Disorder", image_filename=f"./Hexaflake/Figures/PhaseDiagram_g{generation}.png")
+
 	
