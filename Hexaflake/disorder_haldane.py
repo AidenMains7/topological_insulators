@@ -43,9 +43,13 @@ def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
 	return np.diag(disorder_array).astype(np.complex128)
 
 
-def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, n_jobs=-2, show_progress=True, directory='', fileOverwrite=False):
-	M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
-	phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
+def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, 
+				  n_jobs=-2, show_progress=True, directory='', fileOverwrite=False,
+				  M_values=None, phi_values=None):
+	if M_values is None:
+		M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
+	if phi_values is None:
+		phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
 	geometry_data = compute_geometric_data(generation, True)
 
 	out_filename = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
@@ -412,18 +416,29 @@ def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensi
 
 
 if __name__ == "__main__":
-	compute_these_disorder_strengths = []
-	plot_these_disorder_strengths = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
-	methods = ['hexagon']
-	titles = ['Pristine', 'Renormalization', 'Site Elimination']
-	res = (25, 25)
-	generation = 3
-	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=100, n_jobs=5, directory="./Hexaflake/Data/")
-	make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
-				   disorder_strengths=plot_these_disorder_strengths,
-				   directory="./Hexaflake/Data/",
-				   cmap="inferno", plotUndisordered=True, plotSineBoundary=True,
-				   row_labels=titles,
-				   title=f"Generation {generation}\nRobustness Over Disorder", image_filename=f"./Hexaflake/Figures/PhaseDiagram_g{generation}.png")
+	clean_data = extract_data_from_h5_file('./Hexaflake/Data/site_elim_g3_(25_by_25).h5')
 
-	
+	M, BI, PHI = clean_data.values()
+	nonzero_indices = np.argwhere(np.round(BI, 0).flatten() != 0)
+
+	M = M[nonzero_indices]
+	PHI = PHI[nonzero_indices]
+
+	file = compute_phase('site_elim', 4, dimensions=(25, 25), M_values = M, phi_values = PHI, n_jobs = -2, directory="./Hexaflake/Data/")
+
+
+
+	if False:
+		compute_these_disorder_strengths = []
+		plot_these_disorder_strengths = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+		methods = ['hexagon']
+		titles = ['Pristine', 'Renormalization', 'Site Elimination']
+		res = (25, 25)
+		generation = 3
+		compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=100, n_jobs=5, directory="./Hexaflake/Data/")
+		make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
+					disorder_strengths=plot_these_disorder_strengths,
+					directory="./Hexaflake/Data/",
+					cmap="inferno", plotUndisordered=True, plotSineBoundary=True,
+					row_labels=titles,
+					title=f"Generation {generation}\nRobustness Over Disorder", image_filename=f"./Hexaflake/Figures/PhaseDiagram_g{generation}.png")
