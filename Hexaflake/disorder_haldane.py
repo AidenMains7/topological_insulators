@@ -45,9 +45,13 @@ def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
 	return np.diag(disorder_array).astype(np.complex128)
 
 
-def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, n_jobs=-2, show_progress=True, directory='', fileOverwrite=False):
-	M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
-	phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
+def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, 
+				  n_jobs=-2, show_progress=True, directory='', fileOverwrite=False,
+				  M_values=None, phi_values=None):
+	if M_values is None:
+		M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
+	if phi_values is None:
+		phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
 	geometry_data = compute_geometric_data(generation, True)
 
 	out_filename = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"

@@ -500,7 +500,7 @@ class DefectSquareLattice:
         upper_idxs = np.arange(len(eigenvalues))[mid_index:][:number_of_states // 2]
         selected_indices = np.concatenate((lower_idxs, upper_idxs)) # Indices of the selected states to be used in LDOS
 
-        LDOS = np.sum(np.abs(eigenvectors[:, selected_indices])**2, axis=1)
+        LDOS = np.sum(np.abs(eigenvectors[:, selected_indices]) ** 2, axis=1)
         if self.defect_type == "schottky":
             new_LDOS = np.zeros(self.Lx * self.Ly * 2, dtype=LDOS.dtype)
             new_LDOS[self._mask] = LDOS
@@ -521,7 +521,7 @@ class DefectSquareLattice:
 
     def _compute_for_figure(self, m_background:float, m_substitution:float, number_of_states:float):
         """Helper function to compute the LDOS, eigenvalues, gap, and bott index for the defect lattice."""
-
+        print("m_background:", m_background, "m_substitution:", m_substitution)
         def _average_over_frenkel_pair():
             """Average over all Frenkel pair possibilities to compute the LDOS, eigenvalues, gap, and bott index."""
             all_LDOS = []
@@ -530,35 +530,39 @@ class DefectSquareLattice:
             all_eigenvalues = []
             all_gap = []
             all_bott = []
+            all_ldos_idxs = []
             for frenkel_pair_index in range(8):
                 NewLattice = DefectSquareLattice(self.Lx, self.Ly, self.defect_type, pbc=self.pbc, frenkel_pair_index=frenkel_pair_index)
                 hamiltonian = NewLattice.compute_hamiltonian(m_background, m_substitution)
                 ldos_dict = NewLattice.compute_LDOS(hamiltonian, number_of_states=2)
-                LDOS, eigenvalues, gap, bandwidth, ldos_idxs = ldos_dict["LDOS"], ldos_dict["eigenvalues"], ldos_dict["gap"], ldos_dict["bandwidth"], ldos_dict["ldos_idxs"]
+                this_LDOS, eigenvalues, gap, bandwidth, ldos_idxs = ldos_dict["LDOS"], ldos_dict["eigenvalues"], ldos_dict["gap"], ldos_dict["bandwidth"], ldos_dict["ldos_idxs"]
                 projector = NewLattice.compute_projector(hamiltonian)
                 bott_index = NewLattice.compute_bott_index(projector)
-                all_LDOS.append(LDOS)
+                
+                all_LDOS.append(this_LDOS)
                 all_x.append(NewLattice.X)
                 all_y.append(NewLattice.Y)
                 all_eigenvalues.append(eigenvalues)
                 all_gap.append(gap)
                 all_bott.append(bott_index)
-            all_LDOS = np.concatenate(all_LDOS, axis=0)
+                all_ldos_idxs.append(ldos_idxs)
+
+            all_LDOS = np.concatenate(all_LDOS)
             all_x = np.concatenate(all_x, axis=0)
             all_y = np.concatenate(all_y, axis=0)
             all_gap = np.mean(all_gap)
             all_bott = np.mean(all_bott)
-            coords = np.stack((all_x, all_y), axis=1)
-            unique_coords, inverse_indices = np.unique(coords, axis=0, return_inverse=True)
-            summed_LDOS = np.zeros(len(unique_coords))
-            np.add.at(summed_LDOS, inverse_indices, all_LDOS)
-            summed_LDOS /= np.sum(summed_LDOS)
-            LDOS, gap = summed_LDOS, np.mean(all_gap)
-            eigenvalues = np.mean(all_eigenvalues, axis=0)
-            X, Y = unique_coords[:, 0], unique_coords[:, 1]
-            bott_index = np.mean(all_bott)
-            return LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs
 
+            coords = np.column_stack((all_x, all_y))
+            unique_coords, inverse_indices = np.unique(coords, axis=0, return_inverse=True)
+
+            summed_LDOS = np.zeros(len(unique_coords), dtype=all_LDOS.dtype)
+            np.add.at(summed_LDOS, inverse_indices, all_LDOS)
+
+            summed_LDOS /= np.sum(summed_LDOS)
+            X, Y = unique_coords[:, 0], unique_coords[:, 1]
+            return summed_LDOS, all_eigenvalues[0], np.mean(all_gap), np.mean(all_bott), X, Y, all_ldos_idxs[0]
+        
         if self.defect_type == "frenkel_pair":
             LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = _average_over_frenkel_pair()
         else:
@@ -922,44 +926,25 @@ class DefectSquareLattice:
         if n_rows == 1:
             axs = np.array([axs])
 
+        elif n_cols == 1:
+            axs = axs[:, np.newaxis]
+
         for j, m_background in enumerate(m_background_values):
             good_m_sub_vals = np.array(m_substitution_values)[np.array(m_substitution_values) != m_background]
             for i, m_substitution in enumerate(good_m_sub_vals):
-                if doDisorder:
-                    None_Lattice = DefectSquareLattice(self.Lx, self.Ly, "none", pbc=self.pbc)
-                    _, _, gap_none, _, _, _, _ = None_Lattice._compute_for_figure(m_background, m_substitution, 2)
-                    disorder_strength = gap_none * 0.25
 
                 if self.defect_type == "schottky":
                     Lat = DefectSquareLattice(self.Lx, self.Ly, "schottky", pbc=self.pbc, schottky_type=i, schottky_distance=self._schottky_distance)
-                    if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = Lat._compute_for_figure(m_background, m_substitution, 2, disorder_strength, n_iterations)
                     LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = Lat._compute_for_figure(m_background, m_substitution, 2)
                 elif i == 1 and doLargeDefectFigure and self.defect_type in ["vacancy"]:
-                    if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
                     LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
                 elif doLargeDefectFigure and self.defect_type not in ["vacancy"]:
-                    if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self.LargeDefectLattice._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
                     LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self.LargeDefectLattice._compute_for_figure(m_background, m_substitution, 2)
                 else:
-                    if doDisorder:
-                        d_LDOS, d_eigenvalues, d_gap, d_bott_index, d_X, d_Y, d_ldos_idxs = self._compute_for_figure_disorder(m_background, m_substitution, 2, disorder_strength, n_iterations)
                     LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, 2)
                 
-                if doDisorder:
-                    LDOS = d_LDOS
-                    eigenvalues = d_eigenvalues
-                    bott_index = d_bott_index
-                    X = d_X
-                    Y = d_Y
-                    ldos_idxs = d_ldos_idxs
-                    undisordered_gap = gap
-                    disordered_gap = d_gap
-
                 #ax = axs[i, j]
-                ax = axs[j, i]
+                ax = axs.T[j, i]
 
                 if self.defect_type in ["none", "vacancy", "schottky"]:
                     param_name = f"$m_0={m_background}$"
@@ -968,13 +953,7 @@ class DefectSquareLattice:
                 else:
                     param_name = f"$m_0^{{\\text{{int}}}}={m_substitution}$"
 
-                if doDisorder:
-                    gap_label = f"Gap = {disordered_gap:.2f}"
-                    w_label = f"\n$W = {disorder_strength:.2f}$"
-                    perc_label = f"\nGap$\\Delta={(disordered_gap - undisordered_gap) / undisordered_gap * 100:.2f}\\%$"
-                    label = gap_label + "\n" + param_name + f"\n$BI = {bott_index}$" + w_label + perc_label
-                else:
-                    label = param_name + f"\nB $={bott_index:.1f}$"
+                label = param_name + f"\nB $={bott_index:.1f}$"
 
                 plot_spectrum_ax(ax, eigenvalues, label, ldos_idxs)
                 if self.defect_type == "schottky":
