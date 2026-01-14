@@ -68,7 +68,7 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 			return [phi, M, np.nan]
 		
 	param_values = tuple(product(phi_values, M_values))
-
+	print(param_values[0])
 	if show_progress:
 		with tqdm_joblib(tqdm(total=len(param_values), desc=f"Computing undisordered phase diagram ({method})")) as progress_bar:
 			phi_data, M_data, bi_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(params) for params in param_values)).T
@@ -424,7 +424,7 @@ if __name__ == "__main__":
 	M = M[nonzero_indices]
 	PHI = PHI[nonzero_indices]
 
-	file = compute_phase('site_elim', 4, dimensions=(25, 25), M_values = M, phi_values = PHI, n_jobs = -2, directory="./Hexaflake/Data/")
+	file = compute_phase('site_elim', 2, dimensions=(25, 25), M_values = M, phi_values = PHI, n_jobs = -2, directory="./")
 
 
 

@@ -642,5 +642,9 @@ def main():
 
 
 if __name__ == '__main__':
-	eigen_data = compute_eigen_data('site_elim', 0, np.pi/2, 1, 1, compute_geometric_data(4, True, return_dx_dy=True))
-	bott = compute_bott_index(eigen_data)
+	#eigen_data = compute_eigen_data('site_elim', 0, np.pi/2, 1, 1, compute_geometric_data(4, True, return_dx_dy=True))
+	#bott = compute_bott_index(eigen_data)
+
+
+	hex = compute_hexaflake(4)
+	print(np.sum(hex))
