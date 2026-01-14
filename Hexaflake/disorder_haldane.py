@@ -9,6 +9,8 @@ from multiprocessing import Manager
 from time import time
 from fractions import Fraction
 from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_hamiltonian
+from matplotlib.colors import ListedColormap, BoundaryNorm
+
 
 
 def compute_bott_from_hamiltonian(H, method, geometry_data):
@@ -315,6 +317,11 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 		disorder_strengths = [np.nan] + disorder_strengths
 
 	fig, axs = plt.subplots(len(methods), len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
+	if len(methods) == 1:
+		axs = axs.reshape(1, len(axs))
+	elif len(disorder_strengths) == 1:
+		axs = axs.reshape(len(methods), 1)
+
 
 	clean_files = [file for file in files if 'w' not in file]
 	disorder_files = [file for file in files if 'w' in file]
@@ -410,35 +417,74 @@ def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensi
 			disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
 
 
+
+def compare_generations():
+	generations = [2, 3, 4]
+	method = 'site_elim'	
+	resolution = (25, 25)
+	directory = "./Hexaflake/Data/"
+	files = [directory + f"{method}_g{gen}_({resolution[0]}_by_{resolution[1]}).h5" for gen in generations]
+
+	fig, axs = plt.subplots(1, len(generations), figsize=(4 * len(generations), 4))
+
+	file_data = [extract_data_from_h5_file(file) for file in files]
+	M_data = [data["M"] for data in file_data]
+	phi_data = [data["phi"] for data in file_data]
+	bi_data = [np.round(data["bott_index"].flatten(), 3) for data in file_data]
+
+	cmap = 'viridis'
+	unique_values = np.array((-1, 0))
+	cmap = plt.get_cmap(cmap)
+	discrete_colors = cmap(np.linspace(0, 1, len(unique_values)))
+	cmap = ListedColormap(discrete_colors)
+	norm = BoundaryNorm(boundaries=np.append(unique_values, unique_values[-1] + 1), ncolors=len(unique_values))
+
+	scatters = []
+	for i in range(len(generations)):
+		scat = axs[i].scatter(phi_data[i], M_data[i], c=bi_data[i], norm=norm, cmap=cmap)
+		scatters.append(scat)
+	for ax in axs.flatten():
+		ax.set_xlabel("$\phi$", fontsize=16)
+		ax.set_xticks([0, np.pi/2, np.pi])
+		ax.set_xticklabels(["$0$", "$\pi/2$", "$\pi$"])
+		ax.set_yticks([0, 5.5])
+	axs[0].set_ylabel("M", fontsize=16, rotation=0)
+
+
+	total_number = resolution[0]*resolution[1]
+	percentages = [np.sum(-bid*100/total_number) for bid in bi_data]
+	for i in range(len(generations)):
+		axs[i].set_title(f"Generation {generations[i]}: Percent Nontrivial = {percentages[i]:.2f}")
+
+
+	cbar = fig.colorbar(scatters[0], ax=axs[-1])
+	cbar.set_ticks(unique_values+0.5)
+	cbar.set_ticklabels([str(val) for val in unique_values], fontsize=16)
+	cbar.set_label("Bott Index", fontsize=16)
+
+
+	plt.tight_layout()
+	plt.show()
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
 
 
-if __name__ == "__main__":
-	clean_data = extract_data_from_h5_file('./Hexaflake/Data/site_elim_g3_(25_by_25).h5')
+def main():
+	compute_these_disorder_strengths = [0.]
+	plot_these_disorder_strengths = []
+	methods = ['site_elim']
+	titles = ['Pristine', 'Renormalization', 'Site Elimination']
+	res = (25, 25)
+	generation = 1
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
+				   disorder_strengths=plot_these_disorder_strengths,
+				   directory="./Hexaflake/Data/",
+				   cmap="inferno", plotUndisordered=True, plotSineBoundary=True,
+				   row_labels=titles,
+				   title=f"Generation {generation}\nRobustness Over Disorder", image_filename=f"./Hexaflake/Figures/PhaseDiagram_g{generation}.png")
 
-	M, BI, PHI = clean_data.values()
-	nonzero_indices = np.argwhere(np.round(BI, 0).flatten() != 0)
-
-	M = M[nonzero_indices]
-	PHI = PHI[nonzero_indices]
-
-	file = compute_phase('site_elim', 2, dimensions=(25, 25), M_values = M, phi_values = PHI, n_jobs = -2, directory="./")
-
-
-
-	if False:
-		compute_these_disorder_strengths = []
-		plot_these_disorder_strengths = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
-		methods = ['hexagon']
-		titles = ['Pristine', 'Renormalization', 'Site Elimination']
-		res = (25, 25)
-		generation = 3
-		compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=100, n_jobs=5, directory="./Hexaflake/Data/")
-		make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
-					disorder_strengths=plot_these_disorder_strengths,
-					directory="./Hexaflake/Data/",
-					cmap="inferno", plotUndisordered=True, plotSineBoundary=True,
-					row_labels=titles,
-					title=f"Generation {generation}\nRobustness Over Disorder", image_filename=f"./Hexaflake/Figures/PhaseDiagram_g{generation}.png")
+	
+if __name__ == "__main__":	
+	compare_generations()

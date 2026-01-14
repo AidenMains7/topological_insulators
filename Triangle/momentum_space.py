@@ -378,4 +378,4 @@ def plot_bz():
 
 
 if __name__ == "__main__":
-    triangular_bottom_line()
+    print(compute_chern_number(1.0, 0.0, 1.0, 1.0, 1.0, 0.0))

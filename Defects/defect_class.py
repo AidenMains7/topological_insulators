@@ -1105,63 +1105,361 @@ def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "
             print(f"Saved figure for {defect_type} with dLDF={dLDF} in {fname}")
 
 
-if __name__ == "__main__":
-    L = 35
-    Lattice = DefectSquareLattice(7, 5, "frenkel_pair", pbc=True)
+def plot_nonhermitian_skin_effect(Lx:int, Ly:int, method:str, h_variation:str, 
+                                  M_back_range:tuple = (-2.0, 2.0), M_sub_range:tuple = (0.0, 0.0),
+                                  directory:str = "./Defects/Plots/NHSE/"):
+    if h_variation not in ['x', 'y', 'z']:
+        raise ValueError("h_variation must be 'x', 'y', or 'z'")
     
-    #LDOS, eigenvalues, gap, bott, X, Y, ldos_idxs = Lattice._compute_for_figure(2.5, 1.0, 2)
-    #fig, ax = plt.subplots(figsize=(8, 6), subplot_kw={"projection": "3d"})
-    #surf = ax.plot_trisurf(X, Y, LDOS, cmap='jet', linewidth=0.2, antialiased=False)
-    #plt.show()
+    dimensions = (25, 1, 25)
+    h_values = np.linspace(-1.0, 1.0, dimensions[2])
+    parameters = tuple(product(np.linspace(M_back_range[0], M_back_range[1], dimensions[0]), [0.0], h_values))
+    
+    Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=method, pbc=True)
 
-    #Lattice.plot_spectrum_ldos(m_background_values=[2.5], m_substitution_values=[-2.5, -1.0, 1.0, 2.5], doInterpolation = False)
-    #plt.savefig(f"temp_fp.png")
+    def worker(i):
+        match h_variation:
+            case 'x':
+                delta1, delta2, delta3 = parameters[i][2], 0.0, 0.0
+            case 'y':
+                delta1, delta2, delta3 = 0.0, parameters[i][2], 0.0
+            case 'z':
+                delta1, delta2, delta3 = 0.0, 0.0, parameters[i][2]
+        hamiltonian = Lattice.compute_hamiltonian(M_background=parameters[i][0], M_substitution=parameters[i][1], delta1=delta1, delta2=delta2, delta3=delta3)
+        projector = Lattice.compute_projector(hamiltonian)
+        bott_index = Lattice.compute_bott_index(projector)
+        return (parameters[i][0], parameters[i][1], parameters[i][2], bott_index)
 
-    plotFP = 1
-    m_back, m_sub = 2.5, -1.0
-    if plotFP:
-        ldos_dict_list = []
-        pos_list = []
-        for fpi in range(8):
-            Lattice = DefectSquareLattice(L, L, "frenkel_pair", pbc=True, frenkel_pair_index=fpi)
-            H = Lattice.compute_hamiltonian(m_back, m_sub)
-
-            ldos_dict = Lattice.compute_LDOS(H, number_of_states=2)
-            ldos_dict_list.append(ldos_dict)
-            pos_list.append((Lattice.X, Lattice.Y))
-            #print("fpi", fpi, "defect_indices", Lattice.defect_indices, "coords", (Lattice.X[Lattice.defect_indices], Lattice.Y[Lattice.defect_indices]))
+    with tqdm_joblib(tqdm(total=len(parameters), desc="Computing Bott Indices for NHSE")) as progress_bar:
+        data = Parallel(n_jobs=-1)(delayed(worker)(i) for i in range(len(parameters)))
+    
+    data = np.array(data)
+    M_background_vals = data[:, 0].reshape(dimensions)
+    M_substitution_vals = data[:, 1].reshape(dimensions)
+    h_vals = data[:, 2].reshape(dimensions)
+    bott_indices = np.round(data[:, 3].reshape(dimensions))
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.imshow(bott_indices[:, 0, :], extent=(-2.0, 2.0, -1.0, 1.0), origin='lower', cmap='viridis', aspect='auto')
+    plt.show()
 
 
-        fig, axs = plt.subplots(2, 4, figsize=(16, 8))
+def old():
 
-        for i, ldos_dict in enumerate(ldos_dict_list):
+    plot_parameters = {
+        "label_fontsize": 16,
+        "cmap": 'jet',
+    }
+    fig, axs = plt.subplots(3, 3, figsize=(15, 15))
+    delta_values = [(delta1, 0.0, 0.0), (0.0, delta2, 0.0), (0.0, 0.0, delta3)]
+    for row_index, (delta1, delta2, delta3) in enumerate(delta_values):
+        pbc_Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=method, pbc=True)
+        pbc_hamiltonian = pbc_Lattice.compute_hamiltonian(M_background=M_background, M_substitution=M_substitution, delta1=delta1, delta2=delta2, delta3=delta3)
+        pbc_eigenvalues, pbc_left_eigenvalues, pbc_right_eigenvalues = spla.eig(pbc_hamiltonian, right=True, left=True)
+
+        obc_Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=method, pbc=False)
+        obc_hamiltonian = obc_Lattice.compute_hamiltonian(M_background=M_background, M_substitution=M_substitution, delta1=delta1, delta2=delta2, delta3=delta3)
+        obc_eigenvalues, obc_left_eigenvectors, obc_right_eigenvectors = spla.eig(obc_hamiltonian, right=True, left=True)
+
+        axs[row_index, 0].scatter(pbc_eigenvalues.real, pbc_eigenvalues.imag, color='blue', label="PBC", zorder=1)
+        axs[row_index, 0].scatter(obc_eigenvalues.real, obc_eigenvalues.imag, color='red', label="OBC", zorder=0)
+
+        axs[row_index, 0].set_xlabel("$\\Re(E)$", fontsize=plot_parameters["label_fontsize"])
+        axs[row_index, 0].set_ylabel("$\\Im(E)$", rotation=0, fontsize=plot_parameters["label_fontsize"])
+        axs[row_index, 0].legend()
+
+        left_eigenvectors = obc_left_eigenvectors
+        right_eigenvectors = obc_right_eigenvectors
+        eigvec_index = np.argmin(np.abs(obc_eigenvalues.real))
+
+        lev = left_eigenvectors[:, eigvec_index]
+        rev = right_eigenvectors[:, eigvec_index]
+
+        if method == "schottky":
+            for idx in obc_Lattice.defect_indices:
+                lev = np.insert(lev, 2 * idx, 0.0)
+                rev = np.insert(rev, 2 * idx, 0.0)
+
+        lev = np.abs(lev[0::2]) ** 2 + np.abs(lev[1::2]) ** 2
+        rev = np.abs(rev[0::2]) ** 2 + np.abs(rev[1::2]) ** 2
+        lev /= np.linalg.norm(lev)
+        rev /= np.linalg.norm(rev)
+
+        Y, X = obc_Lattice.Y, obc_Lattice.X
+
+        if method in ["none", "substitution", "schottky"]:
+            # Do imshow for square lattices
+            left_im =  axs[row_index, 1].imshow(lev.reshape((Lx, Ly)), cmap=plot_parameters["cmap"])
+            right_im = axs[row_index, 2].imshow(rev.reshape((Lx, Ly)), cmap=plot_parameters["cmap"])
+        else:
+            # Do scatter for non-square lattices
+            left_im =  axs[row_index, 1].scatter(X, Y, c=lev, cmap=plot_parameters["cmap"])
+            right_im = axs[row_index, 2].scatter(X, Y, c=rev, cmap=plot_parameters["cmap"])
+
+        left_cbar = fig.colorbar(left_im, ax=axs[row_index, 1])
+        right_cbar = fig.colorbar(right_im, ax=axs[row_index, 2])
+        left_cbar.set_ticks([0, np.max(lev) / 2, np.max(lev)])
+        right_cbar.set_ticks([0, np.max(rev) / 2, np.max(rev)])
+
+        for j in [1, 2]:
+            axs[row_index, j].set_xlabel("$x$", fontsize=plot_parameters["label_fontsize"])
+            axs[row_index, j].set_ylabel("$y$", rotation=0, fontsize=plot_parameters["label_fontsize"])
+
+    filename = directory + f"NHSE_{method}_M0_{M_background}_Msub_{M_substitution}_Lx_{Lx}_Ly_{Ly}.png"
+    fig.suptitle(f"Non-Hermitian Skin Effect\nMethod={method}, $m_0^{{\\text{{back}}}}={M_background}$, $m_0^{{\\text{{sub}}}}={M_substitution}$", fontsize=24)
+    plt.tight_layout()
+    plt.savefig(filename) 
+    # plt.show()
+
+
+def plot_disorder_fig():
+    def plot_spectrum_ax(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_label:str, ldos_idxs:np.ndarray):
+        # Plot the energy spectrum for the given eigenvalues
+        # Highlight the states used for LDOS calculation in red
+        x_values = np.arange(len(eigenvalues))
+        idxs_mask = np.isin(x_values, ldos_idxs)
+        # Plot all eigenvalues in black
+        scat1 = spectrum_ax.scatter(x_values[~idxs_mask], eigenvalues[~idxs_mask], s=25, color = 'black', zorder = 0)
+        # Highlight selected LDOS states in red
+        scat2 = spectrum_ax.scatter(x_values[ idxs_mask], eigenvalues[ idxs_mask], s=25, color = 'red',   zorder = 1)
+
+        n_eigenvalues = len(eigenvalues)
+        spectrum_ax.set_xticks([0, n_eigenvalues // 2, n_eigenvalues])
+        spectrum_ax.set_xticklabels([str(i) for i in [0, n_eigenvalues // 2, n_eigenvalues]], fontsize=16)
+
+        spectrum_ax.tick_params(axis='both', labelsize=20, width=2)
+        epsilon = 0.25
+        spectrum_ax.set_ylim(-3.0 - epsilon, 3.0 + epsilon)
+        spectrum_ax.set_yticks([-3, -2, -1, 0, 1, 2, 3])
+
+        for spine in spectrum_ax.spines.values():
+            spine.set_linewidth(2.0)
+        # Annotate with gap, Bott index, and other info
+        spectrum_ax.annotate(
+            scatter_label,
+            xy=(0.95, 0.5),
+            xycoords='axes fraction',
+            ha='right',
+            va='bottom',
+            fontsize=16,
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.0)
+        )
+        scat1.set_rasterized(True)
+        scat2.set_rasterized(True)
+
+    def plot_ldos_ax(ax:plt.Axes, LDOS, X, Y, doScatter:bool = False, spectrum_ax:plt.Axes = None, interp_method:str = 'kde'):
+        # Plot the LDOS for the lattice
+        if doScatter:
+            # If doScatter is True, plot LDOS as a scatter plot in an inset axis
+            # Create an inset axis for the scatter plot
+            inset_ax = inset_axes(
+                ax,
+                width="100%",  # width as a percentage of parent
+                height="100%",  # height as a percentage of parent
+                bbox_to_anchor=(0.1, 0.60, 0.375, 0.375),  # (x0, y0, width, height) in axes fraction
+                bbox_transform=ax.transAxes,
+                loc='upper left',
+                borderpad=0
+            )
+            # Create a colorbar axis for the inset
+            cax = inset_axes(
+                inset_ax, 
+                width="5%",  # width as a percentage of parent
+                height="100%",  # height as a percentage of parent
+                bbox_to_anchor=(0.1, 0.3, 1, 0.6),  # (x0, y0, width, height) in axes fraction
+                bbox_transform=inset_ax.transAxes,
+                borderpad = 0.0
+            )
+    
+            # Plot LDOS as colored dots
+            scat = inset_ax.scatter(X, Y, c=LDOS, s=dot_size, cmap='jet')
+            # Set axis ticks and labels for lattice coordinates
+            inset_ax.set_xticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+            inset_ax.set_yticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+            inset_ax.set_xticklabels([str(int(np.min(X) + 1)), "$L_x$", str(int(np.max(X) + 1))], fontsize=14)
+            inset_ax.set_yticklabels([str(int(np.min(X) + 1)), "$L_y$", str(int(np.max(X) + 1))], fontsize=14)
+            inset_ax.set_aspect('equal')
+            # Add colorbar for LDOS values
+            cbar = fig.colorbar(inset_ax.collections[0], cax=cax)
+            formatter = ticker.ScalarFormatter(useMathText = True)
+            formatter.set_powerlimits((0,  0))
+            formatter.set_scientific(True)
+            formatter.format = "%.1f"
+            cbar.formatter = formatter
+            cbar.update_ticks()
+            cbar.ax.yaxis.offsetText.set_position((10., 1.05))
+            cbar.ax.yaxis.offsetText.set_fontsize(14)
+            cbar.ax.tick_params(labelsize=14)
+            # Set background and z-order for inset
+            inset_ax.set_facecolor((1, 1, 1, 0.8))
+            inset_ax.set_zorder(10)
+            return inset_ax
+        else:
+            # If doScatter is False, plot LDOS as a 3D surface plot
+            if True:
+                # Interpolate LDOS onto a finer grid for smoother visualization
+                grid_res = 101  # resolution of the interpolation grid
+                xi = np.linspace(np.min(X), np.max(X), grid_res)
+                yi = np.linspace(np.min(Y), np.max(Y), grid_res)
+                XI, YI = np.meshgrid(xi, yi)
+                points = np.column_stack((X, Y))
+
+                # Options are 'log', 'linear', 'rbf', 'kde'
+                match interp_method:
+                    case 'log':
+                        eps = 1e-12
+                        LDOS_log = np.log(LDOS + eps)
+                        LDOS_log_interp = griddata(points, LDOS_log, (XI, YI), method='linear', fill_value=np.nan)
+                        LDOS_interp = np.exp(LDOS_log_interp) - eps
+                        LDOS_interp[np.isnan(LDOS_interp)] = 0.0
+                        #LDOS_interp = gaussian_filter(LDOS_interp, sigma=2.0)
+                    case 'linear':
+                        LDOS_interp = griddata(points, LDOS, (XI, YI), method='linear', fill_value=0)
+                        LDOS_interp = gaussian_filter(LDOS_interp, sigma=1.0)
+                    case 'rbf':
+                        rbf = Rbf(X, Y, LDOS, function='multiquadric', epsilon=0.1) 
+                        LDOS_interp = rbf(XI, YI)
+                        LDOS_interp = np.nan_to_num(LDOS_interp, nan=0.0)
+                    case 'kde':
+                        xy = np.vstack([X, Y])
+                        kde = gaussian_kde(xy, weights=LDOS, bw_method=0.5)
+                        xi = np.linspace(np.min(X), np.max(X), 301)
+                        yi = np.linspace(np.min(Y), np.max(Y), 301)
+                        XI, YI = np.meshgrid(xi, yi)
+                        LDOS_kde = kde(np.vstack([XI.ravel(), YI.ravel()])).reshape(XI.shape)
+                        LDOS_kde *= (LDOS.max() / LDOS_kde.max())
+                        LDOS_interp = LDOS_kde
+                    case _:
+                        raise ValueError(f"Unknown interpolation method: {interp_method}")
+
+                # Normalize interpolated LDOS so its maximum matches the original LDOS maximum
+                if np.max(LDOS_interp) > 0:
+                    LDOS_interp = LDOS_interp * (np.max(LDOS) / np.max(LDOS_interp))
+                X, Y, LDOS = XI.ravel(), YI.ravel(), LDOS_interp.ravel()
+
+            # Create a new 3D axis for the surface plot
+            box = ax.get_position()
+            surf_ax = fig.add_axes([box.x0, box.y0 + box.height * 0.55, box.width * 0.5, box.height * 0.5], projection='3d')
+            # Plot LDOS as a 3D surface
+            surf = surf_ax.plot_trisurf(X, Y, LDOS, cmap='jet', linewidth=0.2, antialiased=False)
+            # Set axis ticks and labels for lattice coordinates
+            surf_ax.set_xticks([np.min(X), (np.max(X) + np.min(X)) // 2, np.max(X)])
+            surf_ax.set_yticks([np.min(Y), (np.max(Y) + np.min(Y)) // 2, np.max(Y)])
+            surf_ax.set_xticklabels([str(int(np.min(X) + 1)), "$L_x$", str(int(np.max(X) + 1))], fontsize=14)
+            surf_ax.set_yticklabels([str(int(np.min(Y) + 1)), "$L_y$", str(int(np.max(Y) + 1))], fontsize=14)
+            surf.set_clim(vmin=0)
+            # Hide z-axis labels and grid for cleaner look
+            surf_ax.set_zticklabels([])
+            surf_ax.set_zlabel("")
+            surf_ax.set_facecolor((1, 1, 1, 0))
+            surf_ax.grid(False)
+
+            # Optionally remove pane color for full transparency
+            for pane in [surf_ax.xaxis, surf_ax.yaxis, surf_ax.zaxis]:
+                #pane.set_pane_color((1, 1, 1, 0))
+                pass
+
+            # Add colorbar for LDOS values  
+            cax = inset_axes(
+                ax, 
+                width="100%",  # width as a percentage of parent
+                height="100%",  # height as a percentage of parent
+                bbox_to_anchor=(0.8, 0.05, 0.1, 0.35),  # (x0, y0, width, height) in axes fraction (centered horizontally)
+                bbox_transform=ax.transAxes,
+                borderpad=0
+            )
+            # Set colorbar ticks on top
+            cbar = fig.colorbar(surf_ax.collections[0], cax=cax, orientation='vertical')
+            formatter = ticker.ScalarFormatter(useMathText = True)
+            formatter.set_powerlimits((0,  0))
+            formatter.set_scientific(True)
+            formatter.format = "%.1f"
+            cbar.formatter = formatter
+            cbar.update_ticks()
             
-            X, Y = pos_list[i]
-            row = i // 4
-            col = i % 4
-            axs[row, col].scatter(X, Y, c=ldos_dict["LDOS"], s=50, cmap='jet')
-            axs[row, col].set_title(f"Frenkel Pair Index {i}")
-
-            plt.colorbar(axs[row, col].collections[0], ax=axs[row, col])
+            vmin, vmax = surf.get_clim()
+            cbar.ax.yaxis.set_ticks([vmin, (vmax + vmin) / 2, vmax])
+            cbar.ax.yaxis.offsetText.set_position((0., 0.0))
+            cbar.ax.yaxis.set_label_position('left')
+            cbar.ax.yaxis.offsetText.set_fontsize(14)
+            cbar.ax.tick_params(labelsize=14)
+            cbar.ax.yaxis.set_ticks_position('left')
             
             
+            surf.set_rasterized(True)
+            return surf_ax
 
-        fig2, ax2 = plt.subplots(figsize=(6, 6), subplot_kw={"projection": "3d"})
-        all_X = np.concatenate([pos[0] for pos in pos_list])
-        all_Y = np.concatenate([pos[1] for pos in pos_list])
-        coordinates = np.column_stack((all_X, all_Y))
+    def _average_over_frenkel_pair():
+            """Average over all Frenkel pair possibilities to compute the LDOS, eigenvalues, gap, and bott index."""
+            all_LDOS = []
+            all_x = []
+            all_y = []
+            all_eigenvalues = []
+            all_bott = []
+            for frenkel_pair_index in range(8):
+                data = np.load("./Defects/Data/Disorder/" + f"frenkel_pair_Lx25_Ly25_mback1.0_msub-1.0_fp{frenkel_pair_index}.npz")
+                all_LDOS.append(data["LDOS"])
+                all_x.append(data["X"])
+                all_y.append(data["Y"])
+                all_eigenvalues.append(data["eigenvalues"])
+                all_bott.append(data["bott_index"])
+                W = data["disorder_strength"]
+            all_LDOS = np.concatenate(all_LDOS, axis=0)
+            all_x = np.concatenate(all_x, axis=0)
+            all_y = np.concatenate(all_y, axis=0)
+            all_bott = np.mean(all_bott)
 
-        all_LDOS = np.concatenate([ldos_dict["LDOS"] for ldos_dict in ldos_dict_list])
+            coords = np.stack((all_x, all_y), axis=1)
+            unique_coords, inverse_indices = np.unique(coords, axis=0, return_inverse=True)
+            summed_LDOS = np.zeros(len(unique_coords))
+            np.add.at(summed_LDOS, inverse_indices, all_LDOS)
+            summed_LDOS /= np.sum(summed_LDOS)
+            LDOS = summed_LDOS
+            eigenvalues = np.mean(all_eigenvalues, axis=0)
+            X, Y = unique_coords[:, 0], unique_coords[:, 1]
+            return {"LDOS": LDOS, "eigenvalues": eigenvalues, "X": X, "Y": Y, "disorder_strength": W, "bott_index": all_bott}
 
-        # Sum LDOS for identical positions
-        unique_coords, inverse = np.unique(coordinates, axis=0, return_inverse=True)
-        summed_LDOS = np.zeros(len(unique_coords), dtype=all_LDOS.dtype)
-        np.add.at(summed_LDOS, inverse, all_LDOS)
 
-        X = unique_coords[:, 0]
-        Y = unique_coords[:, 1]
-        LDOS = summed_LDOS
-        surf = ax2.plot_trisurf(X, Y, LDOS, cmap='jet', linewidth=0.2, antialiased=False)
-        ax2.set_title(f"Sum over eight Frenkel Pair configurations\nm_back={m_back} and m_int={m_sub}")
+    fig, axs = plt.subplots(1, 5, figsize=(30, 6))
 
-        plt.show()
+    for method in ["vacancy", "schottky", "substitution", "interstitial", "frenkel_pair"]:
+        if method in ["schottky", "interstitial"]:
+            Lx = Ly = 24
+        else:
+            Lx = Ly = 25
+
+
+        if method != "frenkel_pair":
+            filename = "./Defects/Data/Disorder/" + f"{method}_Lx{Lx}_Ly{Ly}_mback1.0_msub-1.0.npz"
+            data = np.load(filename)
+        else:
+            data = _average_over_frenkel_pair()
+
+
+        ax = axs[["vacancy", "schottky", "substitution", "interstitial", "frenkel_pair"].index(method)]
+
+        ldos_idxs = np.arange(len(data["eigenvalues"]))
+        ldos_idxs = ldos_idxs[(len(ldos_idxs) // 2 - 1):(len(ldos_idxs) // 2 + 1)]
+
+
+
+        if method in ["vacancy", "schottky"]:
+            label = f"$m_0=1.0$\n$W={0.5}$"
+        elif method in ["substitution"]:
+            label = f"$m_0^{{\\text{{back}}}}=1.0$\n$m_0^{{\\text{{sub}}}}=-1.0$\n$W={data["disorder_strength"]:.2f}$"
+        else:
+            label = f"$m_0^{{\\text{{back}}}}=1.0$\n$m_0^{{\\text{{int}}}}=-1.0$\n$W={data["disorder_strength"]:.2f}$"
+        if method != "frenkel_pair":
+            label += f"\nBI=${data["bott_index"]:.2f}$"
+        plot_spectrum_ax(ax, data["eigenvalues"], label, ldos_idxs)
+
+        ax.set_title(method.capitalize(), fontsize=16)
+        plot_ldos_ax(ax, data["LDOS"], data["X"], data["Y"], doScatter=False, spectrum_ax=ax, interp_method='kde')
+    
+    plt.savefig("d_temp.svg")
+
+
+
+
+
+if __name__ == "__main__":
+    
