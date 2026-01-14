@@ -616,7 +616,7 @@ def plot_phase_diagram(phase_data, cmap='viridis', outputfile='temp.png'):
 
 def main():
 	method = 'site_elim'
-	gen = 3
+	gen = 4
 	data = np.load('./Hexaflake/Data/'+f'phase_data_{method}_gen{gen}.npz')
 	bott, M_range, phi_range = data['bott_index_array'], data['M_range'], data['phi_range']
 	L_m, L_phi = bott.shape
@@ -642,5 +642,22 @@ def main():
 
 
 if __name__ == '__main__':
-	eigen_data = compute_eigen_data('site_elim', 0, np.pi/2, 1, 1, compute_geometric_data(4, True, return_dx_dy=True))
-	bott = compute_bott_index(eigen_data)
+	generations = [0, 1, 2, 3, 4]
+	n_honeycomb = [6, 42, 366, 3282, 29526]
+	n_hexaflake = [6, 42, 294, 2058, 14406]
+	hexaflake_percentages = np.array([100*nhex/nhon for nhex, nhon in zip(n_hexaflake, n_honeycomb)])
+	percent_nontrivial = np.array([np.nan, np.nan, 42.88, 28.64, 18.56]
+)
+	fig, ax = plt.subplots(1, 1, figsize=(8,4))
+	ax.grid(True, ls='--', c='k', alpha=0.5)
+	ax.scatter(generations, hexaflake_percentages, label='Hexaflake Percentage')
+	ax.scatter(generations, percent_nontrivial, label='site_elim Percent Non-trivial')
+	ax.scatter(generations, hexaflake_percentages-percent_nontrivial, label="Difference")
+	ax.set_xlabel("Generation", fontsize=12)
+	ax.set_ylabel("Percentage (%)", fontsize=12)
+	ax.set_title("Percentage Comparison of Honeycomb and Hexaflake Lattices")
+	ax.set_xticks(generations)
+	ax.set_yticks([0, 25, 50, 75, 100])
+	plt.legend()
+	plt.tight_layout()
+	plt.show()

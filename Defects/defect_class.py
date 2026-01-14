@@ -1126,15 +1126,50 @@ def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "
             print(f"Saved figure for {defect_type} with dLDF={dLDF} in {fname}")
 
 
-def plot_nonhermitian_skin_effect(Lx:int, Ly:int, method:str, M_background:float, M_substitution:float, 
-                                  delta1:float = 0.25, delta2:float = 0.25, delta3:float = 0.25,
+def plot_nonhermitian_skin_effect(Lx:int, Ly:int, method:str, h_variation:str, 
+                                  M_back_range:tuple = (-2.0, 2.0), M_sub_range:tuple = (0.0, 0.0),
                                   directory:str = "./Defects/Plots/NHSE/"):
+    if h_variation not in ['x', 'y', 'z']:
+        raise ValueError("h_variation must be 'x', 'y', or 'z'")
     
+    dimensions = (25, 1, 25)
+    h_values = np.linspace(-1.0, 1.0, dimensions[2])
+    parameters = tuple(product(np.linspace(M_back_range[0], M_back_range[1], dimensions[0]), [0.0], h_values))
+    
+    Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=method, pbc=True)
+
+    def worker(i):
+        match h_variation:
+            case 'x':
+                delta1, delta2, delta3 = parameters[i][2], 0.0, 0.0
+            case 'y':
+                delta1, delta2, delta3 = 0.0, parameters[i][2], 0.0
+            case 'z':
+                delta1, delta2, delta3 = 0.0, 0.0, parameters[i][2]
+        hamiltonian = Lattice.compute_hamiltonian(M_background=parameters[i][0], M_substitution=parameters[i][1], delta1=delta1, delta2=delta2, delta3=delta3)
+        projector = Lattice.compute_projector(hamiltonian)
+        bott_index = Lattice.compute_bott_index(projector)
+        return (parameters[i][0], parameters[i][1], parameters[i][2], bott_index)
+
+    with tqdm_joblib(tqdm(total=len(parameters), desc="Computing Bott Indices for NHSE")) as progress_bar:
+        data = Parallel(n_jobs=-1)(delayed(worker)(i) for i in range(len(parameters)))
+    
+    data = np.array(data)
+    M_background_vals = data[:, 0].reshape(dimensions)
+    M_substitution_vals = data[:, 1].reshape(dimensions)
+    h_vals = data[:, 2].reshape(dimensions)
+    bott_indices = np.round(data[:, 3].reshape(dimensions))
+    fig, ax = plt.subplots(figsize=(10, 8))
+    ax.imshow(bott_indices[:, 0, :], extent=(-2.0, 2.0, -1.0, 1.0), origin='lower', cmap='viridis', aspect='auto')
+    plt.show()
+
+
+def old():
+
     plot_parameters = {
         "label_fontsize": 16,
         "cmap": 'jet',
     }
-
     fig, axs = plt.subplots(3, 3, figsize=(15, 15))
     delta_values = [(delta1, 0.0, 0.0), (0.0, delta2, 0.0), (0.0, 0.0, delta3)]
     for row_index, (delta1, delta2, delta3) in enumerate(delta_values):
@@ -1443,31 +1478,9 @@ def plot_disorder_fig():
     
     plt.savefig("d_temp.svg")
 
+
+
+
+
 if __name__ == "__main__":
-    if False:
-        if True:
-            for method in ["vacancy", "schottky", "substitution", "interstitial"]:
-                if method in ["schottky", "interstitial"]:
-                    Lattice = DefectSquareLattice(Lx=24, Ly=24, defect_type=method, schottky_distance=7)
-                else:
-                    Lattice = DefectSquareLattice(Lx=25, Ly=25, defect_type=method)
-
-                SqLat = DefectSquareLattice(25, 25, "none")
-                H = SqLat.compute_hamiltonian(1.0, None)
-                eigvals = np.linalg.eigvalsh(H)
-                sorted_eigvals = np.sort(eigvals)
-                gap = sorted_eigvals[len(sorted_eigvals) // 2] - sorted_eigvals[len(sorted_eigvals) // 2 - 1]
-                Lattice._compute_for_figure_disorder(m_background=1.0, m_substitution=-1.0, number_of_states=2, disorder_strength=gap / 4, n_iterations=1)
-
-        for idx in range(8):
-            FPLat = DefectSquareLattice(Lx=25, Ly=25, defect_type="frenkel_pair", frenkel_pair_index=idx)
-            SqLat = DefectSquareLattice(25, 25, "none")
-            H = SqLat.compute_hamiltonian(1.0, None)
-            eigvals = np.linalg.eigvalsh(H)
-            sorted_eigvals = np.sort(eigvals)
-            gap = sorted_eigvals[len(sorted_eigvals) // 2] - sorted_eigvals[len(sorted_eigvals) // 2 - 1]
-            FPLat._compute_for_figure_disorder(m_background=1.0, m_substitution=-1.0, number_of_states=2, disorder_strength=gap / 4, n_iterations=1)
-
-
-
-    plot_disorder_fig()
+    
