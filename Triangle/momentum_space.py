@@ -48,7 +48,6 @@ def compute_unit_vector(vector):
     unit_vector = np.clip(unit_vector, -1e2, 1e2)  # Ensure unit_vector is not too large
     return unit_vector
     
-
 def compute_d_vector(kx, ky, M, B_tilde, B, t1, t2, A_tilde, doTriangular=False):
     if doTriangular:
         return compute_triangular_d_vector(kx, ky, M, B_tilde, B, t1, A_tilde)
@@ -176,7 +175,7 @@ def compute_chern_number(M, B_tilde, B, t1, t2, A_tilde, doTriangular=False, res
     elif np.isnan(sum_total):
         return None, bc_min, bc_max, bc_mean, bc_std
     else:
-        return round(sum_total), bc_min, bc_max, bc_mean, bc_std
+        return np.round(sum_total, 5), bc_min, bc_max, bc_mean, bc_std
 
 
 def compute_chern_phase_diagram(M_range, B_tilde_range, B, t1, t2, A_tilde, output_file=None, directory='', overwrite=False, doTriangular=False, resolution=(25, 25)):
@@ -378,4 +377,12 @@ def plot_bz():
 
 
 if __name__ == "__main__":
-    print(compute_chern_number(1.0, 0.0, 1.0, 1.0, 1.0, 0.0))
+    filename = compute_chern_phase_diagram((-2.0, 2.0), (-1.0, 1.0), 1.0, 1.0, 1.0, 1.0, 'temp.h5', overwrite=True)
+    with h5py.File(filename, 'r') as f:
+        m0 = f["M"][:]
+        h = f["B_tilde"][:]
+        chern = f["chern"][:]
+
+    fig, ax = plt.subplots(1,1)
+    plot_phase_diagram(fig, ax, m0, h, chern)
+    plt.show()
