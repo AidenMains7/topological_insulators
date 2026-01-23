@@ -471,13 +471,15 @@ def compare_generations():
 
 
 def main():
-	compute_these_disorder_strengths = [0.]
-	plot_these_disorder_strengths = []
-	methods = ['site_elim']
+	compute_these_disorder_strengths = []
+	plot_these_disorder_strengths = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.25, 12.5, 13.75, 15.0]
+	methods = ['renorm']
 	titles = ['Pristine', 'Renormalization', 'Site Elimination']
 	res = (25, 25)
-	generation = 1
-	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	generation = 3
+	compute_many_phase_diagrams(generation, [10.0, 11.25], ['hexagon'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	compute_many_phase_diagrams(generation, [10.0, 13.75], ['renorm'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	compute_many_phase_diagrams(generation, [], ['site_elim'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
 	make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
 				   disorder_strengths=plot_these_disorder_strengths,
 				   directory="./Hexaflake/Data/",
@@ -487,4 +489,4 @@ def main():
 
 	
 if __name__ == "__main__":	
-	compare_generations()
+	main()
