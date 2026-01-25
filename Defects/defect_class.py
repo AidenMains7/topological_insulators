@@ -443,7 +443,7 @@ class DefectSquareLattice:
             hamiltonian += H_AH
 
         if self.defect_type == "schottky":
-            # We do not do this for vacancy or frenkel_pair as the site is removed entirely.
+            # We do not do this for vacancy or frenkel_pair as the site is removed entirely and thus not in `compute_distances`
             hamiltonian = hamiltonian[np.ix_(self._mask, self._mask)]  # Remove rows and columns corresponding to the defects
 
         return hamiltonian
@@ -956,10 +956,7 @@ class DefectSquareLattice:
                 label = param_name + f"\nB $={bott_index:.1f}$"
 
                 plot_spectrum_ax(ax, eigenvalues, label, ldos_idxs)
-                if self.defect_type == "schottky":
-                    surf_ax = plot_ldos_ax(ax, LDOS, X, Y)
-                else:
-                    surf_ax = plot_ldos_ax(ax, LDOS, X, Y)
+                surf_ax = plot_ldos_ax(ax, LDOS, X, Y)
 
         return fig, axs
     
@@ -1052,57 +1049,6 @@ class DefectSquareLattice:
 
         return fig, ax
     # endregion
-
-
-def generate_figures(lcm_or_ldos:str, defect_types: list = ["none", "vacancy", "schottky", "substitution", "interstitial", "frenkel_pair"], base_lx:int = 24, base_ly:int = 24, schottky_distance: int = 3, 
-                     directory:str = ".", doDisorder:bool = False, n_iterations:int = 10):
-    """
-    Generate figures for the specified defect types and save them to the given directory.
-    Parameters:
-        lcm_or_ldos (str): Specify whether to plot 'lcm' or 'ldos'. 'lcm' is the Local Chern marker, 'ldos' is the local density of states.
-        defect_types (list): List of defect types to consider.
-        base_lx (int): The base side length of the square lattice in the x-direction.
-        base_ly (int): The base side length of the square lattice in the y-direction.
-        schottky_distance (int): The distance for the Schottky defect.
-        directory (str): The directory where the figures will be saved.
-        doDisorder (bool): Whether to include disorder in the calculations.
-        n_iterations (int): The number of iterations for disorder calculations.
-    """
-    for defect_type in defect_types:
-        Lx = base_lx
-        Ly = base_ly
-        if defect_type not in ["interstitial", "schottky"]:
-            Lx = base_lx + 1
-            Ly = base_ly + 1
-
-        for dLDF in [True, False]:
-            if defect_type in ["none", "frenkel_pair", "schottky"] and dLDF:
-                continue
-            if defect_type == "vacancy" and not dLDF:
-                continue
-            Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=defect_type, schottky_distance=schottky_distance)
-
-            if lcm_or_ldos == "lcm":
-                Lattice.plot_lcm(doLargeDefectFigure=dLDF)
-            elif lcm_or_ldos == "ldos":
-                Lattice.plot_spectrum_ldos(dLDF, doDisorder, n_iterations)
-            else:
-                raise ValueError("lcm_or_ldos must be 'lcm' or 'ldos'")
-            
-            if defect_type == "none":
-                title = "SL"
-            else:
-                title = defect_type
-            
-            if doDisorder:
-                title += "_disorder"
-
-            if dLDF and defect_type not in ["vacancy", "schottky", "none"]:
-                title = "large_" + title
-            
-            fname = directory + f"{title}_" + lcm_or_ldos.upper() + ".png"
-            plt.savefig(fname)
-            print(f"Saved figure for {defect_type} with dLDF={dLDF} in {fname}")
 
 
 def plot_nonhermitian_skin_effect(Lx:int, Ly:int, method:str, h_variation:str, 
@@ -1462,4 +1408,7 @@ def plot_disorder_fig():
 
 
 if __name__ == "__main__":
+    Lattice = DefectSquareLattice(25, 25, "vacancy", True)
+    fig, axs = Lattice.plot_spectrum_ldos(np.linspace(0.0, 2.0, 16), doInterpolation=False)
+    plt.savefig('vac_temp.png')
     

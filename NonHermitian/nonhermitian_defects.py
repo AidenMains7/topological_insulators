@@ -26,13 +26,12 @@ def profile(func):
             pr.disable()
             stats = pstats.Stats(pr)
             stats.sort_stats('cumulative')
-            stats.print_stats(10)
+            stats.print_stats(20)
     return wrapper
-
 
 # region Lattice Generation
 def generate_square_lattice(Lx:int, Ly:int):
-    return np.arange(Lx*Ly).reshape((Ly, Lx)), []
+    return np.arange(Lx*Ly).reshape((Ly, Lx)), None
 
 
 def generate_vacancy_lattice(Lx:int, Ly:int, vacancy_radius:int=1):
@@ -78,7 +77,7 @@ def generate_schottky_lattice(Lx:int, Ly:int, separation:int, n_pairs:int = 1):
 
 
 def generate_substitution_lattice(Lx:int, Ly:int, substitution_radius:int=1):
-    assert (Lx*Ly % 2 == 1), "Side lengths must be odd"
+    assert (Lx * Ly % 2 == 1), "Side lengths must be odd"
     assert substitution_radius > 0, "Defect radius must be positive definite"
     assert substitution_radius <= (min(Lx, Ly) // 2 + 1), "Defect must fit inside the lattice."
 
@@ -92,117 +91,210 @@ def generate_substitution_lattice(Lx:int, Ly:int, substitution_radius:int=1):
 
 
 def generate_interstitial_lattice(Lx:int, Ly:int, interstitial_radius:int=1):
+    assert (Lx % 2 == 0) and (Ly % 2 == 0), "Side lengths must be even"
+    assert interstitial_radius > 0, "Defect radius must be positive definite"
+    assert interstitial_radius <= (min(Lx, Ly) // 2 + 1), "Defect must fit inside the lattice."
+    
     lattice, _ = generate_square_lattice(Lx, Ly)
+    Y, X = np.where(lattice >= 0)
+    X *= 2
+    Y *= 2
 
+    large_lattice = np.full((2 * Ly - 1, 2 * Lx - 1), np.nan)
+    large_lattice[Y, X] = np.arange(len(X))
+
+    Y_pos = []
+    X_pos = []
+    for i in range(-interstitial_radius, interstitial_radius):
+        for j in range(-interstitial_radius, interstitial_radius):
+            if abs(i) + abs(j) < interstitial_radius:
+                Y_pos.append(Ly - 1 + 2 * i)
+                X_pos.append(Lx - 1 + 2 * j)
+                large_lattice[Ly - 1 + 2 * i, Lx - 1 + 2 * j] = np.inf
+
+    large_lattice[np.where(large_lattice >= 0)] = np.arange(len(np.where(large_lattice >= 0)[0].flatten()))
+    defect_indices = list(large_lattice[Y_pos, X_pos].astype(int))
+
+    return large_lattice, defect_indices
+
+
+def generate_frenkel_pair_lattice(Lx:int, Ly:int):
+    assert (Lx * Ly % 2 == 1), "Side lengths must be odd"
+
+    lattice, _ = generate_square_lattice(Lx, Ly)
     Y, X = np.where(lattice >= 0)
     X = X * 2
     Y = Y * 2
 
-    large_lattice = np.arange(4 * Lx * Ly).reshape((Ly * 2, Lx * 2))
-    square_indices = large_lattice[Y, X]
+    large_lattice = np.full((2 * Ly - 1, 2 * Lx - 1), np.nan)
+    large_lattice[Y, X] = np.arange(len(X))
+    large_lattice[Ly - 1, Lx - 1] = -1 # Vacancy at center
+    large_lattice[Ly - 2, Lx - 4] = np.inf # Interstitial site
 
-    defect_indices = []
-    X = list(X)
-    Y = list(Y)
-    for i in range(-interstitial_radius, interstitial_radius):
-        for j in range(-interstitial_radius, interstitial_radius):
-            if abs(i) + abs(j) < interstitial_radius:
-                X.append(Lx - 1 + 2 * j)
-                Y.append(Ly - 1 + 2 * i)
-                interstitial_index = large_lattice[Ly - 1 + 2 * i, Lx - 1 + 2 * j]
-                defect_indices.append(interstitial_index)
-
-    occupied_indices = square_indices + defect_indices
-    #return large_lattice, defect_indices
-
-
-def generate_frenkel_pair_lattice():
-    pass
-
+    large_lattice[np.where(large_lattice >= 0)] = np.arange(len(np.where(large_lattice >= 0)[0].flatten()))
+    defect_indices = [-1, int(large_lattice[Ly - 2, Lx - 4])]
+    return large_lattice, defect_indices
 
 # endregion
-# region Lattice Class
+
 class DefectLattice:
-    def __init__(self, Lx:int, Ly:int, method:str, defect_radius:int=1,
+    def __init__(self, Lx:int, Ly:int, defect_type:str, pbc:bool, defect_radius:int=1,
                  schottky_separation:int=None, schottky_n_pairs:int=1):
-        match method:
-            case 'square':
-                self.lattice, self.defect_indices = generate_square_lattice(Lx, Ly)
+        self._defect_type = defect_type
+        self._pbc = pbc
+        self._Lx = Lx
+        self._Ly = Ly
+        match defect_type:
+            case 'none':
+                self._lattice, self._defect_indices = generate_square_lattice(Lx, Ly)
             case 'vacancy':
-                self.lattice, self.defect_indices = generate_vacancy_lattice(Lx, Ly, defect_radius)
+                self._lattice, self._defect_indices = generate_vacancy_lattice(Lx, Ly, defect_radius)
             case 'schottky':
-                self.lattice, self.defect_indices = generate_schottky_lattice(Lx, Ly, schottky_separation, schottky_n_pairs)
+                self._lattice, self._defect_indices = generate_schottky_lattice(Lx, Ly, schottky_separation, schottky_n_pairs)
             case 'substitution':
-                self.lattice, self.defect_indices = generate_substitution_lattice(Lx, Ly, defect_radius)
+                self._lattice, self._defect_indices = generate_substitution_lattice(Lx, Ly, defect_radius)
             case 'interstitial':
-                self.lattice, self.defect_indices = generate_interstitial_lattice(Lx, Ly, defect_radius)
+                self._lattice, self._defect_indices = generate_interstitial_lattice(Lx, Ly, defect_radius)
             case 'frenkel_pair':
-                self.lattice, self.defect_indices = generate_frenkel_pair_lattice(Lx, Ly, )
-# endregion
-# region Geometry and Hamiltonian
+                self._lattice, self._defect_indices = generate_frenkel_pair_lattice(Lx, Ly)
+            case _:
+                raise ValueError()
 
-def generate_wannier_matrices(lattice:np.ndarray, pbc:bool):
-    # Vacant Sites are removed from Hamiltonian construction by not including them in the following line:
-    Y, X = np.where(lattice >= 0)[:]
+        Y, X = np.where(self.lattice >= 0)[:]
+        if defect_type in ['interstitial', 'frenkel_pair']:
+            self._X, self._Y = X / 2, Y / 2
+        else:
+            self._X, self._Y = X, Y 
 
-    # However, more care must be taken to consider Schottky Pair Defects, as is done in `compute_hamiltonian`
+        self._dx, self._dy = self.compute_distances()
+        if defect_type in ["interstitial", "frenkel_pair"]:
+            self._wannier_matrices = self.compute_wannier_matrices_polar()
+        else:
+            self._wannier_matrices = self.compute_wannier_matrices_fourier()
 
-    side_length = lattice.shape[0]
-    dx = X - X[:, None]
-    dy = Y - Y[:, None]
-    if pbc:
-        multipliers = tuple(product([-1, 0, 1], repeat=2))
-        shifts = [(i * side_length, j * side_length) for i, j in multipliers]
+    # region DefectLattice properties
+    @property
+    def lattice(self):
+        return self._lattice
+    @property
+    def defect_indices(self):
+        return self._defect_indices
+    @property
+    def X(self):
+        return self._X
+    @property
+    def Y(self):
+        return self._Y
+    @property
+    def defect_type(self):
+        return self._defect_type
+    @property
+    def pbc(self):
+        return self._pbc
+    @property
+    def wannier_matrices(self):
+        return self._wannier_matrices
+    @property
+    def dx(self):
+        return self._dx
+    @property
+    def dy(self):
+        return self._dy
+    @property
+    def Lx(self):
+        return self._Lx
+    @property
+    def Ly(self):
+        return self._Ly
+    # endregion
+    def compute_distances(self):
+        X = self.X
+        Y = self.Y
 
-        x_shifted = np.empty((dx.shape[0], dx.shape[1], len(shifts)), dtype=dx.dtype)
-        y_shifted = np.empty((dy.shape[0], dy.shape[1], len(shifts)), dtype=dy.dtype)
-        for i, (dx_shift, dy_shift) in enumerate(shifts):
-            x_shifted[:, :, i] = dx + dx_shift
-            y_shifted[:, :, i] = dy + dy_shift
+        dx = X - X[:, None]
+        dy = Y - Y[:, None]
+        if self.pbc:
+            multipliers = tuple(product([-1, 0, 1], repeat=2))
+            shifts = [(i * self.Lx, j * self.Ly) for i, j in multipliers]
 
-        distances = x_shifted**2 + y_shifted**2
-        minimal_hop = np.argmin(distances, axis = -1)
-        i_idxs, j_idxs = np.indices(minimal_hop.shape)
+            x_shifted = np.empty((dx.shape[0], dx.shape[1], len(shifts)), dtype=dx.dtype)
+            y_shifted = np.empty((dy.shape[0], dy.shape[1], len(shifts)), dtype=dy.dtype)
+            for i, (dx_shift, dy_shift) in enumerate(shifts):
+                x_shifted[:, :, i] = dx + dx_shift
+                y_shifted[:, :, i] = dy + dy_shift
 
-        dx = x_shifted[i_idxs, j_idxs, minimal_hop]
-        dy = y_shifted[i_idxs, j_idxs, minimal_hop]
+            distances = x_shifted**2 + y_shifted**2
+            minimal_hop = np.argmin(distances, axis = -1)
+            i_idxs, j_idxs = np.indices(minimal_hop.shape)
 
-    xp_mask = (dx == 1) & (dy == 0)
-    yp_mask = (dx == 0) & (dy == 1)
+            dx = x_shifted[i_idxs, j_idxs, minimal_hop]
+            dy = y_shifted[i_idxs, j_idxs, minimal_hop]
+        return dx, dy
 
+    def compute_wannier_matrices_fourier(self):
+        dx = self.dx
+        dy = self.dy
 
-    Cx =   dok_matrix(dx.shape, dtype=complex)
-    Sx =   dok_matrix(dx.shape, dtype=complex)
-    Cy =   dok_matrix(dx.shape, dtype=complex)
-    Sy =   dok_matrix(dx.shape, dtype=complex)
-    I =    np.eye(dx.shape[0], dtype=complex)
+        xp_mask = (dx == 1) & (dy == 0)
+        yp_mask = (dx == 0) & (dy == 1)
 
-    Sx[xp_mask] = 1j / 2
-    Cx[xp_mask] = 1 / 2
-    Cy[yp_mask] = 1 / 2
-    Sy[yp_mask] = 1j / 2
+        Cx =   dok_matrix(dx.shape, dtype=complex)
+        Sx =   dok_matrix(dx.shape, dtype=complex)
+        Cy =   dok_matrix(dx.shape, dtype=complex)
+        Sy =   dok_matrix(dx.shape, dtype=complex)
+        I =    np.eye(dx.shape[0], dtype=complex)
 
-    Sx += Sx.conj().T
-    Sy += Sy.conj().T
-    Cx += Cx.conj().T
-    Cy += Cy.conj().T
-    return I, Sx.toarray(), Sy.toarray(), Cx.toarray() + Cy.toarray()
+        Sx[xp_mask] = 1j / 2
+        Cx[xp_mask] = 1 / 2
+        Cy[yp_mask] = 1 / 2
+        Sy[yp_mask] = 1j / 2
 
+        Sx += Sx.conj().T
+        Sy += Sy.conj().T
+        Cx += Cx.conj().T
+        Cy += Cy.conj().T
+        return I, Sx.toarray(), Sy.toarray(), Cx.toarray() + Cy.toarray()
+    
+    def compute_wannier_matrices_polar(self):
+        dx = self.dx
+        dy = self.dy
+        theta = np.arctan2(dy, dx)
+        dr = np.sqrt(dx ** 2 + dy ** 2)
 
-def compute_hamiltonian(defect_type:str, m0:float, h_vector:np.ndarray, wannier_matrices:tuple[np.ndarray], t:float, t0:float, defect_indices:list = None, msub:float = None):
+        # Create masks for different types of hopping. 
+        distance_mask = ((dr <= 1 + 1e-6) & (dr > 1e-6)) # Mask for distances close to 1
+        principal_mask = (((dx == 0) & (dy != 0)) | ((dx != 0) & (dy == 0))) & distance_mask 
+        diagonal_mask  = ((np.isclose(np.abs(dx), np.abs(dy), atol=1e-4)) & (dx != 0)) & distance_mask
+        hopping_mask = principal_mask | diagonal_mask
+    
+        # Compute the Wannier matrices based on the masks
+        d_cos = np.where(hopping_mask, np.cos(theta), 0. + 0.j)
+        d_sin = np.where(hopping_mask, np.sin(theta), 0. + 0.j)
+        amplitude = np.where(hopping_mask, np.exp(1. - dr), 0. + 0.j)
+
+        # Momentum space matrices constructed from the real-space displacements based on arxiv.org/abs/2407.13767
+        Cx_plus_Cy = amplitude / 2
+        Sx = 1j * d_cos * amplitude / 2
+        Sy = 1j * d_sin * amplitude / 2
+        return np.eye(Sx.shape[0], dtype=complex), Sx, Sy, Cx_plus_Cy
+
+# region Hamiltonian
+def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:float, t0:float, msub:float = None):
     pauli_x = np.array([[0, 1], [1, 0]], dtype=complex)
     pauli_y = np.array([[0, -1j], [1j, 0]], dtype=complex)
     pauli_z = np.array([[1, 0], [0, -1]], dtype=complex)
 
-    I, Sx, Sy, Cx_plus_Cy = wannier_matrices
+    I, Sx, Sy, Cx_plus_Cy = Lattice.wannier_matrices
     hx, hy, hz = h_vector
+
+    defect_indices = Lattice.defect_indices
 
     onsite_mass = m0 * I
     if defect_indices is not None:
         if msub == None and defect_type in ['substitution', 'interstitial', 'frenkel_pair']:
             raise ValueError(f"`mu` cannot be None when defect_indices are provided for 'substitution', 'interstitial', 'frenkel_pair'")
         for idx in defect_indices:
-            if idx >= 0 and defect_type != "schottky":
+            if (idx >= 0) and (Lattice.defect_type != "schottky"):
                 onsite_mass[idx, idx] = msub
 
     dx = t * Sx + 1.0j * hx * I
@@ -211,7 +303,7 @@ def compute_hamiltonian(defect_type:str, m0:float, h_vector:np.ndarray, wannier_
 
     hamiltonian = np.kron(dx, pauli_x) + np.kron(dy, pauli_y) + np.kron(dz, pauli_z)
 
-    if defect_type == "schottky":
+    if Lattice.defect_type == "schottky":
         mask = np.full(hamiltonian.shape[0], True)
         for i, idx in enumerate(defect_indices):
             mask[2 * idx + i % 2] = False
@@ -219,7 +311,7 @@ def compute_hamiltonian(defect_type:str, m0:float, h_vector:np.ndarray, wannier_
     return hamiltonian
 
 
-def compute_sum_normed_eigenvectors(hamiltonian:np.ndarray, defect_indices:list):
+def compute_sum_normed_eigenvectors(hamiltonian:np.ndarray, defect_type:str, defect_indices:list):
     eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(hamiltonian, left=True, right=True, overwrite_a=True)
     sort_idxs = np.argsort(eigenvalues.real)
     eigenvalues = eigenvalues[sort_idxs]
@@ -234,7 +326,7 @@ def compute_sum_normed_eigenvectors(hamiltonian:np.ndarray, defect_indices:list)
         return arr[0::2] + arr[1::2]
 
     # Properly handle Schottky Pair parity elimination
-    if defect_indices != None:
+    if (defect_indices != None) and (defect_type == 'schottky'):
         mask = np.full(hamiltonian.shape[0] + len(defect_indices), True)
         for i, idx in enumerate(defect_indices):
             mask[2 * idx + i % 2] = False
@@ -243,10 +335,18 @@ def compute_sum_normed_eigenvectors(hamiltonian:np.ndarray, defect_indices:list)
         L_over_R = new
 
     return eigenvalues, sum_over_orbitals(L_over_R)
-    
 
 
+def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, msub:float = None):
+    hamiltonian = compute_hamiltonian(Lattice, m0, h_vector, 1.0, 1.0, msub)
+    eigenvalues, L_over_R = compute_sum_normed_eigenvectors(hamiltonian, defect_type = Lattice.defect_type, defect_indices = Lattice.defect_indices)
+    data_dictionary = {
+        'eigenvalues': eigenvalues,
+        'L_over_R': L_over_R
+    }
+    return data_dictionary
 # endregion
+
 # region Bott Index Stuff
 def compute_projector(hamiltonian:np.ndarray):
     eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(hamiltonian, overwrite_a=True, left=True, right=True)
@@ -296,6 +396,7 @@ def compute_bott_index_wrapper(wannier_matrices:tuple, lattice:np.ndarray, m0:fl
     return np.round(bott_index, 3)
 
 # endregion
+
 # region Plotting
 def plot_real_spectrum(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, n_highlighted_sites:int=2):
     assert n_highlighted_sites % 2 == 0, "n_highlighted_sites must be an even natural number"
@@ -325,7 +426,7 @@ def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, lattice:np.ndarray, color_
         plot = ldos_ax.plot_trisurf(X, Y, color_array, cmap=cmap, linewidth=0.2, antialiased=False)
 
     elif plot_type == 'scatter':
-        plot = ldos_ax.scatter(X, Y, c=color_array, cmap=cmap, s=50, marker='s', edgecolors='k')
+        plot = ldos_ax.scatter(X, Y, c=color_array, cmap=cmap, s=50, marker='.', edgecolors='k')
 
     elif plot_type == 'imshow':
         Z = np.full(lattice.size, np.nan)
@@ -359,12 +460,14 @@ def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, lattice:np.ndarray, color_
     ldos_ax.set_yticks(yticks)
     ldos_ax.set_xticklabels([str(tick + 1) for tick in xticks], fontsize=12)
     ldos_ax.set_yticklabels([str(tick + 1) for tick in yticks], fontsize=12)
-    ldos_ax.yaxis.tick_right()
-
 
     ldos_ax.set_xlabel("$L_x$", fontsize=16, labelpad=-15)
     ldos_ax.set_ylabel("$L_y$", rotation=0, fontsize=16, labelpad=-10)
-    ldos_ax.yaxis.set_label_position("right")
+    if plot_type != 'trisurf':
+        ldos_ax.yaxis.tick_right()
+        ldos_ax.yaxis.set_label_position("right")
+
+
     ldos_ax.set_title(title, fontsize=16)
     return ldos_ax, cax
 
@@ -395,8 +498,9 @@ def plot_complex_spectrum(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, defect_i
     return spectrum_ax
 
 
-def plot_nh_figure(fig:plt.Figure, eigval_ax:plt.Axes, data_dictionary:dict):
-    lattice, defect_indices, eigenvalues, L_over_R = data_dictionary.values()
+def plot_nh_figure(fig:plt.Figure, eigval_ax:plt.Axes, data_dictionary:dict, Lattice:DefectLattice):
+    eigenvalues, L_over_R = data_dictionary.values()
+    lattice, defect_indices = Lattice.lattice, Lattice.defect_indices
 
     box = eigval_ax.get_position()
     zx = box.width / 15
@@ -405,44 +509,11 @@ def plot_nh_figure(fig:plt.Figure, eigval_ax:plt.Axes, data_dictionary:dict):
     eigvec_ax = fig.add_axes([box.x0 + box.width * (1 - 1/n) - zx, box.y0 + zy, box.width / n, box.height / n])
 
     eigval_ax = plot_complex_spectrum(eigval_ax, eigenvalues, defect_indices)
-    eigvec_ax, colorbar_ax = plot_on_lattice(fig, eigvec_ax, lattice, L_over_R, 'imshow')
+    eigvec_ax, colorbar_ax = plot_on_lattice(fig, eigvec_ax, lattice, L_over_R, "scatter" if Lattice.defect_type in ["interstital", "frenkel_pair"] else "imshow")
     return fig, eigval_ax, eigvec_ax, colorbar_ax
 
 
-# endregion
-
-
-def compute_eigenvectors_eigenvalues(defect_type:str, Lx:int, Ly:int, pbc:bool, m0:float, h_vector:np.ndarray, msub:float = None,
-            defect_radius:int = 1, schottky_separation:int = 1, schottky_n_pairs:int = 1):
-    match defect_type:
-        case "none":
-            lattice, defect_indices = generate_square_lattice(Lx, Ly)
-        case "vacancy":
-            lattice, defect_indices = generate_vacancy_lattice(Lx, Ly, defect_radius)
-        case "schottky":
-            lattice, defect_indices = generate_schottky_lattice(Lx, Ly, schottky_separation, schottky_n_pairs)
-        case "substitution":
-            lattice, defect_indices = generate_substitution_lattice(Lx, Ly, defect_radius)
-        case "interstitial":
-            lattice, defect_indices = generate_interstitial_lattice(Lx, Ly, defect_radius)
-        case "frenkel_pair":
-            lattice, defect_indices = generate_frenkel_pair_lattice
-        case _:
-            raise ValueError()
-
-    wannier_matrices = generate_wannier_matrices(lattice, pbc)
-    hamiltonian = compute_hamiltonian(defect_type, m0, h_vector, wannier_matrices, 1.0, 1.0, defect_indices, msub)
-    eigenvalues, L_over_R = compute_sum_normed_eigenvectors(hamiltonian, defect_indices=defect_indices if defect_type == "schottky" else None)
-    data_dictionary = {
-        'lattice' : lattice,
-        'defect_indices': defect_indices,
-        'eigenvalues': eigenvalues,
-        'L_over_R': L_over_R
-    }
-    return data_dictionary
-
-
-def plot_comparison_of_regimes(method:str, Lx:int, Ly:int, h_vector, m0_values:np.ndarray, msub_values:np.ndarray = [], resolution_scale:int = 6):
+def plot_comparison_of_regimes(Lattice:DefectLattice, h_vector, m0_values:np.ndarray, msub_values:np.ndarray = [], resolution_scale:int = 6):
     # If msub is not applicable, using m0 as columns and only one row.
     # Otherwise, use m0 as rows and msub as columns
 
@@ -469,8 +540,8 @@ def plot_comparison_of_regimes(method:str, Lx:int, Ly:int, h_vector, m0_values:n
         for i in range(n_rows):
             m0 = m0_array[i, j]
             msub = msub_array[i, j]
-            dd = compute_eigenvectors_eigenvalues(method, Lx, Ly, True, m0, h_vector, msub, 1, 7, 1)
-            fig, axs[i, j], eigvec_ax, cbar_ax = plot_nh_figure(fig, axs[i, j], dd)
+            dd = compute_eigenvectors_eigenvalues(Lattice, m0, h_vector, msub)
+            fig, axs[i, j], eigvec_ax, cbar_ax = plot_nh_figure(fig, axs[i, j], dd, Lattice)
             axs[i, j].set_title("")
             axs[i, j].annotate(
                 f"$m_0={m0}$\n$m_0^{{\\text{{sub}}}}={msub}$",
@@ -486,16 +557,21 @@ def plot_comparison_of_regimes(method:str, Lx:int, Ly:int, h_vector, m0_values:n
                 axs[i, j].set_xlabel("")
             if j != 0:
                 axs[i, j].set_ylabel("")
-            if i + j == 3 and method in ["substitution", "interstitial", "frenkel_pair"]:
+            if i + j == 3 and Lattice.defect_type in ["substitution", "interstitial", "frenkel_pair"]:
                 axs[i, j].remove()
                 eigvec_ax.remove()
                 cbar_ax.remove()
 
-    fig.suptitle(f"Non-Hermitian Skin Effect : {method.capitalize()} Defect : $\\vec{{h}}=({h_vector[0]}, {h_vector[1]}, {h_vector[2]})$", fontsize=20,)
+    fig.suptitle(f"Non-Hermitian Skin Effect : {Lattice.defect_type.capitalize()} Defect : $\\vec{{h}}=({h_vector[0]}, {h_vector[1]}, {h_vector[2]})$", fontsize=20,)
+# endregion
+
+@profile
+def main():
+    Lattice = DefectLattice(31, 31, "none", False)
+    plot_comparison_of_regimes(Lattice, [0.25, 0.0, 0.0], [-2.5, -1.0, 1.0, 2.5])
+    #plt.savefig('temp.png')
+    plt.savefig(f'{Lattice.defect_type}.png')
 
 
 if __name__ == "__main__":
-    method = 'schottky'
-    plot_comparison_of_regimes(method, 30, 30, [0.25, 0.0, 0.0], [-2.5, -1.0, 1.0, 2.5])
-    #plt.savefig('temp.png')
-    plt.savefig(f'{method}.png')
+    main()
