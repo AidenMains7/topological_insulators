@@ -943,8 +943,8 @@ class DefectSquareLattice:
                 else:
                     LDOS, eigenvalues, gap, bott_index, X, Y, ldos_idxs = self._compute_for_figure(m_background, m_substitution, 2)
                 
-                #ax = axs[i, j]
-                ax = axs.T[j, i]
+                ax = axs[j, i]
+                #ax = axs.T[j, i]
 
                 if self.defect_type in ["none", "vacancy", "schottky"]:
                     param_name = f"$m_0={m_background}$"
@@ -1049,44 +1049,6 @@ class DefectSquareLattice:
 
         return fig, ax
     # endregion
-
-
-def plot_nonhermitian_skin_effect(Lx:int, Ly:int, method:str, h_variation:str, 
-                                  M_back_range:tuple = (-2.0, 2.0), M_sub_range:tuple = (0.0, 0.0),
-                                  directory:str = "./Defects/Plots/NHSE/"):
-    if h_variation not in ['x', 'y', 'z']:
-        raise ValueError("h_variation must be 'x', 'y', or 'z'")
-    
-    dimensions = (25, 1, 25)
-    h_values = np.linspace(-1.0, 1.0, dimensions[2])
-    parameters = tuple(product(np.linspace(M_back_range[0], M_back_range[1], dimensions[0]), [0.0], h_values))
-    
-    Lattice = DefectSquareLattice(Lx=Lx, Ly=Ly, defect_type=method, pbc=True)
-
-    def worker(i):
-        match h_variation:
-            case 'x':
-                delta1, delta2, delta3 = parameters[i][2], 0.0, 0.0
-            case 'y':
-                delta1, delta2, delta3 = 0.0, parameters[i][2], 0.0
-            case 'z':
-                delta1, delta2, delta3 = 0.0, 0.0, parameters[i][2]
-        hamiltonian = Lattice.compute_hamiltonian(M_background=parameters[i][0], M_substitution=parameters[i][1], delta1=delta1, delta2=delta2, delta3=delta3)
-        projector = Lattice.compute_projector(hamiltonian)
-        bott_index = Lattice.compute_bott_index(projector)
-        return (parameters[i][0], parameters[i][1], parameters[i][2], bott_index)
-
-    with tqdm_joblib(tqdm(total=len(parameters), desc="Computing Bott Indices for NHSE")) as progress_bar:
-        data = Parallel(n_jobs=-1)(delayed(worker)(i) for i in range(len(parameters)))
-    
-    data = np.array(data)
-    M_background_vals = data[:, 0].reshape(dimensions)
-    M_substitution_vals = data[:, 1].reshape(dimensions)
-    h_vals = data[:, 2].reshape(dimensions)
-    bott_indices = np.round(data[:, 3].reshape(dimensions))
-    fig, ax = plt.subplots(figsize=(10, 8))
-    ax.imshow(bott_indices[:, 0, :], extent=(-2.0, 2.0, -1.0, 1.0), origin='lower', cmap='viridis', aspect='auto')
-    plt.show()
 
 
 def old():
@@ -1408,7 +1370,7 @@ def plot_disorder_fig():
 
 
 if __name__ == "__main__":
-    Lattice = DefectSquareLattice(25, 25, "vacancy", True)
-    fig, axs = Lattice.plot_spectrum_ldos(np.linspace(0.0, 2.0, 16), doInterpolation=False)
-    plt.savefig('vac_temp.png')
+    Lattice = DefectSquareLattice(24, 24, "interstitial", True)
+    fig, axs = Lattice.plot_spectrum_ldos(doInterpolation=False)
+    plt.savefig('temp.png')
     

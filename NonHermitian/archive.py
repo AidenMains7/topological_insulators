@@ -222,9 +222,150 @@ def compute_FHS_chern_fast(m0, h_vector, t, t0, n_band=0, Lx=31, Ly=31):
 
 
 
+def plot_nh_figure(fig:plt.Figure, eigval_ax:plt.Axes, Lattice:DefectLattice, eigenvalues:np.ndarray, L_over_R:np.ndarray):
+    lattice, defect_indices = Lattice.lattice, Lattice.defect_indices
+
+    box = eigval_ax.get_position()
+    zx = box.width / 7.5
+    zy = box.width / 20
+    n = 3
+    eigvec_ax = fig.add_axes([box.x0 + box.width * (1 - 1/n) - zx, box.y0 + zy, box.width / n, box.height / n])
+
+    eigval_ax = plot_complex_spectrum(eigval_ax, eigenvalues, defect_indices, scatter_kwargs={'c':'black','s':25})
+    eigvec_ax, colorbar_ax = plot_on_lattice(fig, eigvec_ax, lattice, L_over_R, "scatter" if Lattice.defect_type in ["interstitial", "frenkel_pair"] else "imshow")
+    if Lattice.defect_type in ['interstitial', 'frenkel_pair']:
+        xticks = [0, Lattice.Lx - 1]
+        yticks = [0, Lattice.Ly - 1]
+        eigvec_ax.set_xticklabels([str(tick + 1) for tick in xticks], fontsize=12)
+        eigvec_ax.set_yticklabels([str(tick + 1) for tick in yticks], fontsize=12)
+    return fig, eigval_ax, eigvec_ax, colorbar_ax
+
+
+def plot_comparison_of_regimes(Lattice:DefectLattice, h_vector, m0_values:np.ndarray, resolution_scale:int = 6):
+    # If msub is not applicable, using m0 as columns and only one row.
+    # Otherwise, use m0 as rows and msub as columns
+
+    m0_values = np.array(m0_values)
+    m0_values = m0_values[np.argsort(m0_values)[::-1]]
+
+    if Lattice.defect_type in ['none', 'vacancy', 'schottky']:
+        msub_values = []
+        m0_values = m0_values[::-1]
+    else:
+        msub_values = np.array(m0_values)
+        msub_values = msub_values[np.argsort(msub_values)]
+
+    if len(msub_values) <= 1:
+        if msub_values == []:
+            msub_values = [None]
+        n_rows = 1
+        n_cols = len(m0_values)
+
+    else:
+        n_rows = len(m0_values)
+        n_cols = len(msub_values) - 1
+
+    fig, axs = plt.subplots(n_rows, n_cols, figsize=(resolution_scale * n_cols, resolution_scale * n_rows))
+    if n_rows == 1:
+        axs = axs.reshape(n_cols, 1)
+    for i, m0 in enumerate(m0_values):
+        good_msub_values = np.array(msub_values)[np.array(msub_values) != m0]
+        for j, msub in enumerate(good_msub_values):
+            eigvals, L, R, _, _, _ = compute_eigenvectors_eigenvalues(Lattice, m0, h_vector, msub).values()
+            fig, axs[i, j], eigvec_ax, cbar_ax = plot_nh_figure(fig, axs[i, j], Lattice, eigvals, L/R)
+            axs[i, j].set_title("")
+            match Lattice.defect_type:
+                case "vacancy" | "schottky" | "none":
+                    annotation = f"$m_0={m0}$"
+                case "substitution":
+                    annotation = f"$m_0={m0}$\n$m_0^{{\\text{{sub}}}}={msub}$"
+                case "interstitial" | "frenkel_pair":
+                    annotation = f"$m_0={m0}$\n$m_0^{{\\text{{int}}}}={msub}$"
+            if h_vector[-1] == 0.0:
+                axs[i, j].annotate(
+                    annotation,
+                    xy = (0.025, 0.95),
+                    xycoords = 'axes fraction',
+                    ha = 'left',
+                    va = 'top',
+                    fontsize=12,
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.0)
+                )
+            else:
+                axs[i, j].annotate(
+                    annotation,
+                    xy = (0.025, 0.5),
+                    xycoords = 'axes fraction',
+                    ha = 'left',
+                    va = 'top',
+                    fontsize=12,
+                    bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.0)
+                )
 
 
 
+def plot_nhse_xyz_left_right(Lx:int, Ly:int, m0:float):
+    fig, axs = plt.subplots(3, 3, figsize=(18, 18))
+    plt.subplots_adjust(hspace=0.33, wspace=0.33)
+
+    Lattice_obc = DefectLattice(Lx, Ly, "none", False)
+    Lattice_pbc = DefectLattice(Lx, Ly, "none", True)
+    eig1_obc, L1, R1, _, _, _ = compute_eigenvectors_eigenvalues(Lattice_obc, m0, [0.25, 0.0, 0.0]).values()
+    eig2_obc, L2, R2, _, _, _ = compute_eigenvectors_eigenvalues(Lattice_obc, m0, [0.0, 0.25, 0.0]).values()
+    eig3_obc, L3, R3, _, _, _ = compute_eigenvectors_eigenvalues(Lattice_obc, m0, [0.0, 0.0, 0.25]).values()
+    eig1_pbc, _, _, _, _, _ =   compute_eigenvectors_eigenvalues(Lattice_pbc, m0, [0.25, 0.0, 0.0]).values()
+    eig2_pbc, _, _, _, _, _ =   compute_eigenvectors_eigenvalues(Lattice_pbc, m0, [0.0, 0.25, 0.0]).values()
+    eig3_pbc, _, _, _, _, _ =   compute_eigenvectors_eigenvalues(Lattice_pbc, m0, [0.0, 0.0, 0.25]).values()
+
+    eigval_obc_list = [eig1_obc, eig2_obc, eig3_obc]
+    eigval_pbc_list= [eig1_pbc, eig2_pbc, eig3_pbc]
+    L_list = [L1, L2, L3]
+    R_list = [R1, R2, R3]
+
+    for i in range(3):
+        plot_complex_spectrum(axs[i, 0], eigval_obc_list[i], scatter_kwargs = {'c':'red', 'label':'OBC'})
+        plot_complex_spectrum(axs[i, 0], eigval_pbc_list[i], scatter_kwargs = {'c':'blue', 'label':'PBC'})
+        axs[i, 0].legend()
+        axs[i, 0].set_title('')
+        
+        plot_on_lattice(fig, axs[i, 1], Lattice_obc.lattice, L_list[i], 'imshow', label_fontsize=24, tick_fontsize=20)
+        plot_on_lattice(fig, axs[i, 2], Lattice_obc.lattice, R_list[i], 'imshow', label_fontsize=24, tick_fontsize=20)
+
+    #plt.tight_layout()
+    plt.savefig(f'./NonHermitian/Plots/nhse_square_lattice_m0={m0}.png')
 
 
 
+def main(defect_type, Lx, Ly, dir, h,
+         frenkel_x_disp=None, frenkel_y_disp=None, schottky_separation=None, doOverwrite=True):
+    Lattice = DefectLattice(Lx, Ly, defect_type, True, 
+                            schottky_separation=schottky_separation, frenkel_x_disp=frenkel_x_disp, frenkel_y_disp=frenkel_y_disp)
+    match dir:
+        case 'x':
+            hv = [h, 0.0, 0.0]
+        case 'y':
+            hv = [0.0, h, 0.0]
+        case 'z':
+            hv = [0.0, 0.0, h]
+    plot_comparison_of_regimes(Lattice, hv, [-2.5, -1.0, 1.0, 2.5])
+
+    basename = './NonHermitian/Plots/'+f'{Lattice.defect_type}_h{dir}'
+    if defect_type == 'frenkel_pair':
+        basename = './NonHermitian/Plots/FrenkelPair/'+f'{Lattice.defect_type}_h{dir}_x{frenkel_x_disp}_y{frenkel_y_disp}'
+
+    def recursive_filesave(basename, ext):
+        def _save(base, ext, num):
+            if not os.path.exists(base+ext):
+                plt.savefig(base+ext)
+            elif os.path.exists(base+f'_{num}'+ext):
+                _save(base, ext, num + 1)
+            else:
+                plt.savefig(base+f'_{num}'+ext)
+        _save(basename, ext, 0)
+
+    if doOverwrite:
+        plt.savefig(basename + '.png')
+        plt.savefig(basename + '.svg')
+    else:
+        recursive_filesave(basename, '.png')
+        recursive_filesave(basename, '.svg')

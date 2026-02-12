@@ -200,8 +200,6 @@ def plot_phase_diagram(fig, ax,
 
 
 if __name__ == "__main__":
-    #print(compute_chern_number(1.0, [0,0,0], 1.0, 1.0))
-    FHS_chern_fast(1.05, [0, 0.0, 1.0], 1.0, 1.0)
     h_dir = 'x'
     resolution = (25, 25)
     file = compute_chern_phase_diagram((-2.0, 2.0), (-1.0, 1.0), h_dir, overwrite=False, output_file = f"chern_pd_{h_dir}_{resolution[0]}x{resolution[1]}.h5", resolution=resolution)

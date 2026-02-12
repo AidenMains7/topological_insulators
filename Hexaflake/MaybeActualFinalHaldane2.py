@@ -641,7 +641,7 @@ def main():
 	plt.show()
 
 
-if __name__ == '__main__':
+def comp():
 	generations = [0, 1, 2, 3, 4]
 	n_honeycomb = [6, 42, 366, 3282, 29526]
 	n_hexaflake = [6, 42, 294, 2058, 14406]

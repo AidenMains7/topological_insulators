@@ -444,9 +444,9 @@ def compare_generations():
 		scat = axs[i].scatter(phi_data[i], M_data[i], c=bi_data[i], norm=norm, cmap=cmap)
 		scatters.append(scat)
 	for ax in axs.flatten():
-		ax.set_xlabel("$\phi$", fontsize=16)
+		ax.set_xlabel("$\\phi$", fontsize=16)
 		ax.set_xticks([0, np.pi/2, np.pi])
-		ax.set_xticklabels(["$0$", "$\pi/2$", "$\pi$"])
+		ax.set_xticklabels(["$0$", "$\\pi/2$", "$\\pi$"])
 		ax.set_yticks([0, 5.5])
 	axs[0].set_ylabel("M", fontsize=16, rotation=0)
 
@@ -471,15 +471,15 @@ def compare_generations():
 
 
 def main():
-	compute_these_disorder_strengths = []
-	plot_these_disorder_strengths = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.25, 12.5, 13.75, 15.0]
+	compute_these_disorder_strengths = [7.5]
+	plot_these_disorder_strengths = [1.0, 5.0, 7.5, 10.0, 12.5, 15.0]
 	methods = ['renorm']
 	titles = ['Pristine', 'Renormalization', 'Site Elimination']
 	res = (25, 25)
 	generation = 3
-	compute_many_phase_diagrams(generation, [10.0, 11.25], ['hexagon'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
-	compute_many_phase_diagrams(generation, [10.0, 13.75], ['renorm'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
-	compute_many_phase_diagrams(generation, [], ['site_elim'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, ['hexagon'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, ['renorm'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	#compute_many_phase_diagrams(generation, [], ['site_elim'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
 	make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
 				   disorder_strengths=plot_these_disorder_strengths,
 				   directory="./Hexaflake/Data/",
