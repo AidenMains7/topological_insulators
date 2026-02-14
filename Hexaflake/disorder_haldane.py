@@ -471,7 +471,7 @@ def compare_generations():
 
 
 def main():
-	compute_these_disorder_strengths = [7.5]
+	compute_these_disorder_strengths = []
 	plot_these_disorder_strengths = [1.0, 5.0, 7.5, 10.0, 12.5, 15.0]
 	methods = ['renorm']
 	titles = ['Pristine', 'Renormalization', 'Site Elimination']
