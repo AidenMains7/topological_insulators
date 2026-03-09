@@ -182,9 +182,17 @@ def plot_phase_diagram(fig, ax,
 
 	X_range = [np.min(X_values), np.max(X_values)]
 	Y_range = [np.min(Y_values), np.max(Y_values)]
-	Z_range = [np.floor(np.nanmin(Z_values)), np.ceil(np.nanmax(Z_values))]
 
 	im = ax.imshow(Z_values, extent=[X_range[0], X_range[1], Y_range[0], Y_range[1]], 
+				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+				   rasterized=True, norm=norm)
+	im2 = ax.imshow(np.flipud(Z_values), extent=[X_range[0], X_range[1], -Y_range[1], Y_range[0]], 
+				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+				   rasterized=True, norm=norm)
+	im3 = ax.imshow(-Z_values, extent=[-X_range[1], X_range[0], Y_range[0], Y_range[1]], 
+				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+				   rasterized=True, norm=norm)
+	im4 = ax.imshow(np.flipud(-Z_values), extent=[-X_range[1], X_range[0], -Y_range[1], Y_range[0]], 
 				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
 				   rasterized=True, norm=norm)
 
@@ -205,6 +213,7 @@ def plot_phase_diagram(fig, ax,
 		ax.set_yticklabels(Y_tick_labels)
 
 	if plotColorbar:
+		vmins, vmaxs = [im]
 		cbar = fig.colorbar(im, ax=ax)
 		if cbar_ticks is not None:
 			cbar.set_ticks(cbar_ticks)
@@ -269,8 +278,11 @@ def add_colorbar_to_figure(fig, axs, norm, cmap, cbar_label=None):
 	sm.set_array([])
 	cbar = fig.colorbar(sm, cax=cbar_ax)
 	if cbar_label is not None:
-		cbar.set_label(cbar_label, fontsize=12)
+		cbar.set_label(cbar_label, fontsize=16)
 	
+	cbar.ax.yaxis.set_ticks([-1.0, -0.5, 0.0, 0.5, 1.0])
+	cbar.ax.tick_params(labelsize=14)
+
 	return cbar
 	
 
@@ -296,7 +308,7 @@ def pi_tick_labels(value):
 
 
 def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_strengths=None, 
-					  directory=".", cmap="Spectral", 
+					  directory=".", cmap="cividis", 
 					  plotUndisordered=True, plotSineBoundary=True, 
 					  row_labels=None, column_labels=None, title=None, image_filename=None):
 	
@@ -313,15 +325,13 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	
 	if disorder_strengths is None:
 		disorder_strengths = get_disorder_strength_from_files(files)
-	if plotUndisordered:
-		disorder_strengths = [np.nan] + disorder_strengths
 
-	fig, axs = plt.subplots(len(methods), len(disorder_strengths), figsize=(15,10), sharex=True, sharey=True)
+	n_cols = len(disorder_strengths) + 1 if plotUndisordered else len(disorder_strengths)
+	fig, axs = plt.subplots(len(methods), n_cols, figsize=(30, 20), sharex=True, sharey=True)
 	if len(methods) == 1:
 		axs = axs.reshape(1, len(axs))
-	elif len(disorder_strengths) == 1:
+	elif n_cols == 1:
 		axs = axs.reshape(len(methods), 1)
-
 
 	clean_files = [file for file in files if 'w' not in file]
 	disorder_files = [file for file in files if 'w' in file]
@@ -331,41 +341,41 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
 	clean_bott_data = [data['bott_index'].T for data in clean_data]
 	disorder_bott_data = [data['disorder'] for data in disorder_data]	
-
 	
 	X_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
-	X_tick_labels = [pi_tick_labels(value) for value in X_ticks]
-	Y_ticks = [-3*np.sqrt(3), -2*np.sqrt(3), -np.sqrt(3), 0, np.sqrt(3), 2*np.sqrt(3), 3*np.sqrt(3)]
-	Y_tick_labels = [f"{i:.2f}" for i in Y_ticks]
+	X_tick_labels = ['$-1$', '$\\frac{1}{2}$', '$0$', '$\\frac{1}{2}$', '$1$']
+	Y_ticks = [-3*np.sqrt(3), 0, 3*np.sqrt(3)]
+	Y_tick_labels = ["$-3 \\sqrt{3}$", "0", "$3 \\sqrt{3}$"]
 	tick_dict = {'X_ticks': X_ticks, 'X_tick_labels': X_tick_labels, 'Y_ticks': Y_ticks, 'Y_tick_labels': Y_tick_labels}
 
 	global_min, global_max = global_bounds(clean_bott_data+disorder_bott_data)
-	norm = plt.Normalize(vmin=global_min, vmax=global_max)
-	norm = plt.Normalize(vmin=-1.0, vmax=0.)
+	norm = plt.Normalize(vmin=min(global_min, -1.0), vmax=max(global_max, 1.0))
+	#norm = plt.Normalize(vmin=-1.0, vmax=1.0)
 	
-	files_array = np.empty((len(methods), len(disorder_strengths)), dtype=object)
+	clean_files_array = np.empty((len(methods)), dtype=object)
+	files_array = np.empty((len(methods), n_cols), dtype=object)
 	for i, method in enumerate(methods):
+		clean_files_array[i] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
 		for j, disorder_strength in enumerate(disorder_strengths):
-			if np.isnan(disorder_strength):
-				files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
-			else:
-				files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]})_w{disorder_strength}.h5"
+			files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]})_w{disorder_strength}.h5"
 
-	for i, method in enumerate(methods):
-		file = files_array[i, 0]
+	for i in range(len(methods)):
+		clean_file = clean_files_array[i]
 		try:
-			loop_clean_data = extract_data_from_h5_file(file)
+			loop_clean_data = extract_data_from_h5_file(clean_file)
 			phi_values, M_values, bott_values = loop_clean_data['phi'], loop_clean_data['M'], loop_clean_data['bott_index'].T
 		except Exception as e:
 			print(f"Exception: {e}")
-		for j, disorder_strength in enumerate(disorder_strengths):
-			file = files_array[i, j]
+		for j in range(n_cols):
+			if plotUndisordered:
+				disorder_file = files_array[i, j - 1]
+			else:
+				disorder_file = files_array[i, j]
 			try:
-				if np.isnan(disorder_strength):
-					# plot clean, equivalent to (if plotUndisordered and j == 0)
+				if plotUndisordered and j == 0:
 					fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, bott_values, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False)
 				else:
-					loop_disorder_data = extract_data_from_h5_file(file)
+					loop_disorder_data = extract_data_from_h5_file(disorder_file)
 					if loop_disorder_data is not None:
 						fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, loop_disorder_data['disorder'].T, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False)
 			except Exception as e:
@@ -377,14 +387,14 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 		axs[i, 0].set_ylabel('M', fontsize=12, rotation=0)
 		axs[i, 0].annotate(row_label, xy=(-0.3, 0.5), xytext=(-axs[i, 0].yaxis.labelpad - 5, 0),
 				   xycoords=axs[i, 0].yaxis.label, textcoords='offset points',
-				   size='large', ha='center', va='center', rotation=90)
+				   size=16, ha='center', va='center', rotation=90)
 		
 	if column_labels is None:
 		column_labels = [f"W = {strength}" for strength in disorder_strengths]
 		if plotUndisordered:
-			column_labels[0] = "Undisordered" 
+			column_labels = ["Undisordered"] + column_labels
 	for j, column_label in enumerate(column_labels):
-		axs[-1, j].set_xlabel(r'$\phi$', fontsize=12)
+		axs[-1, j].set_xlabel('$\\phi / \\pi$', fontsize=12)
 		axs[0, j].set_title(column_label, fontsize=12)
 		
 	fig.suptitle(title, fontsize=16)
@@ -392,19 +402,19 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	if plotSineBoundary:
 		for ax in axs.flatten():
 			t = np.linspace(-np.pi, np.pi, 1000)
-			ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
-			ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=0.25)
+			ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='w', ls=(0, (5, 1)), alpha=1., zorder=3)
+			ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='w', ls=(0, (5, 1)), alpha=1., zorder=3)
 
 	for ax in axs.flatten():
-		ax.set_xlim([0., np.pi])
-		ax.set_ylim([0., 3*np.sqrt(3)])
-
+		ax.tick_params(axis='both', labelsize=20)
+		ax.set_title(ax.get_title(), fontsize=20)
+		ax.set_xlabel(ax.get_xlabel(), fontsize=20)
+		ax.set_ylabel(ax.get_ylabel(), fontsize=20)
+		ax.set_aspect('equal')
 
 	add_colorbar_to_figure(fig, axs, norm, cmap, "Bott Index")
 	if image_filename is not None:
-		plt.savefig(image_filename)
-	plt.show()
-
+		plt.savefig(image_filename, bbox_inches='tight', transparent=False)
 
 def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory="."):
 	if not os.path.exists(directory):
@@ -444,10 +454,7 @@ def compare_generations():
 		scat = axs[i].scatter(phi_data[i], M_data[i], c=bi_data[i], norm=norm, cmap=cmap)
 		scatters.append(scat)
 	for ax in axs.flatten():
-		ax.set_xlabel("$\\phi$", fontsize=16)
-		ax.set_xticks([0, np.pi/2, np.pi])
-		ax.set_xticklabels(["$0$", "$\\pi/2$", "$\\pi$"])
-		ax.set_yticks([0, 5.5])
+		ax.set_xlabel("$\\phi / \\pi$", fontsize=16)
 	axs[0].set_ylabel("M", fontsize=16, rotation=0)
 
 
@@ -469,24 +476,35 @@ def compare_generations():
 #------------------------------------------------------------
 #------------------------------------------------------------
 
+def get_info(generation):
+	geometry_data = compute_geometric_data(generation, True)
+	x = geometry_data['x']
+	hex = geometry_data['hexaflake']
+	print("Pristine  N sites:", x.size)
+	print("Hexaflake N sites:", np.sum(hex))
+
 
 def main():
 	compute_these_disorder_strengths = []
-	plot_these_disorder_strengths = [1.0, 5.0, 7.5, 10.0, 12.5, 15.0]
-	methods = ['renorm']
-	titles = ['Pristine', 'Renormalization', 'Site Elimination']
+	plot_these_disorder_strengths = [1.0, 4.0, 5.0, 7.0, 10.]
+	methods = ['renorm', 'hexagon', 'site_elim']
+	plot_methods = ['hexagon']
+	titles = ['']
 	res = (25, 25)
-	generation = 3
-	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, ['hexagon'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
-	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, ['renorm'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	generation = 2
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
 	#compute_many_phase_diagrams(generation, [], ['site_elim'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
-	make_large_figure(generation, res, ["hexagon", "renorm", "site_elim"], 
+	make_large_figure(generation, res, plot_methods, 
 				   disorder_strengths=plot_these_disorder_strengths,
 				   directory="./Hexaflake/Data/",
-				   cmap="inferno", plotUndisordered=True, plotSineBoundary=True,
+				   cmap="cividis", plotUndisordered=True, plotSineBoundary=False,
 				   row_labels=titles,
-				   title=f"Generation {generation}\nRobustness Over Disorder", image_filename=f"./Hexaflake/Figures/PhaseDiagram_g{generation}.png")
+				   title="", 
+				   image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png")
 
-	
+
+
+
+
 if __name__ == "__main__":	
 	main()
