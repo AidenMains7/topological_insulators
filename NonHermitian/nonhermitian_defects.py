@@ -322,8 +322,8 @@ def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:
             if (idx >= 0) and (Lattice.defect_type != "schottky"):
                 onsite_mass[idx, idx] = msub
 
-    dy = t * Sy + 1.0j * hy * I
     dx = t * Sx + 1.0j * hx * I
+    dy = t * Sy + 1.0j * hy * I
     dz = ((1.0j * hz) * I + onsite_mass) + t0 * Cx_plus_Cy
 
     hamiltonian = np.kron(dx, pauli_x) + np.kron(dy, pauli_y) + np.kron(dz, pauli_z)
