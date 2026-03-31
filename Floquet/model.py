@@ -194,6 +194,7 @@ if __name__ == "__main__":
 
     t0 = time.time()
     torch.cuda.empty_cache()
+    print(device)
 
     L = 35
 
@@ -215,8 +216,7 @@ if __name__ == "__main__":
     T_values = 2 * torch.pi / w_values
 
 
-
-    chunk_size = 11
+    chunk_size = 121
     m0_chunks = torch.split(m0_values, chunk_size)
     m1_chunks = torch.split(m1_values, chunk_size)
     T_chunks = torch.split(T_values, chunk_size)
@@ -234,10 +234,12 @@ if __name__ == "__main__":
         del H_chunk, P_chunk, BI_chunk
         torch.cuda.empty_cache()
         
-        print(f"Chunk {i+1}/{len(m0_chunks)} complete.")
+        print(f"Chunk {i+1}/{len(m0_chunks)} complete. : t={time.time() - t0:.2f}s")
 
 
     BI = np.concatenate(bott_index_results).reshape(dimensions)
-    
+
     plt.imshow(BI[0])
     plt.show()
+
+        
