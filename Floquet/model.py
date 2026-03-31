@@ -196,7 +196,9 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     print(device)
 
-    L = 35
+    L = 15
+
+    print(device)
 
     lattice = generate_lattice(L, L)
     dx, dy = compute_distances(lattice, True)

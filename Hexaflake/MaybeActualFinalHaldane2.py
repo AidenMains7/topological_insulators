@@ -315,7 +315,26 @@ def compute_geometric_data(n, PBC, return_dx_dy=False, sublatticeMethod='hexafla
 	return geometric_data
 
 
-def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
+def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
+	"""
+	Generate a disorder array for the Hamiltonian.
+
+	Parameters:
+	strength (float): The strength of the disorder.
+	system_size (int): The size of the system.
+	degrees_of_freedom (int): Degrees of freedom
+
+	Returns:
+	np.ndarray: A diagonal matrix representing the disorder.
+	"""
+	disorder_array = np.random.uniform(-strength/2, strength/2, size=system_size)
+	delta = np.sum(disorder_array)/system_size
+	disorder_array -= delta
+	disorder_array = np.repeat(disorder_array, degrees_of_freedom)
+	return np.diag(disorder_array).astype(np.complex128)
+
+
+def compute_hamiltonian(method, M, phi, t1, t2, geometric_data, disorder_strength=0.0, disorderBeforeRenorm:bool = False):
 
 	valid_methods = ['hexagon', 'site_elim', 'renorm']
 	if method not in valid_methods:
@@ -331,25 +350,24 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data):
 	H[NNN_CCW] = -t2 * np.sin(phi)*1j
 	H[NNN_CCW.T] = t2 * np.sin(phi)*1j
 
+	if disorder_strength != 0.0 and disorderBeforeRenorm:
+		disorder_array = compute_disorder_array(disorder_strength, H.shape[0])
+		H += disorder_array
+
 	if method == 'renorm':
 		H_aa = H[np.ix_(hexaflake, hexaflake)]
 		H_bb = H[np.ix_(~hexaflake, ~hexaflake)]
 		H_ab = H[np.ix_(hexaflake, ~hexaflake)]
 		H_ba = H[np.ix_(~hexaflake, hexaflake)]
 
-
-
-		if False:
-			H_aa = H_aa[np.ix_(sorted_idxs, sorted_idxs)]
-			H_ab = H_ab[np.ix_(sorted_idxs, np.arange(H_ab.shape[1]))]
-			H_ba = H_ba[np.ix_(np.arange(H_ba.shape[0]), sorted_idxs)]
-
-
-
 		H = H_aa - H_ab @ sp.linalg.solve(H_bb,H_ba,assume_a='her',check_finite=False,overwrite_a=True,overwrite_b=True)
 
 	elif method == 'site_elim':
 		H = H[np.ix_(hexaflake, hexaflake)]
+
+	if disorder_strength != 0.0 and not disorderBeforeRenorm:
+		disorder_array = compute_disorder_array(disorder_strength, H.shape[0])
+		H += disorder_array
 
 	return H
 
@@ -660,4 +678,49 @@ def comp():
 	ax.set_yticks([0, 25, 50, 75, 100])
 	plt.legend()
 	plt.tight_layout()
+	plt.show()
+
+if __name__ == '__main__':
+	import h5py
+	def get_amount(gen):
+		f = f'./Hexaflake/Data/site_elim_g{gen}_(25_by_25).h5'
+		with h5py.File(f, 'r') as file:
+			M = file['M'][:] # type: ignore
+			phi = file['phi'][:] # type: ignore
+			bi = file['bott_index'][:].flatten() # type: ignore
+			bi = np.round(bi).astype(int)
+
+		in_phase = np.where(M <= np.sin(phi) * np.sqrt(3) * 3, True, False)
+
+		amount_good = len(np.where(in_phase & (bi != 0))[0])
+		return amount_good, len(np.where(in_phase)[0])
+
+	generations = [2, 3, 4]
+	amounts = [get_amount(gen) for gen in generations]
+	n_sites = np.array([6 * (7 ** gen) for gen in generations])
+	ratios = [amount_good/amounts[0][1] for amount_good, _ in amounts]
+	print(amounts)
+	print(ratios)
+	print(n_sites)
+
+	fig, axs = plt.subplots(1, 2, figsize=(12, 5))
+	axs[0].scatter(1/np.array(generations), ratios)
+	axs[0].set_xlabel('1/generation')
+	axs[1].scatter(1/n_sites, ratios)
+	axs[1].set_xlabel('1/n_sites')
+
+	axs[0].set_ylabel('% topological')
+
+	#axs[0].set_xscale('log')
+	#axs[1].set_yscale('log')
+	#axs[1].set_xscale('log')
+	#axs[0].set_yscale('log')
+	
+	axs[0].set_xlim(0., 0.75)
+	#axs[1].set_xlim(1e-10, 1/n_sites[0]*1.5)
+	axs[0].set_ylim(0., 1.)
+	#axs[1].set_ylim(1e-10, 1.)
+
+	#axs[1].set_xscale('log')
+	#axs[1].set_yscale('log')
 	plt.show()
