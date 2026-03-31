@@ -195,7 +195,9 @@ if __name__ == "__main__":
     t0 = time.time()
     torch.cuda.empty_cache()
 
-    L = 35
+    L = 15
+
+    print(device)
 
     lattice = generate_lattice(L, L)
     dx, dy = compute_distances(lattice, True)
@@ -213,8 +215,6 @@ if __name__ == "__main__":
     w_values = w_values.flatten()
 
     T_values = 2 * torch.pi / w_values
-
-
 
     chunk_size = 11
     m0_chunks = torch.split(m0_values, chunk_size)

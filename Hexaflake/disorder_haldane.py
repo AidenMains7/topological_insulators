@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from multiprocessing import Manager
 from time import time
 from fractions import Fraction
-from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_hamiltonian
+from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_hamiltonian, compute_disorder_array
 from matplotlib.colors import ListedColormap, BoundaryNorm
 
 
@@ -24,25 +24,6 @@ def compute_bott_from_hamiltonian(H, method, geometry_data):
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
-
-
-def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
-	"""
-	Generate a disorder array for the Hamiltonian.
-
-	Parameters:
-	strength (float): The strength of the disorder.
-	system_size (int): The size of the system.
-	degrees_of_freedom (int): Degrees of freedom
-
-	Returns:
-	np.ndarray: A diagonal matrix representing the disorder.
-	"""
-	disorder_array = np.random.uniform(-strength/2, strength/2, size=system_size)
-	delta = np.sum(disorder_array)/system_size
-	disorder_array -= delta
-	disorder_array = np.repeat(disorder_array, degrees_of_freedom)
-	return np.diag(disorder_array).astype(np.complex128)
 
 
 def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, 
@@ -91,10 +72,8 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 def compute_disorder_iterations(phi, M, method, strength, t1, t2, geometry_data, iterations=100, n_jobs=-2, show_progress=False):
 
 	def worker_function(i):
-		clean_H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data)
-		disorder_arr = compute_disorder_array(strength, clean_H.shape[0], 1)
-		disorder_H = clean_H + disorder_arr
-		bott = compute_bott_from_hamiltonian(disorder_H, method, geometry_data)
+		H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data, strength, True if method == 'renorm1' else False)
+		bott = compute_bott_from_hamiltonian(H, method, geometry_data)
 		return bott
 	
 	if show_progress:
@@ -314,8 +293,8 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	
 	if type(methods) is str:
 		methods = [methods]
-	if any([m in methods for m in ['hexagon', 'site_elim', 'renorm']]) == False:
-		raise ValueError("Invalid method. Options are ['hexagon', 'site_elim', 'renorm']")
+	if any([m in methods for m in ['hexagon', 'site_elim', 'renorm1', 'renorm2']]) == False:
+		raise ValueError("Invalid method. Options are ['hexagon', 'site_elim', 'renorm1', 'renorm2']")
 	
 	and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})']
 	or_contain_list = methods
@@ -422,8 +401,13 @@ def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensi
 
 	for disorder_strength in disorder_strengths:
 		for method in methods:
-			clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory,
-							  M_range=(0., 5.5), phi_range=(0., np.pi))
+			if method in ['renorm1', 'renorm2']:
+				clean_file = compute_phase('renorm', generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
+			elif method == 'renorm':
+				pass
+				clean_file = None
+			else:
+				clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
 			disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
 
 
@@ -487,13 +471,12 @@ def get_info(generation):
 def main():
 	compute_these_disorder_strengths = []
 	plot_these_disorder_strengths = [1.0, 4.0, 5.0, 7.0, 10.]
-	methods = ['renorm', 'hexagon', 'site_elim']
-	plot_methods = ['hexagon']
+	methods = ['renorm2', 'hexagon', 'site_elim', 'renorm1']
+	plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
 	titles = ['']
 	res = (25, 25)
 	generation = 2
 	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
-	#compute_many_phase_diagrams(generation, [], ['site_elim'], res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
 	make_large_figure(generation, res, plot_methods, 
 				   disorder_strengths=plot_these_disorder_strengths,
 				   directory="./Hexaflake/Data/",

@@ -17,6 +17,7 @@ class DefectSquareLattice:
     """
     Class to generate a square lattice with various types of defects.
     """
+    VALID_DEFECT_TYPES = ['none', 'vacancy', 'schottky', 'substitution', 'interstitial', 'frenkel_pair']
     def __init__(self, Lx:int, Ly:int, defect_type:str, pbc:bool = True, 
                  frenkel_pair_index:int = 0, schottky_distance:int = 1, schottky_type:int = 0, doLargeDefect:bool = False, 
                  r0:float = 1.0, R:float = 1.0, doSquareDefect:bool=False, sqdWidth:int=None,
@@ -387,8 +388,9 @@ class DefectSquareLattice:
     # region Computation
     def compute_hamiltonian(self, M_background:float, M_substitution:float = None, t:float = 1.0, t0:float = 1.0, 
                             tau_x:np.ndarray = None, tau_y:np.ndarray = None, tau_z:np.ndarray = None,
-                            massDisorder:bool = False, hopDisorder:bool = False, disorder_strength:float = None):
-        """Compute the Hamiltonian for the defect lattice based on the defect type and provided parameters.
+                            potentialDisorder:bool = False, massDisorder:bool = False, hopDisorder:bool = False, disorder_strength:float = None):
+        """
+        Compute the Hamiltonian for the defect lattice based on the defect type and provided parameters.
         
         Parameters:
             M_background (float): Background mass for the Hamiltonian.
@@ -396,6 +398,13 @@ class DefectSquareLattice:
             t (float): Hopping parameter for d1, d2 terms.
             t0 (float): Hopping parameter for d3 term. 
         """
+
+        if potentialDisorder:
+            delta_u = disorder_strength
+            potential_disorder = np.random.uniform(-delta_u / 2, delta_u / 2, self.I.shape[0])
+            potential_disorder -= np.mean(potential_disorder)
+        else:
+            potential_disorder = np.zeros(self.I.shape[0])
 
         if massDisorder:
             delta_m = M_background * disorder_strength
@@ -1265,9 +1274,51 @@ def compute_bott_pd(m0_range, n, r0, R):
     plt.title(f"Bott Index Phase Diagram for $r_0={r0}$ and $R={R}$")
 
 
+def IPR(ax, defect_type, m0:float = 1.0, msub = None, odd_Ls = [15, 25, 35, 45, 55], even_Ls = [24, 32, 40, 48, 56], pbc=True):
+    IPRs = []
+    L_eigvals = []
+    if defect_type in ['vacancy', 'substitution', 'frenkel_pair']:
+        Ls = odd_Ls
+    else:
+        Ls = even_Ls
+    for L in Ls:
+        Lattice = DefectSquareLattice(L, L, defect_type, pbc, schottky_distance = (L // 4 - (L // 4) % 2 + 1))
+        H = Lattice.compute_hamiltonian(m0, M_substitution=msub)
+        eigenvalues, eigenvectors = spla.eigh(H)
 
+        eigvec_sq = np.abs(eigenvectors) ** 2
+        eigvec_sq = eigvec_sq[len(eigenvalues) // 2:, :] + eigvec_sq[:len(eigenvalues) // 2, :]
+        IPR = np.sum(eigvec_sq ** 2, axis=0)
+
+        IPRs.append(IPR)
+        L_eigvals.append(eigenvalues)
+        print(L)
+
+    for eigs, IPR, L in zip(L_eigvals, IPRs, Ls):
+        ax.scatter(eigs, IPR.real, alpha=0.5, label=f'$L={L}$', rasterized=True)
+
+    ax.legend()
+    if defect_type in ['vacancy', 'schottky', 'none']:
+        ax.set_title(f"IPRs for {defect_type.capitalize()} Defect : $m_0={m0}$", fontsize=16)
+    elif defect_type == 'substitution':
+        ax.set_title(f"IPRs for {defect_type.capitalize()} Defect : $m_0^{{\\rm back}}={m0}$ and $m_0^{{\\rm sub}}={msub}$")
+    else:
+        ax.set_title(f"IPRs for {defect_type.capitalize()} Defect : $m_0^{{\\rm back}}={m0}$ and $m_0^{{\\rm int}}={msub}$")
+    ax.set_ylabel("IPR", rotation=0, fontsize=16)
+    ax.set_xlabel("$E$", fontsize=16)
 
 if __name__ == "__main__":
+    fig, axs = plt.subplots(1, 5, figsize=(30, 6))
+    
+    DummyLat = DefectSquareLattice(1, 1, 'none')
+    for defect_type, ax in zip(DummyLat.VALID_DEFECT_TYPES[1:], axs):
+        IPR(ax, defect_type, 1.0, -1.0)
+        ax.set_title('')
+    
+    plt.savefig('ipr.svg')
+    plt.savefig('ipr.png')
+
+    raise SystemExit
     doInterpolation = False # Max be slow
     doShow = False # Warning: may lag
     doSavePng = True 
