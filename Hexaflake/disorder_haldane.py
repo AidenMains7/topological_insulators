@@ -61,7 +61,7 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 	
 	data = {'phi': phi_data,
 			'M': M_data,
-			'bott_index': bi_data.reshape(dimensions)}
+			'bott_index': bi_data}
 	
 	with h5py.File(out_filename, 'w') as f:
 		for k, v in zip(data.keys(), data.values()):
@@ -71,84 +71,106 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
 
 
 def compute_disorder_iterations(phi, M, method, strength, t1, t2, geometry_data, iterations=100, n_jobs=-2, show_progress=False):
+    def worker_function(i):
+        H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data, strength, True if method == 'renorm1' else False)
+        bott = compute_bott_from_hamiltonian(H, method, geometry_data)
+        return bott
+    
+    if show_progress:
+        with tqdm_joblib(tqdm(total=iterations, desc="Computing disorder iterations")) as progress_bar:
+            iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
+    else:
+        iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
 
-	def worker_function(i):
-		H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data, strength, True if method == 'renorm1' else False)
-		bott = compute_bott_from_hamiltonian(H, method, geometry_data)
-		return bott
-	
-	if show_progress:
-		with tqdm_joblib(tqdm(total=iterations, desc="Computing disorder iterations")) as progress_bar:
-			iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
-	else:
-		iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
-
-	return np.average(iter_data[~np.isnan(iter_data)])
-	
-	
-def compute_disorder(in_filename, method, generation, strength, iterations=100, t1=1.0, t2=1.0, n_jobs=-2, intermittent_saving=True, show_progress = True, directory='', fileOverwrite=False):
-	geometry_data = compute_geometric_data(generation, True)
-
-	with h5py.File(in_filename, 'r') as f:
-		phi_vals = f['phi'][:]
-		M_vals = f['M'][:]
-		bott_index_vals = f['bott_index'][:]
+    # Return the full array of all iterations instead of just the average
+    return iter_data
 
 
-	out_filename = in_filename.replace('.h5', f'_w{strength}.h5')
-	if method in ['renorm1', 'renorm2']:
-		out_filename = out_filename.replace('renorm', method)
+def compute_disorder(in_filename, method, generation, strength, iterations=100, t1=1.0, t2=1.0, n_jobs=-2, intermittent_saving=True, show_progress=True, directory='', fileOverwrite=False):
+    geometry_data = compute_geometric_data(generation, True)
 
-	if os.path.exists(out_filename) and fileOverwrite == False:
-		return out_filename
-	
-	def worker_function(index):
-		phi, M = phi_vals[index], M_vals[index]
-		avg_bott = compute_disorder_iterations(phi, M, method, strength, t1=t1, t2=t2, geometry_data=geometry_data, iterations=iterations, n_jobs=n_jobs)
-		arr = np.array([phi, M, avg_bott])
-		np.savetxt(out_filename.replace('.h5', f'_{index}.txt'), arr)
+    with h5py.File(in_filename, 'r') as f:
+        phi_vals = f['phi'][:]
+        M_vals = f['M'][:]
+        bott_index_vals = f['bott_index'][:]
 
-	nonzero_indices = bott_index_vals.astype(bool).flatten()
-	compute_these = np.argwhere(nonzero_indices & np.where(phi_vals.flatten() >= 0)).flatten()
+    out_filename = in_filename.replace('.h5', f'_w{strength}.h5')
+    if method in ['renorm1', 'renorm2']:
+        out_filename = out_filename.replace('renorm', method)
 
-	if not np.any(compute_these):
-		print(f"All disorder values already computed for {method}, W = {strength}.")
-		return out_filename
+    if os.path.exists(out_filename) and fileOverwrite == False:
+        return out_filename
+    
+    def worker_function(index):
+        phi, M = phi_vals[index], M_vals[index]
+        all_botts = compute_disorder_iterations(phi, M, method, strength, t1=t1, t2=t2, geometry_data=geometry_data, iterations=iterations, n_jobs=1)
+        return phi, M, all_botts
 
-	if show_progress:
-		with tqdm_joblib(tqdm(total=len(compute_these), desc=f"Computing disorder values ({method}): W = {strength}")) as progress_bar:
-			Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in compute_these)
-	else:
-		Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in compute_these)
+    # Fix: use direct boolean condition instead of np.where for the bitwise AND
+    nonzero_indices = bott_index_vals.astype(bool).flatten()
+    compute_these = np.argwhere(nonzero_indices & (phi_vals.flatten() >= 0)).flatten()
 
+    if not np.any(compute_these):
+        print(f"All disorder values already computed for {method}, W = {strength}.")
+        return out_filename
 
-	# After all iterations are done, read the individual txt files and compile into h5
-	phis = []
-	ms = []
-	bis = []
-	for index in compute_these:
-		try:
-			arr = np.loadtxt(out_filename.replace('.h5', f'_{index}.txt'))
-			phi, M, avg_bott = arr[0], arr[1], arr[2]
-			phis.append(phi)
-			ms.append(M)
-			bis.append(avg_bott)
-		except Exception as e:
-			print(index)
+    # Split the required computations into chunks (e.g., 10 separate batch files)
+    num_chunks = 10
+    chunks = np.array_split(compute_these, min(num_chunks, len(compute_these)))
+    chunk_files = []
 
-	for index in compute_these:
-		try:
-			os.remove(out_filename.replace('.h5', f'_{index}.txt'))
-		except Exception as e:
-			print(f"Error removing file for index {index}: {e}")
+    for chunk_idx, chunk in enumerate(chunks):
+        if len(chunk) == 0: continue
+        
+        if show_progress:
+            print(f"Computing chunk {chunk_idx + 1}/{len(chunks)} for W = {strength}")
+            with tqdm_joblib(tqdm(total=len(chunk), desc=f"Chunk {chunk_idx + 1}")) as progress_bar:
+                results = Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in chunk)
+        else:
+            results = Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in chunk)
 
-	with h5py.File(out_filename, 'w') as f:
-		f.create_dataset(name='phi', data=np.array(phis))
-		f.create_dataset(name='M', data=np.array(ms))
-		f.create_dataset(name='disorder', data=np.array(bis))
+        # Unpack results
+        phis_chunk = np.array([res[0] for res in results])
+        Ms_chunk = np.array([res[1] for res in results])
+        botts_chunk = np.array([res[2] for res in results]) # Shape will be (len(chunk), iterations)
 
-	return out_filename
+        # Save to temporary chunk file
+        chunk_filename = out_filename.replace('.h5', f'_temp_chunk_{chunk_idx}.h5')
+        with h5py.File(chunk_filename, 'w') as f:
+            f.create_dataset('phi', data=phis_chunk)
+            f.create_dataset('M', data=Ms_chunk)
+            f.create_dataset('disorder_all', data=botts_chunk)
+        
+        chunk_files.append(chunk_filename)
 
+    # Compile all chunk files into the final h5 file
+    all_phis, all_Ms, all_botts = [], [], []
+
+    for c_file in chunk_files:
+        try:
+            with h5py.File(c_file, 'r') as f:
+                all_phis.append(f['phi'][:])
+                all_Ms.append(f['M'][:])
+                all_botts.append(f['disorder_all'][:])
+            os.remove(c_file) # Clean up intermediate files
+        except Exception as e:
+            print(f"Error compiling file {c_file}: {e}")
+
+    # Concatenate the lists of arrays
+    final_phis = np.concatenate(all_phis)
+    final_Ms = np.concatenate(all_Ms)
+    final_botts_all = np.concatenate(all_botts, axis=0)
+    
+    # Calculate the average ignoring NaNs so your existing plotting scripts still work
+    final_botts_avg = np.nanmean(final_botts_all, axis=1)
+
+    with h5py.File(out_filename, 'w') as f:
+        f.create_dataset(name='phi', data=final_phis)
+        f.create_dataset(name='M', data=final_Ms)
+        f.create_dataset(name='disorder_all', data=final_botts_all) # New: 2D array of all iterations
+        f.create_dataset(name='disorder', data=final_botts_avg)     # Legacy: 1D array of averages
+
+    return out_filename
 
 #------------------------------------------------------------
 #------------------------------------------------------------
@@ -414,21 +436,19 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 		plt.savefig(image_filename, bbox_inches='tight', transparent=False)
 
 def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory="."):
-	if not os.path.exists(directory):
-		os.makedirs(directory)
+    if not os.path.exists(directory):
+        os.makedirs(directory)
 
-	for disorder_strength in disorder_strengths:
-		for method in methods:
-			if method in ['renorm1', 'renorm2']:
-				clean_file = compute_phase('renorm', generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
-			elif method == 'renorm':
-				pass
-				clean_file = None
-			else:
-				clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
-			disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
-
-
+    for disorder_strength in disorder_strengths:
+        for method in methods:
+            # Fix: Handle 'renorm' cleanly alongside 'renorm1' and 'renorm2' so clean_file is never None
+            if method in ['renorm1', 'renorm2', 'renorm']:
+                clean_file = compute_phase('renorm', generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
+            else:
+                clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
+            
+            disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
+			
 
 def compare_generations():
 	generations = [2, 3, 4]
