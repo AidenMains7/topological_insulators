@@ -10,6 +10,7 @@ from time import time
 from fractions import Fraction
 from MaybeActualFinalHaldane2 import compute_bott_index, compute_geometric_data, compute_hamiltonian, compute_disorder_array
 from matplotlib.colors import ListedColormap, BoundaryNorm
+import traceback
 
 
 
@@ -28,14 +29,14 @@ def compute_bott_from_hamiltonian(H, method, geometry_data):
 
 def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, 
 				  n_jobs=-2, show_progress=True, directory='', fileOverwrite=False,
-				  M_values=None, phi_values=None):
+				  M_values=None, phi_values=None, outfname:str|None=None):
 	if M_values is None:
 		M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
 	if phi_values is None:
 		phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
 	geometry_data = compute_geometric_data(generation, True)
 
-	out_filename = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
+	out_filename = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5" if outfname is None else outfname
 	if os.path.exists(out_filename) and fileOverwrite == False:
 		return out_filename
 
@@ -93,35 +94,22 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 		M_vals = f['M'][:]
 		bott_index_vals = f['bott_index'][:]
 
-	manager = Manager()
-	lock = manager.Lock()
+
 	out_filename = in_filename.replace('.h5', f'_w{strength}.h5')
+	if method in ['renorm1', 'renorm2']:
+		out_filename = out_filename.replace('renorm', method)
+
 	if os.path.exists(out_filename) and fileOverwrite == False:
 		return out_filename
 	
 	def worker_function(index):
 		phi, M = phi_vals[index], M_vals[index]
 		avg_bott = compute_disorder_iterations(phi, M, method, strength, t1=t1, t2=t2, geometry_data=geometry_data, iterations=iterations, n_jobs=n_jobs)
-		if intermittent_saving:
-			with lock:
-				with h5py.File(out_filename, 'a') as f:
-					f['disorder_flat'][index] = avg_bott
-					f['computed_idxs'][index] = True
-		return avg_bott
+		arr = np.array([phi, M, avg_bott])
+		np.savetxt(out_filename.replace('.h5', f'_{index}.txt'), arr)
 
-	disorder_bott_arr = np.zeros(phi_vals.shape)
-
-	if not os.path.exists(out_filename):
-		with h5py.File(out_filename, 'a') as f:
-			f.create_dataset(name='disorder_flat', data=disorder_bott_arr)
-			f.create_dataset(name='computed_idxs', data=disorder_bott_arr.astype(bool))
-			f.create_dataset(name='disorder', data=np.zeros(bott_index_vals.shape))
-
-	with h5py.File(out_filename, 'r') as f:
-		wasComputed = f['computed_idxs'][:].flatten()
 	nonzero_indices = bott_index_vals.astype(bool).flatten()
-	compute_these = np.argwhere(nonzero_indices & ~wasComputed).flatten()
-
+	compute_these = np.argwhere(nonzero_indices & np.where(phi_vals.flatten() >= 0)).flatten()
 
 	if not np.any(compute_these):
 		print(f"All disorder values already computed for {method}, W = {strength}.")
@@ -129,20 +117,36 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 
 	if show_progress:
 		with tqdm_joblib(tqdm(total=len(compute_these), desc=f"Computing disorder values ({method}): W = {strength}")) as progress_bar:
-			disorder_averages = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in compute_these)).T
+			Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in compute_these)
 	else:
-		disorder_averages = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in compute_these)).T
+		Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in compute_these)
 
-	with h5py.File(out_filename, 'a') as f:
-		if not intermittent_saving:
-			disorder_bott_arr[compute_these] = disorder_averages
-			f['disorder'][:] = disorder_bott_arr.reshape(bott_index_vals.shape)
-		else:
-			saved_disorder = f['disorder_flat'][:]
-			if np.any(saved_disorder[compute_these]-disorder_averages):
-				raise ValueError("Disorder values do not match between saved and computed values."
-									+f"Saved: {saved_disorder[compute_these]}, Computed: {disorder_averages}")
-			f['disorder'][:] = saved_disorder.reshape(bott_index_vals.shape)
+
+	# After all iterations are done, read the individual txt files and compile into h5
+	phis = []
+	ms = []
+	bis = []
+	for index in compute_these:
+		try:
+			arr = np.loadtxt(out_filename.replace('.h5', f'_{index}.txt'))
+			phi, M, avg_bott = arr[0], arr[1], arr[2]
+			phis.append(phi)
+			ms.append(M)
+			bis.append(avg_bott)
+		except Exception as e:
+			print(index)
+
+	for index in compute_these:
+		try:
+			os.remove(out_filename.replace('.h5', f'_{index}.txt'))
+		except Exception as e:
+			print(f"Error removing file for index {index}: {e}")
+
+	with h5py.File(out_filename, 'w') as f:
+		f.create_dataset(name='phi', data=np.array(phis))
+		f.create_dataset(name='M', data=np.array(ms))
+		f.create_dataset(name='disorder', data=np.array(bis))
+
 	return out_filename
 
 
@@ -157,7 +161,8 @@ def plot_phase_diagram(fig, ax,
 					   X_ticks=None, Y_ticks=None, X_tick_labels=None, Y_tick_labels=None,
 					   cbar_ticks=None, cbar_tick_labels=None,
 					   cmap='Spectral', norm=None,
-					   plotColorbar=True):
+					   plotColorbar=True,
+					   plotFull:bool = False):
 
 	X_range = [np.min(X_values), np.max(X_values)]
 	Y_range = [np.min(Y_values), np.max(Y_values)]
@@ -165,15 +170,16 @@ def plot_phase_diagram(fig, ax,
 	im = ax.imshow(Z_values, extent=[X_range[0], X_range[1], Y_range[0], Y_range[1]], 
 				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
 				   rasterized=True, norm=norm)
-	im2 = ax.imshow(np.flipud(Z_values), extent=[X_range[0], X_range[1], -Y_range[1], Y_range[0]], 
-				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
-				   rasterized=True, norm=norm)
-	im3 = ax.imshow(-Z_values, extent=[-X_range[1], X_range[0], Y_range[0], Y_range[1]], 
-				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
-				   rasterized=True, norm=norm)
-	im4 = ax.imshow(np.flipud(-Z_values), extent=[-X_range[1], X_range[0], -Y_range[1], Y_range[0]], 
-				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
-				   rasterized=True, norm=norm)
+	if plotFull:
+		im2 = ax.imshow(np.flipud(Z_values), extent=[X_range[0], X_range[1], -Y_range[1], Y_range[0]], 
+					origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+					rasterized=True, norm=norm)
+		im3 = ax.imshow(-Z_values, extent=[-X_range[1], X_range[0], Y_range[0], Y_range[1]], 
+					origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+					rasterized=True, norm=norm)
+		im4 = ax.imshow(np.flipud(-Z_values), extent=[-X_range[1], X_range[0], -Y_range[1], Y_range[0]], 
+					origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+					rasterized=True, norm=norm)
 
 	if title is not None:
 		ax.set_title(title)
@@ -259,7 +265,8 @@ def add_colorbar_to_figure(fig, axs, norm, cmap, cbar_label=None):
 	if cbar_label is not None:
 		cbar.set_label(cbar_label, fontsize=16)
 	
-	cbar.ax.yaxis.set_ticks([-1.0, -0.5, 0.0, 0.5, 1.0])
+	norm_min, norm_max = norm.vmin, norm.vmax
+	cbar.ax.yaxis.set_ticks(np.linspace(norm_min, norm_max, num=5))
 	cbar.ax.tick_params(labelsize=14)
 
 	return cbar
@@ -289,11 +296,12 @@ def pi_tick_labels(value):
 def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_strengths=None, 
 					  directory=".", cmap="cividis", 
 					  plotUndisordered=True, plotSineBoundary=True, 
-					  row_labels=None, column_labels=None, title=None, image_filename=None):
+					  row_labels=None, column_labels=None, title=None, image_filename=None, plotFull=False):
 	
 	if type(methods) is str:
 		methods = [methods]
 	if any([m in methods for m in ['hexagon', 'site_elim', 'renorm1', 'renorm2']]) == False:
+
 		raise ValueError("Invalid method. Options are ['hexagon', 'site_elim', 'renorm1', 'renorm2']")
 	
 	and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})']
@@ -321,15 +329,23 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	clean_bott_data = [data['bott_index'].T for data in clean_data]
 	disorder_bott_data = [data['disorder'] for data in disorder_data]	
 	
-	X_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
-	X_tick_labels = ['$-1$', '$\\frac{1}{2}$', '$0$', '$\\frac{1}{2}$', '$1$']
-	Y_ticks = [-3*np.sqrt(3), 0, 3*np.sqrt(3)]
-	Y_tick_labels = ["$-3 \\sqrt{3}$", "0", "$3 \\sqrt{3}$"]
+	if plotFull:
+		X_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
+		X_tick_labels = ['$-1$', '$\\frac{1}{2}$', '$0$', '$\\frac{1}{2}$', '$1$']
+		Y_ticks = [-3*np.sqrt(3), 0, 3*np.sqrt(3)]
+		Y_tick_labels = ["$-3 \\sqrt{3}$", "0", "$3 \\sqrt{3}$"]
+	else:
+		X_ticks = [0., np.pi / 2, np.pi]
+		X_tick_labels = ['0', '$\\frac{1}{2}$', '1']
+		Y_ticks = [0., 3*np.sqrt(3)]
+		Y_tick_labels = ['0', '$3 \\sqrt{3}$']
 	tick_dict = {'X_ticks': X_ticks, 'X_tick_labels': X_tick_labels, 'Y_ticks': Y_ticks, 'Y_tick_labels': Y_tick_labels}
 
 	global_min, global_max = global_bounds(clean_bott_data+disorder_bott_data)
-	norm = plt.Normalize(vmin=min(global_min, -1.0), vmax=max(global_max, 1.0))
-	#norm = plt.Normalize(vmin=-1.0, vmax=1.0)
+	if plotFull:
+		norm = plt.Normalize(vmin=min(global_min, -1.0), vmax=max(global_max, 1.0))
+	else:
+		norm = plt.Normalize(vmin=-1.0, vmax=0.0)
 	
 	clean_files_array = np.empty((len(methods)), dtype=object)
 	files_array = np.empty((len(methods), n_cols), dtype=object)
@@ -352,11 +368,11 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 				disorder_file = files_array[i, j]
 			try:
 				if plotUndisordered and j == 0:
-					fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, bott_values, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False)
+					fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, bott_values, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False, plotFull = plotFull)
 				else:
 					loop_disorder_data = extract_data_from_h5_file(disorder_file)
 					if loop_disorder_data is not None:
-						fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, loop_disorder_data['disorder'].T, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False)
+						fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, loop_disorder_data['disorder'].T, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False, plotFull = plotFull)
 			except Exception as e:
 				print(f"Error plotting in axes[{i}, {j}]: {e}")
 
@@ -380,9 +396,11 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
 	if plotSineBoundary:
 		for ax in axs.flatten():
-			t = np.linspace(-np.pi, np.pi, 1000)
-			ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='w', ls=(0, (5, 1)), alpha=1., zorder=3)
-			ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='w', ls=(0, (5, 1)), alpha=1., zorder=3)
+			xmin, xmax = ax.get_xlim()
+			t = np.linspace(xmin, xmax, 1000)
+			ax.plot(t, np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=1., zorder=3)
+			if ax.get_ylim()[0] < 0:
+				ax.plot(t, -np.sin(t)*np.sqrt(3)*3, c='k', ls=(0, (5, 1)), alpha=1., zorder=3)
 
 	for ax in axs.flatten():
 		ax.tick_params(axis='both', labelsize=20)
@@ -470,24 +488,44 @@ def get_info(generation):
 
 def main():
 	compute_these_disorder_strengths = []
-	plot_these_disorder_strengths = [1.0, 4.0, 5.0, 7.0, 10.]
-	methods = ['renorm2', 'hexagon', 'site_elim', 'renorm1']
+	plot_these_disorder_strengths = []
+	methods = ['site_elim']
 	plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
-	titles = ['']
+	titles = ['Pristine', 'Renormalization 1', 'Renormalization 2', 'Site Elimination']
 	res = (25, 25)
-	generation = 2
-	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=50, n_jobs=5, directory="./Hexaflake/Data/")
+	generation = 4
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=5, n_jobs=4, directory="./Hexaflake/Data/")
 	make_large_figure(generation, res, plot_methods, 
 				   disorder_strengths=plot_these_disorder_strengths,
 				   directory="./Hexaflake/Data/",
-				   cmap="cividis", plotUndisordered=True, plotSineBoundary=False,
+				   cmap="jet", 
+				   plotUndisordered=True, plotSineBoundary=False, plotFull=False,
 				   row_labels=titles,
 				   title="", 
-				   image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png")
+				   image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
 
 
+def gen4_points():
+	with h5py.File("./Hexaflake/Data/site_elim_g4_(25_by_25).h5", 'r') as f:
+		phi_vals = f['phi'][:]
+		M_vals = f['M'][:]
+		bott_index_vals = f['bott_index'][:]
 
+	idxs = [(0, 4), (0, 5), (1, 6), (1, 7), (2, 9), (2, 10), (3, 11), (3, 12), (4, 13), 
+		 (5, 15), (6, 16), (7, 17), (8, 18), (6, 13), (7, 14), (8, 14), (9, 14),
+		 (6, 14), (7, 15), (8, 16), (9, 17), (10, 17)]
+
+	phi_unique = np.unique(phi_vals)
+	M_unique = np.unique(M_vals)
+
+	parameters = []
+	for i, j in idxs:
+		parameters.append((phi_unique[i], M_unique[j]))
+
+	compute_phase('site_elim', 4, dimensions=(25, 25), directory="./Hexaflake/Data/", 
+			   M_values = M_unique, phi_values = phi_unique, n_jobs=-4,
+			   outfname = 'site_elim_g4_selected_points.h5')
 
 
 if __name__ == "__main__":	
-	main()
+	gen4_points()

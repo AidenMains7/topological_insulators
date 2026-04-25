@@ -336,7 +336,7 @@ def compute_disorder_array(strength, system_size, degrees_of_freedom=1):
 
 def compute_hamiltonian(method, M, phi, t1, t2, geometric_data, disorder_strength=0.0, disorderBeforeRenorm:bool = False):
 
-	valid_methods = ['hexagon', 'site_elim', 'renorm']
+	valid_methods = ['hexagon', 'site_elim', 'renorm1', 'renorm2']
 	if method not in valid_methods:
 		raise ValueError(f"Invalid method '{method}'. Options are {valid_methods}.")
 
@@ -465,7 +465,7 @@ def compute_phase_diagram(
         M_range=(-5.5, 5.5), phi_range=(-np.pi, np.pi),
         n=3, t1=1., t2=1.,  n_jobs=-8, invmethod=None):
 
-	valid_methods = ['hexagon', 'site_elim', 'renorm']
+	valid_methods = ['hexagon', 'site_elim', 'renorm1', 'renorm2']
 	if method not in valid_methods:
 		raise ValueError(f"Invalid method '{method}'. Options are {valid_methods}.")
 
@@ -633,31 +633,7 @@ def plot_phase_diagram(phase_data, cmap='viridis', outputfile='temp.png'):
 
 
 def main():
-	method = 'site_elim'
-	gen = 4
-	data = np.load('./Hexaflake/Data/'+f'phase_data_{method}_gen{gen}.npz')
-	bott, M_range, phi_range = data['bott_index_array'], data['M_range'], data['phi_range']
-	L_m, L_phi = bott.shape
-	M_values = np.linspace(M_range[0], M_range[1], L_m)
-	phi_values = np.linspace(phi_range[0], phi_range[1], L_phi)
-
-	values = np.vstack([M_values.repeat(L_phi), np.tile(phi_values, L_m), np.round(bott.flatten())])
-	nonzero_indices = np.argwhere(values[2] != 0)
-	nontrivial_mask = np.full(values[2].shape, False)	
-	nontrivial_mask[nonzero_indices] = True
-
-	phi_mask = np.where(values[1] > 0, True, False)
-	M_mask = np.where(values[0] >= 0, True, False)
-
-	mask = nontrivial_mask & phi_mask & M_mask
-
-	random_values = np.random.rand(mask.size)
-	percentage = 100.0
-	mask = mask & (random_values < percentage / 100)
-
-	plt.scatter(values[1, mask], values[0, mask], c=values[2, mask], cmap='viridis', vmin=-1, vmax=1)
-	plt.show()
-
+	pass
 
 def comp():
 	generations = [0, 1, 2, 3, 4]
@@ -681,6 +657,8 @@ def comp():
 	plt.show()
 
 if __name__ == '__main__':
+	main()
+def temp():
 	import h5py
 	def get_amount(gen):
 		f = f'./Hexaflake/Data/site_elim_g{gen}_(25_by_25).h5'
