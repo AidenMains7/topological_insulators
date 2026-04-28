@@ -29,7 +29,7 @@ def compute_bott_from_hamiltonian(H, method, geometry_data):
 
 def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, 
 				  n_jobs=-2, show_progress=True, directory='', fileOverwrite=False,
-				  M_values=None, phi_values=None, outfname:str|None=None):
+				  M_values=None, phi_values=None, outfname:"str|None"=None):
 	if M_values is None:
 		M_values = np.linspace(M_range[0], M_range[1], dimensions[1])
 	if phi_values is None:
@@ -548,4 +548,12 @@ def gen4_points():
 
 
 if __name__ == "__main__":	
-	gen4_points()
+	#gen4_points()
+	with h5py.File('./site_elim_g4_selected_points.h5', 'r') as f:
+		M = f['M'][:]
+		bott = f["bott_index"][:]
+		phi = f["phi"][:]
+
+	plt.scatter(phi, M, c=bott)
+	
+	plt.show()
