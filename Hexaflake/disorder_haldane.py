@@ -25,7 +25,7 @@ def compute_bott_from_hamiltonian(H, method, geometry_data):
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
-
+# region Parallel Computation
 
 def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), phi_range=(-np.pi, np.pi), t1=1.0, t2=1.0, 
 				  n_jobs=-2, show_progress=True, directory='', fileOverwrite=False,
@@ -83,16 +83,16 @@ def compute_disorder_iterations(phi, M, method, strength, t1, t2, geometry_data,
 	else:
 		iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
 
-	return np.average(iter_data[~np.isnan(iter_data)])
+	return iter_data[~np.isnan(iter_data)]
 	
 	
 def compute_disorder(in_filename, method, generation, strength, iterations=100, t1=1.0, t2=1.0, n_jobs=-2, intermittent_saving=True, show_progress = True, directory='', fileOverwrite=False):
 	geometry_data = compute_geometric_data(generation, True)
 
 	with h5py.File(in_filename, 'r') as f:
-		phi_vals = f['phi'][:]
-		M_vals = f['M'][:]
-		bott_index_vals = f['bott_index'][:]
+		phi_vals = f['phi'][:] # type: ignore
+		M_vals = f['M'][:] # type: ignore
+		bott_index_vals = f['bott_index'][:] # type: ignore
 
 
 	out_filename = in_filename.replace('.h5', f'_w{strength}.h5')
@@ -103,13 +103,18 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 		return out_filename
 	
 	def worker_function(index):
-		phi, M = phi_vals[index], M_vals[index]
-		avg_bott = compute_disorder_iterations(phi, M, method, strength, t1=t1, t2=t2, geometry_data=geometry_data, iterations=iterations, n_jobs=n_jobs)
-		arr = np.array([phi, M, avg_bott])
+		phi, M = phi_vals[index], M_vals[index] # type: ignore
+		disorder_values = compute_disorder_iterations(phi, M, method, strength, t1=t1, t2=t2, geometry_data=geometry_data, iterations=iterations, n_jobs=n_jobs)
+		average = np.average(disorder_values)
+		arr = np.array([phi, M, average])
 		np.savetxt(out_filename.replace('.h5', f'_{index}.txt'), arr)
+		np.savetxt(out_filename.replace('.h5', f'_array_{index}.txt'), np.concatenate([np.array(phi).reshape(-1), np.array(M).reshape(-1), disorder_values.flatten()]))
 
-	nonzero_indices = bott_index_vals.astype(bool).flatten()
-	compute_these = np.argwhere(nonzero_indices & np.where(phi_vals.flatten() >= 0)).flatten()
+	nonzero_indices = bott_index_vals.astype(bool).flatten() # type: ignore
+	compute_these = np.argwhere(nonzero_indices).flatten() # type: ignore
+	# Get only the values whose phi value is greater than pi/2
+	compute_these = compute_these[phi_vals[compute_these] >= np.pi/2] # type: ignore
+
 
 	if not np.any(compute_these):
 		print(f"All disorder values already computed for {method}, W = {strength}.")
@@ -134,7 +139,7 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 			ms.append(M)
 			bis.append(avg_bott)
 		except Exception as e:
-			print(index)
+			print(f"Error reading file for index {index}: {e}")
 
 	for index in compute_these:
 		try:
@@ -147,17 +152,44 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
 		f.create_dataset(name='M', data=np.array(ms))
 		f.create_dataset(name='disorder', data=np.array(bis))
 
+	# Do the same for the array text files
+	phis = []
+	ms = []
+	disorder_values_list = []
+	for index in compute_these:
+		try:
+			arr = np.loadtxt(out_filename.replace('.h5', f'_array_{index}.txt'))
+			phi, M = arr[0], arr[1]
+			disorder_values = arr[2:]
+
+			phis.append(phi)
+			ms.append(M)
+			disorder_values_list.append(disorder_values)
+		except Exception as e:
+			print(f"Error reading array file for index {index}: {e}")
+
+		try:
+			os.remove(out_filename.replace('.h5', f'_array_{index}.txt'))
+		except Exception as e:
+			print(f"Error removing array file for index {index}: {e}")
+
+	
+	with h5py.File(out_filename.replace('.h5', '_array.h5'), 'w') as f:
+		f.create_dataset(name='phi', data=np.array(phis))
+		f.create_dataset(name='M', data=np.array(ms))
+		f.create_dataset(name='disorder_values', data=np.array(disorder_values_list))
+
 	return out_filename
 
-
+# endregion
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
-
+# region Plotting Functions
 
 def plot_phase_diagram(fig, ax, 
 					   X_values, Y_values, Z_values, 
-					   labels:list=None, title:str=None, 
+					   labels:list=[], title:str="", 
 					   X_ticks=None, Y_ticks=None, X_tick_labels=None, Y_tick_labels=None,
 					   cbar_ticks=None, cbar_tick_labels=None,
 					   cmap='Spectral', norm=None,
@@ -166,6 +198,9 @@ def plot_phase_diagram(fig, ax,
 
 	X_range = [np.min(X_values), np.max(X_values)]
 	Y_range = [np.min(Y_values), np.max(Y_values)]
+
+	if np.ndim(Z_values) != 2 or Z_values.shape != (len(Y_values), len(X_values)):
+		Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values)))
 
 	im = ax.imshow(Z_values, extent=[X_range[0], X_range[1], Y_range[0], Y_range[1]], 
 				   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
@@ -208,11 +243,13 @@ def plot_phase_diagram(fig, ax,
 	return fig, ax
 
 
-def get_all_files_matching_criteria(files, contains_all:list=None, contains_any:list=None):
+def get_all_files_matching_criteria(files, contains_all:"list|None"=None, contains_any:"list|None"=None, does_not_contain:"list|None"=None):
 	if contains_all is not None:
 		files = [file for file in files if all([c in file for c in contains_all])]
 	if contains_any is not None:
 		files = [file for file in files if any([c in file for c in contains_any])]
+	if does_not_contain is not None:
+		files = [file for file in files if all([c not in file for c in does_not_contain])]
 	return files
 
 
@@ -254,7 +291,7 @@ def extract_data_from_h5_file(filename):
 
 
 def add_colorbar_to_figure(fig, axs, norm, cmap, cbar_label=None):
-	plt.tight_layout(rect=[0, 0, 0.9, 1])
+	plt.tight_layout(rect=(0, 0, 0.9, 1))
 	axs_flattened = axs.flatten()
 	pos1 = axs_flattened[0].get_position()
 	pos2 = axs_flattened[-1].get_position()
@@ -287,7 +324,7 @@ def pi_tick_labels(value):
 	else:
 		return sign + f"$\\frac{{{numerator.replace('$', ''	)}}}{{{fractional_value.denominator}}}$"
 
-
+# endregion
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
@@ -296,7 +333,7 @@ def pi_tick_labels(value):
 def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_strengths=None, 
 					  directory=".", cmap="cividis", 
 					  plotUndisordered=True, plotSineBoundary=True, 
-					  row_labels=None, column_labels=None, title=None, image_filename=None, plotFull=False):
+					  row_labels=None, column_labels=None, title:str="", image_filename=None, plotFull=False):
 	
 	if type(methods) is str:
 		methods = [methods]
@@ -308,7 +345,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	or_contain_list = methods
 
 	files = glob.glob(os.path.join(directory, f'*.h5'))
-	files = get_all_files_matching_criteria(files, contains_all=and_contain_list, contains_any=or_contain_list)
+	files = get_all_files_matching_criteria(files, contains_all=and_contain_list, contains_any=or_contain_list, does_not_contain=['_array'])
 	
 	if disorder_strengths is None:
 		disorder_strengths = get_disorder_strength_from_files(files)
@@ -326,8 +363,8 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	clean_data = [extract_data_from_h5_file(file) for file in clean_files]
 	disorder_data = [extract_data_from_h5_file(file) for file in disorder_files]
 
-	clean_bott_data = [data['bott_index'].T for data in clean_data]
-	disorder_bott_data = [data['disorder'] for data in disorder_data]	
+	clean_bott_data = [data['bott_index'].T for data in clean_data] # type: ignore
+	disorder_bott_data = [data['disorder'] for data in disorder_data]	 # type: ignore
 	
 	if plotFull:
 		X_ticks = [-np.pi, -np.pi/2, 0, np.pi/2, np.pi]
@@ -343,9 +380,9 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
 	global_min, global_max = global_bounds(clean_bott_data+disorder_bott_data)
 	if plotFull:
-		norm = plt.Normalize(vmin=min(global_min, -1.0), vmax=max(global_max, 1.0))
+		norm = plt.Normalize(vmin=min(global_min, -1.0), vmax=max(global_max, 1.0)) # type: ignore
 	else:
-		norm = plt.Normalize(vmin=-1.0, vmax=0.0)
+		norm = plt.Normalize(vmin=-1.0, vmax=0.0) # type: ignore
 	
 	clean_files_array = np.empty((len(methods)), dtype=object)
 	files_array = np.empty((len(methods), n_cols), dtype=object)
@@ -358,7 +395,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 		clean_file = clean_files_array[i]
 		try:
 			loop_clean_data = extract_data_from_h5_file(clean_file)
-			phi_values, M_values, bott_values = loop_clean_data['phi'], loop_clean_data['M'], loop_clean_data['bott_index'].T
+			phi_values, M_values, bott_values = loop_clean_data['phi'], loop_clean_data['M'], loop_clean_data['bott_index'].T # type: ignore
 		except Exception as e:
 			print(f"Exception: {e}")
 		for j in range(n_cols):
@@ -372,8 +409,12 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 				else:
 					loop_disorder_data = extract_data_from_h5_file(disorder_file)
 					if loop_disorder_data is not None:
-						fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, loop_disorder_data['disorder'].T, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False, plotFull = plotFull)
+						try:
+							fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], phi_values, M_values, loop_disorder_data['disorder'].T, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False, plotFull = plotFull)
+						except IndexError or KeyError:
+							fig, axs[i, j] = plot_phase_diagram(fig, axs[i, j], loop_disorder_data['phi'], loop_disorder_data['M'], loop_disorder_data['disorder'].T, cmap=cmap, norm=norm, **tick_dict, plotColorbar=False, plotFull = plotFull)
 			except Exception as e:
+				print(type(e))
 				print(f"Error plotting in axes[{i}, {j}]: {e}")
 
 	if row_labels is None:
@@ -413,6 +454,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 	if image_filename is not None:
 		plt.savefig(image_filename, bbox_inches='tight', transparent=False)
 
+
 def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory="."):
 	if not os.path.exists(directory):
 		os.makedirs(directory)
@@ -429,7 +471,6 @@ def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensi
 			disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, directory=directory, intermittent_saving=True, show_progress=True)
 
 
-
 def compare_generations():
 	generations = [2, 3, 4]
 	method = 'site_elim'	
@@ -440,9 +481,9 @@ def compare_generations():
 	fig, axs = plt.subplots(1, len(generations), figsize=(4 * len(generations), 4))
 
 	file_data = [extract_data_from_h5_file(file) for file in files]
-	M_data = [data["M"] for data in file_data]
-	phi_data = [data["phi"] for data in file_data]
-	bi_data = [np.round(data["bott_index"].flatten(), 3) for data in file_data]
+	M_data = [data["M"] for data in file_data] # type: ignore
+	phi_data = [data["phi"] for data in file_data] # type: ignore
+	bi_data = [np.round(data["bott_index"].flatten(), 3) for data in file_data] # type: ignore
 
 	cmap = 'viridis'
 	unique_values = np.array((-1, 0))
@@ -467,7 +508,7 @@ def compare_generations():
 
 
 	cbar = fig.colorbar(scatters[0], ax=axs[-1])
-	cbar.set_ticks(unique_values+0.5)
+	cbar.set_ticks(unique_values+0.5) # type: ignore
 	cbar.set_ticklabels([str(val) for val in unique_values], fontsize=16)
 	cbar.set_label("Bott Index", fontsize=16)
 
@@ -487,14 +528,15 @@ def get_info(generation):
 
 
 def main():
-	compute_these_disorder_strengths = []
-	plot_these_disorder_strengths = []
+	compute_these_disorder_strengths = [8.]
+	plot_these_disorder_strengths = [1.0, 5., 7.5, 8., 10., 12.5]
+
 	methods = ['site_elim']
 	plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
 	titles = ['Pristine', 'Renormalization 1', 'Renormalization 2', 'Site Elimination']
 	res = (25, 25)
-	generation = 4
-	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=5, n_jobs=4, directory="./Hexaflake/Data/")
+	generation = 3
+	compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, iterations=10, n_jobs=-2, directory="./Hexaflake/Data/")
 	make_large_figure(generation, res, plot_methods, 
 				   disorder_strengths=plot_these_disorder_strengths,
 				   directory="./Hexaflake/Data/",
@@ -507,16 +549,16 @@ def main():
 
 def gen4_points():
 	with h5py.File("./Hexaflake/Data/site_elim_g4_(25_by_25).h5", 'r') as f:
-		phi_vals = f['phi'][:]
-		M_vals = f['M'][:]
-		bott_index_vals = f['bott_index'][:]
+		phi_vals = f['phi'][:] # type: ignore
+		M_vals = f['M'][:] # type: ignore
+		bott_index_vals = f['bott_index'][:] # type: ignore
 
 	idxs = [(0, 4), (0, 5), (1, 6), (1, 7), (2, 9), (2, 10), (3, 11), (3, 12), (4, 13), 
 		 (5, 15), (6, 16), (7, 17), (8, 18), (6, 13), (7, 14), (8, 14), (9, 14),
 		 (6, 14), (7, 15), (8, 16), (9, 17), (10, 17)]
 
-	phi_unique = np.unique(phi_vals)
-	M_unique = np.unique(M_vals)
+	phi_unique = np.unique(phi_vals) # type: ignore
+	M_unique = np.unique(M_vals) # type: ignore
 
 	parameters = []
 	for i, j in idxs:
@@ -528,4 +570,4 @@ def gen4_points():
 
 
 if __name__ == "__main__":	
-	gen4_points()
+	main()
