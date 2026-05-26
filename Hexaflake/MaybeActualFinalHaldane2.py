@@ -668,38 +668,48 @@ def temp():
 			bi = np.round(bi).astype(int)
 
 		in_phase = np.where(M <= np.sin(phi) * np.sqrt(3) * 3, True, False)
-
 		amount_good = len(np.where(in_phase & (bi != 0))[0])
-		return amount_good, len(np.where(in_phase)[0])
+		return len(np.where(in_phase)[0]), amount_good
 
 	generations = [2, 3, 4]
 	amounts = [get_amount(gen) for gen in generations]
 	n_sites = np.array([6 * (7 ** gen) for gen in generations])
-	ratios = [amount_good/amounts[0][1] for amount_good, _ in amounts]
+	ratios = [amount_good/amounts[0][0] for _, amount_good in amounts]
+	
 	print(amounts)
-	print(ratios)
+	print(np.round(ratios, 3))
 	print(n_sites)
 
 	fig, axs = plt.subplots(1, 2, figsize=(12, 5))
-	axs[0].scatter(1/np.array(generations), ratios)
-	axs[0].set_xlabel('1/generation')
-	axs[1].scatter(1/n_sites, ratios)
-	axs[1].set_xlabel('1/n_sites')
+	axs[0].grid(zorder=0, alpha=0.5, ls='--')
+	axs[1].grid(zorder=0, alpha=0.5, ls='--')
 
+
+
+	axs[0].scatter(1/np.array(generations), ratios, zorder=1)
+	axs[0].set_xlabel('1/generation')
+
+	axs[1].scatter(1/n_sites, ratios, zorder=1)
+	axs[1].set_xlabel('1/n_sites')
 	axs[0].set_ylabel('% topological')
 
-	#axs[0].set_xscale('log')
-	#axs[1].set_yscale('log')
-	#axs[1].set_xscale('log')
-	#axs[0].set_yscale('log')
-	
-	axs[0].set_xlim(0., 0.75)
-	#axs[1].set_xlim(1e-10, 1/n_sites[0]*1.5)
-	axs[0].set_ylim(0., 1.)
-	#axs[1].set_ylim(1e-10, 1.)
+	axs[0].set_xlim(0.0 - 0.05, 0.75 + 0.05)
+	axs[1].set_ylim(0.0 - 0.05, 1.0 + 0.05)
 
-	#axs[1].set_xscale('log')
-	#axs[1].set_yscale('log')
+	fig.suptitle("Scaling of topological region with system size : Site Elimination")
+	axs[0].set_title('Percent of region that is topological vs $1/g$')
+	axs[1].set_title('Percent of region that is topological vs $1/N$')
+
+	slope, intercept = np.polyfit(1/np.array(generations), ratios, 1)
+	xmin, xmax = axs[0].get_xlim()
+	x_fit = np.linspace(xmin, xmax, 100)
+	y_fit = slope * x_fit + intercept
+	axs[0].plot(x_fit, y_fit, c='red', ls='--', label=f'Fit: y={slope:.2f}x + {intercept:.2f}', alpha=0.5)
+	axs[0].legend()
+
+	axs[0].set_ylim(y_fit[0] - 0.05, y_fit[-1] + 0.05)
+	
+
 	plt.show()
 
 
