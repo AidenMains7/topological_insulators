@@ -196,8 +196,8 @@ def plot_phase_diagram(fig, ax,
     X_range = [np.min(X_values), np.max(X_values)]
     Y_range = [np.min(Y_values), np.max(Y_values)]
 
-    if np.ndim(Z_values) != 2 or Z_values.shape != (len(Y_values), len(X_values)):
-        Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values)))
+    if np.ndim(Z_values) != 2 or Z_values.shape != (len(np.unique(Y_values)), len(np.unique(X_values))):
+        Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values))).T
 
     im = ax.imshow(Z_values, extent=[X_range[0], X_range[1], Y_range[0], Y_range[1]], 
                    origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
@@ -230,7 +230,6 @@ def plot_phase_diagram(fig, ax,
         ax.set_yticklabels(Y_tick_labels)
 
     if plotColorbar:
-        vmins, vmaxs = [im]
         cbar = fig.colorbar(im, ax=ax)
         if cbar_ticks is not None:
             cbar.set_ticks(cbar_ticks)
@@ -571,7 +570,7 @@ def gen4_points():
     
 
 def main():
-    compute_these_disorder_strengths = [8.]
+    compute_these_disorder_strengths = [7.5]
     plot_these_disorder_strengths = [1.0, 5., 7.5, 8., 10., 12.5]
 
     methods = ['site_elim']
@@ -580,7 +579,7 @@ def main():
     res = (25, 25)
     generation = 2
     compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
-                                iterations=100, n_jobs=-2, directory="./Hexaflake/Data/", doHalf=True)
+                                iterations=100, n_jobs=-2, directory="./Hexaflake/Data/", doHalf=False)
     make_large_figure(generation, res, plot_methods, 
                    disorder_strengths=plot_these_disorder_strengths,
                    directory="./Hexaflake/Data/",
@@ -597,7 +596,6 @@ def main():
 if __name__ == "__main__":	
     main()
     with h5py.File('./Hexaflake/Data/site_elim_g2_(25_by_25)_w8.0.h5', 'r') as f:
-        print(f.keys())
         M = f['M'][:] # type: ignore
         disorder = f["disorder"][:] # type: ignore
         disorder_all = f["disorder_all"][:] # type: ignore
