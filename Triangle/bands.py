@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def plot_bands():
     # Define parameters
-    M = 2.0
+    M = 3.0
     A_tilde = 1.0
     B = 1.0
     B_tilde = 0.0
@@ -74,7 +74,7 @@ def plot_bands():
     path = [point_pos_dict[key] for key in path_keys]
     labels = [point_label_dict[key] for key in path_keys]
 
-    path_keys = ["G", "X", "M", "Y", "G"]
+    path_keys = ["G", "X", "M", "G"]
     path = [square_point_pos_dict[key] for key in path_keys]
     labels = [square_point_label_dict[key] for key in path_keys]
 
@@ -122,16 +122,25 @@ def plot_bands():
         ax.plot(k_vals, energies[:, 0], label='Band +', c='blue', marker='.', zorder=2)
         ax.plot(k_vals, energies[:, 1], label='Band -', c='red', marker='.', zorder=2)
 
-    ax.set_xticks(np.arange(len(path))*N, labels)
-    ax.set_ylabel("Energy")
-    ax.set_xlabel("Location in BZ")
+    ax.set_xticks(np.arange(len(path))*N, labels, fontsize=16)
+    ax.set_ylabel("Energy", fontsize=12)
+    ax.set_xlabel("Location in BZ", fontsize=12)
     pathlabel = " → ".join(labels)
 
     if doTri:
-        ax.set_title(f"Energy Bands on {pathlabel} : (M={M}, " + r"$\tilde{B}$" + f"={B_tilde}, " + r"$\tilde{A}$" + f"={A_tilde})")
+        ax.set_title(f"Energy Bands on {pathlabel} : (m={M}, " + r"$\tilde{B}$" + f"={B_tilde}, " + r"$\tilde{A}$" + f"={A_tilde})")
     else:
-        ax.set_title(f"Energy Bands on {pathlabel} : (M={M})")
-    ax.grid(True)
+        ax.set_title(f"Energy Bands on {pathlabel} : (m={M})")
+
+    
+    #ax.grid(True)
+    ax.axhline(3., color='k', ls='--')
+    ax.text(0.1, 0.78, 'Fermi Energy', transform=ax.transAxes, ha='center', va='bottom', fontsize=16, color='k')
+
+    ax.text(0.5, 0.95, 'Conduction Band', transform=ax.transAxes, ha='center', va='top', fontsize=16, color='blue')
+    ax.text(0.5, 0.05, 'Valence Band', transform=ax.transAxes, ha='center', va='bottom', fontsize=16, color='red')
+    plt.yticks(fontsize=16)
+
     plt.tight_layout()
     plt.show()
 

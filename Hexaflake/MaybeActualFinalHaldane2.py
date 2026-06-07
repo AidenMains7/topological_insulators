@@ -656,8 +656,7 @@ def comp():
 	plt.tight_layout()
 	plt.show()
 
-if __name__ == '__main__':
-	main()
+
 def temp():
 	import h5py
 	def get_amount(gen):
@@ -713,6 +712,8 @@ def temp():
 
 	plt.show()
 
+
+
 if __name__ == '__main__':
 
 	n = 3
@@ -728,10 +729,10 @@ if __name__ == '__main__':
 	Yflake = Yflake.astype(float) * np.sqrt(3) / 2
 	X = X.astype(float) * 1/2
 	Xflake = Xflake.astype(float) * 1/2
-	axs[0].scatter(X, Y, c='red', alpha=1., zorder=1, s=1)
-	axs[0].scatter(Xflake, Yflake, c='black', alpha=1., zorder=2, s=1)
+	axs[0].scatter(X, Y, c='red', alpha=1., zorder=1)
+	axs[0].scatter(Xflake, Yflake, c='black', alpha=1., zorder=2)
 	axs[0].set_aspect('equal')
-	axs[1].scatter(Xflake, Yflake, c='black', alpha=1., zorder=2, s=1)
+	axs[1].scatter(Xflake, Yflake, c='black', alpha=1., zorder=2)
 	axs[1].set_aspect('equal')
 
 
@@ -740,6 +741,5 @@ if __name__ == '__main__':
 		ax.axis('off')
 	plt.savefig('./Hexaflake/Figures/hexaflake_site_removal_diagram.svg', format='svg', bbox_inches='tight')
 	#plt.show()
-
 
 
