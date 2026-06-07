@@ -712,3 +712,34 @@ def temp():
 	
 
 	plt.show()
+
+if __name__ == '__main__':
+
+	n = 3
+	hex_arr = compute_hexagon(n)
+	hexaflake = compute_hexaflake(n)
+
+	fig, axs = plt.subplots(1, 2, figsize=(8, 8))
+
+	Y, X = np.where(hex_arr)
+	Yflake, Xflake = np.where(hexaflake)
+
+	Y = Y.astype(float) * np.sqrt(3) / 2
+	Yflake = Yflake.astype(float) * np.sqrt(3) / 2
+	X = X.astype(float) * 1/2
+	Xflake = Xflake.astype(float) * 1/2
+	axs[0].scatter(X, Y, c='red', alpha=1., zorder=1, s=1)
+	axs[0].scatter(Xflake, Yflake, c='black', alpha=1., zorder=2, s=1)
+	axs[0].set_aspect('equal')
+	axs[1].scatter(Xflake, Yflake, c='black', alpha=1., zorder=2, s=1)
+	axs[1].set_aspect('equal')
+
+
+
+	for ax in axs:
+		ax.axis('off')
+	plt.savefig('./Hexaflake/Figures/hexaflake_site_removal_diagram.svg', format='svg', bbox_inches='tight')
+	#plt.show()
+
+
+
