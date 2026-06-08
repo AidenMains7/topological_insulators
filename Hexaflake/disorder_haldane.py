@@ -126,9 +126,25 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
     chunks = np.array_split(compute_these, min(num_chunks, len(compute_these)))
     chunk_files = []
 
+<<<<<<< HEAD
     for chunk_idx, chunk in enumerate(chunks):
         if len(chunk) == 0: continue
         
+=======
+    # Reuse any chunk files that were already computed.
+    remaining_chunks = []
+    for chunk_idx, chunk in enumerate(chunks):
+        if len(chunk) == 0:
+            continue
+
+        chunk_filename = out_filename.replace('.h5', f'_temp_chunk_{chunk_idx}.h5')
+        if os.path.exists(chunk_filename):
+            chunk_files.append(chunk_filename)
+        else:
+            remaining_chunks.append((chunk_idx, chunk))
+
+    for chunk_idx, chunk in remaining_chunks:
+>>>>>>> 7bb559abe9094d33aecd3947de12149b1209436b
         if show_progress:
             print(f"Computing chunk {chunk_idx + 1}/{len(chunks)} for W = {strength}")
             with tqdm_joblib(tqdm(total=len(chunk), desc=f"Chunk {chunk_idx + 1}")) as progress_bar:
@@ -569,26 +585,44 @@ def gen4_points():
     
 
 def main():
-    compute_these_disorder_strengths = [1.0]
-    plot_these_disorder_strengths = [1.0, 5., 7.5, 8., 10., 12.5]
+    compute_these_disorder_strengths = [12.5]
+    plot_these_disorder_strengths = [1.0, 5., 7.5, 10., 12.5]
 
-    methods = ['site_elim']
+    methods = ['renorm1']
     plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
     titles = ['Pristine', 'Renormalization 1', 'Renormalization 2', 'Site Elimination']
     res = (25, 25)
-    generation = 4
+    generation = 3
     compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
                                 iterations=20, n_jobs=28, directory="./Hexaflake/Data/", doHalf=True)
     make_large_figure(generation, res, plot_methods, 
-                   disorder_strengths=plot_these_disorder_strengths,
-                   directory="./Hexaflake/Data/",
-                   cmap="jet", 
-                   plotUndisordered=True, plotSineBoundary=False, plotFull=False,
-                   row_labels=titles,
-                   title="", 
+                    disorder_strengths=plot_these_disorder_strengths,
+                    directory="./Hexaflake/Data/",
+                    cmap="jet", 
+                    plotUndisordered=True, plotSineBoundary=False, plotFull=False,
+                    row_labels=titles,
+                    title="", 
                     image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
 
 
+<<<<<<< HEAD
+=======
+
+
+
+if __name__ == "__main__":	
+    main()
+    #with h5py.File('./Hexaflake/Data/renorm1_g3_(25_by_25)_w7.5.h5', 'r') as f:
+    #    print(f.keys())
+    #    M = f['M'][:] # type: ignore
+    #    disorder = f["disorder"][:] # type: ignore
+    #    #disorder_all = f["disorder_all"][:] # type: ignore
+    #    phi = f["phi"][:] # type: ignore
+def gen4_disorder():
+	pass
+
+
+>>>>>>> 7bb559abe9094d33aecd3947de12149b1209436b
 def gen4_disorder_selected_points():
     with h5py.File('./site_elim_g4_selected_points.h5', 'r') as f:
         M = f['M'][:]
@@ -821,6 +855,7 @@ if __name__ == "__main__":
     plt.show()
 
 
+<<<<<<< HEAD
     disorder_alls = np.round(disorder_alls, 3)
 
     arr = []
@@ -852,3 +887,9 @@ if __name__ == "__main__":
     ax.set_xticks([1, 10, 19])
     ax.set_xticklabels([1, 10, 20])
     plt.show()
+=======
+
+#
+    #plt.scatter(phi, M, c=disorder)
+    #plt.show()
+>>>>>>> 7bb559abe9094d33aecd3947de12149b1209436b
