@@ -435,7 +435,7 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
     close_to_zero_idxs = np.unique(np.concatenate((close_to_zero_idxs_negreal, close_to_zero_idxs_posreal)))
 
     # Hard-coded selection for certain parameters
-    if 0:
+    if 1:
         if h_vector[0] == 0.25 or h_vector[1] == 0.25 or h_vector[2] == 0.25:
             if all([h_vector[2], not any(h != 0 for h in h_vector[:2]), Lattice.defect_type == 'interstitial']):
                 close_to_zero_idxs = get_separated_points(eigenvalues)
@@ -467,6 +467,14 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
             if Lattice.defect_type == 'interstitial':
                 if (m0, msub) in [(1.0, 2.5)]:
                     close_to_zero_idxs = np.argsort(np.abs(eigenvalues))[:4]
+        elif h_vector[2] == 0.5 and Lattice.defect_type == 'interstitial':
+            if (m0, msub) in [(1.0, -3.0)]:
+                close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[-2:]
+            if (m0, msub) in [(1.0, -1.0)]:
+                close_to_zero_idxs = get_separated_points(eigenvalues)
+        elif h_vector[2] == 0.5 and Lattice.defect_type == 'substitution':
+            if (m0, msub) in [(3., -3.)]:
+                close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
 
     close_left = left_eigenvectors[:, close_to_zero_idxs] # Eigenstates of selected eigenvalues
     close_right = right_eigenvectors[:, close_to_zero_idxs]
@@ -784,11 +792,17 @@ def plot_nhse_xyz_left_right(Lx:int, Ly:int, m0:float):
 def compute_figures(L, defect_types, h, h_directions = 'xz', fpd=-3.5,
                     m0_values =   [2.5, 1.0],
                     msub_values = [2.5, 1.0, -1.0, -2.5],
-                    overwrite = False):
+                    overwrite = False,
+                    set_values:list = []):
     
-    unique_pairs = np.array(list({(xi, yi) for xi in m0_values for yi in msub_values if xi != yi}))
-    sort = np.lexsort((unique_pairs[:, 1], -unique_pairs[:, 0]))
-    unique_pairs = unique_pairs[sort]
+
+
+    if set_values == []:
+        unique_pairs = np.array(list({(xi, yi) for xi in m0_values for yi in msub_values if xi != yi}))
+        sort = np.lexsort((unique_pairs[:, 1], -unique_pairs[:, 0]))
+        unique_pairs = unique_pairs[sort]
+    else:
+        unique_pairs = np.array(set_values)
 
     default = np.array((h, 0.0, 0.0))
     dir_map = {'x':0,'y':1,'z':2}
@@ -858,12 +872,12 @@ def compute_gap_over_region(L, deftype, m0_range, h_range, hdir, resolution=(25,
 
 if __name__ == "__main__":
     for h in [.5]: 
-        if 0: compute_figures(20, ['vacancy'], h=h, overwrite=True, h_directions='x', m0_values=[.25])
-        plt.show()
+        if 0: compute_figures(30, ['none', 'vacancy', 'schottky'], h=h, overwrite=True, h_directions='x', m0_values=[0.85, 0.9])
+        if 1: compute_figures(20, ['substitution', 'interstitial', 'frenkel_pair'], h=h, overwrite=True, h_directions='x', set_values=[(1., -3.), (1, -1.), (3, -1.), (3.0, -3.0)])
     if 0: 
         Lattice = DefectLattice(20, 20, 'substitution', True)
         find_defect_points(Lattice, 2.5, [0., 0., 0.], -2.5)
-    if 1:
+    if 0:
         method = 'substitution'
         hdir = 'x'
         M0, H, GAP = compute_gap_over_region(20, method, (0., 2.), (0., 2.), hdir, resolution=(51, 51))
