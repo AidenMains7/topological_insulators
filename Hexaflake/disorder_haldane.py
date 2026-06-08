@@ -570,16 +570,16 @@ def gen4_points():
     
 
 def main():
-    compute_these_disorder_strengths = [7.5]
+    compute_these_disorder_strengths = [1.0]
     plot_these_disorder_strengths = [1.0, 5., 7.5, 8., 10., 12.5]
 
     methods = ['site_elim']
     plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
     titles = ['Pristine', 'Renormalization 1', 'Renormalization 2', 'Site Elimination']
     res = (25, 25)
-    generation = 2
+    generation = 4
     compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
-                                iterations=100, n_jobs=-2, directory="./Hexaflake/Data/", doHalf=False)
+                                iterations=20, n_jobs=28, directory="./Hexaflake/Data/", doHalf=True)
     make_large_figure(generation, res, plot_methods, 
                    disorder_strengths=plot_these_disorder_strengths,
                    directory="./Hexaflake/Data/",
@@ -587,7 +587,7 @@ def main():
                    plotUndisordered=True, plotSineBoundary=False, plotFull=False,
                    row_labels=titles,
                    title="", 
-                   image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
+                    image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
 
 
 
@@ -595,8 +595,8 @@ def main():
 
 if __name__ == "__main__":	
     main()
-    with h5py.File('./Hexaflake/Data/site_elim_g2_(25_by_25)_w8.0.h5', 'r') as f:
-        M = f['M'][:] # type: ignore
-        disorder = f["disorder"][:] # type: ignore
-        disorder_all = f["disorder_all"][:] # type: ignore
-        phi = f["phi"][:] # type: ignore
+    #with h5py.File('./Hexaflake/Data/site_elim_g2_(25_by_25)_w8.0.h5', 'r') as f:
+    #   M = f['M'][:] # type: ignore
+    #   disorder = f["disorder"][:] # type: ignore
+    #   disorder_all = f["disorder_all"][:] # type: ignore
+    #   phi = f["phi"][:] # type: ignore
