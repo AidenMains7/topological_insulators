@@ -165,7 +165,7 @@ def generate_frenkel_pair_lattice(Lx:int, Ly:int, x_disp:float, y_disp:float):
 # =============================================================================
 class DefectLattice:
     def __init__(self, Lx:int, Ly:int, defect_type:str, pbc:bool, defect_radius:int=1,
-                 schottky_separation:int=None, schottky_n_pairs:int=1, frenkel_x_disp:int = -1.5, frenkel_y_disp:int = -0.5):
+                 schottky_separation:int=None, schottky_n_pairs:int=1, frenkel_x_disp:float = -1.5, frenkel_y_disp:float = -0.5): # type: ignore
         assert Lx % 2 == 0
         assert Ly % 2 == 0
         self._defect_type = defect_type
@@ -304,7 +304,7 @@ class DefectLattice:
 # =============================================================================
 # =============================================================================
 # region Hamiltonian
-def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:float, t0:float, msub:float = None):
+def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:float, t0:float, hsub:"np.ndarray|None" = None):
     pauli_x = np.array([[0, 1], [1, 0]], dtype=complex)
     pauli_y = np.array([[0, -1j], [1j, 0]], dtype=complex)
     pauli_z = np.array([[1, 0], [0, -1]], dtype=complex)
@@ -314,30 +314,35 @@ def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:
 
     defect_indices = Lattice.defect_indices
 
-    onsite_mass = m0 * I
+    hx_matrix = 1.0j * hx * I
+    hy_matrix = 1.0j * hy * I
+    hz_matrix = 1.0j * hz * I
+
     if defect_indices is not None:
-        if msub == None and Lattice.defect_type in ['substitution', 'interstitial', 'frenkel_pair']:
-            raise ValueError(f"`msub` cannot be None when defect_indices are provided for 'substitution', 'interstitial', 'frenkel_pair'")
+        if hsub is None and Lattice.defect_type in ['substitution', 'interstitial', 'frenkel_pair']: # type: ignore
+            raise ValueError(f"`hsub` cannot be None when defect_indices are provided for 'substitution', 'interstitial', 'frenkel_pair'")
         for idx in defect_indices:
             if (idx >= 0) and (Lattice.defect_type != "schottky"):
-                onsite_mass[idx, idx] = msub
+                hx_matrix[idx, idx] = 1.0j * hsub[0] # type: ignore
+                hy_matrix[idx, idx] = 1.0j * hsub[1] # type: ignore
+                hz_matrix[idx, idx] = 1.0j * hsub[2] # type: ignore
 
-    dx = t * Sx + 1.0j * hx * I
-    dy = t * Sy + 1.0j * hy * I
-    dz = ((1.0j * hz) * I + onsite_mass) + t0 * Cx_plus_Cy
+    onsite_mass = m0 * I
+    dx = t * Sx + hx_matrix
+    dy = t * Sy + hy_matrix
+    dz = (hz_matrix + onsite_mass) + t0 * Cx_plus_Cy
 
     hamiltonian = np.kron(dx, pauli_x) + np.kron(dy, pauli_y) + np.kron(dz, pauli_z)
 
     if Lattice.defect_type == "schottky":
         mask = np.full(hamiltonian.shape[0], True)
-        for i, idx in enumerate(defect_indices):
+        for i, idx in enumerate(defect_indices): # type: ignore
             mask[2 * idx + i % 2] = False
         hamiltonian = hamiltonian[np.ix_(mask, mask)]
     return hamiltonian
 
 
 def get_separated_points(z, k=6, threshold=0.75):
-    # Using ChatGPT 5
     z = np.asarray(z)
     N = len(z)
 
@@ -367,7 +372,7 @@ def get_separated_points(z, k=6, threshold=0.75):
             axs[1, i].scatter(z.real, z.imag, c=weight)
         plt.show()
 
-    knn_idxs = np.argsort(knn)[-2:]
+    knn_idxs = np.argsort(knn)
     real_idxs = np.argsort(real_weight)[-2:]
     imag_idxs = np.argsort(imag_weight)[-2:]
 
@@ -375,51 +380,15 @@ def get_separated_points(z, k=6, threshold=0.75):
     return knn_idxs
 
 
-
-def find_defect_points(Lattice, m0, h_vector, msub):
-    PristineLat = DefectLattice(Lattice.Lx, Lattice.Ly, 'none', Lattice.pbc)
-    pristine_hamiltonian = compute_hamiltonian(PristineLat, m0, h_vector, 1.0, 1.0)
-    defect_hamiltonian = compute_hamiltonian(Lattice, m0, h_vector, 1.0, 1.0, msub)
-
-    pristine_eigenvalues = spla.eig(pristine_hamiltonian, left=False, right=False, overwrite_a=True)
-    sort_idxs = np.argsort(pristine_eigenvalues.real)
-    pristine_eigenvalues = pristine_eigenvalues[sort_idxs]
-
-    eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(defect_hamiltonian, left=True, right=True, overwrite_a=True)
-    sort_idxs = np.argsort(eigenvalues.real)
-    eigenvalues = eigenvalues[sort_idxs]
-    left_eigenvectors = left_eigenvectors[:, sort_idxs]
-    right_eigenvectors = right_eigenvectors[:, sort_idxs]
-
-
-    tol = 1e-1
-
-    result = np.array([
-        z for z in eigenvalues
-        if not np.any(np.abs(pristine_eigenvalues - z) < tol)
-    ])
-    plt.scatter(result.real, result.imag)
-    plt.show()
-
-
-
 def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float, 
-                                     h_vector:np.ndarray, msub:float = None, 
+                                     h0_vector:np.ndarray, hsub_vector:"np.ndarray|None" = None, 
                                      n_closest_to_zero:int = 2):
-    """
-    Returns:
-    data_dictionary (dict) : \\
-    keys: ['eigenvalues', 
-    'L', 'R', 
-    'close_to_zero_idxs', 
-    'close_to_zero_left_eigenvectors', 
-    'close_to_zero_right_eigenvectors']
-    """
+
     if n_closest_to_zero is not None:
         assert (n_closest_to_zero <= len(Lattice.X) * 2), "Number of selected indices must be <= number of indices"
     
-    hamiltonian = compute_hamiltonian(Lattice, m0, h_vector, 1.0, 1.0, msub)
-    eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(hamiltonian, left=True, right=True, overwrite_a=True)
+    hamiltonian = compute_hamiltonian(Lattice, m0, h0_vector, 1.0, 1.0, hsub_vector)
+    eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(hamiltonian, left=True, right=True, overwrite_a=True) # type: ignore
     sort_idxs = np.argsort(eigenvalues.real)
     eigenvalues = eigenvalues[sort_idxs]
     left_eigenvectors = left_eigenvectors[:, sort_idxs]
@@ -427,54 +396,49 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
 
     hcond = np.linalg.cond(hamiltonian)
     if hcond > 1e10:
-        print('Hamiltonian condition number:', hcond)
+        print(f'Hamiltonian condition number for (m0, h0_vector, hsub_vector) = ({m0}, {h0_vector}, {hsub_vector}): {hcond}')
 
     # Assuming particle-hole symmetry
-    close_to_zero_idxs_negreal = np.argsort(np.abs(eigenvalues[:len(eigenvalues) // 2]))[:n_closest_to_zero // 2]
-    close_to_zero_idxs_posreal = np.argsort(np.abs(eigenvalues[len(eigenvalues) // 2:]))[:n_closest_to_zero // 2] + len(eigenvalues) // 2
-    close_to_zero_idxs = np.unique(np.concatenate((close_to_zero_idxs_negreal, close_to_zero_idxs_posreal)))
+    #close_to_zero_idxs = np.lexsort((np.abs(eigenvalues.real), np.abs(eigenvalues.imag)))[:n_closest_to_zero]
+    abs_sorted_idxs = np.argsort(np.abs(eigenvalues), kind='stable')
+    close_to_zero_idxs = abs_sorted_idxs[:n_closest_to_zero]
 
-    # Hard-coded selection for certain parameters
-    if 1:
-        if h_vector[0] == 0.25 or h_vector[1] == 0.25 or h_vector[2] == 0.25:
-            if all([h_vector[2], not any(h != 0 for h in h_vector[:2]), Lattice.defect_type == 'interstitial']):
-                close_to_zero_idxs = get_separated_points(eigenvalues)
-                if (m0, msub) in [(1.0, 2.5)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[:2]
-                if (m0, msub) in [(2.5, -2.5)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
-            elif all([any(h != 0 for h in h_vector[:2]), Lattice.defect_type == "substitution"]):
-                if (m0, msub) in [(2.5, -1.0)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[:4]
-            elif all([h_vector[2], not any(h != 0 for h in h_vector[:2]), Lattice.defect_type == 'frenkel_pair']):
-                if (m0, msub) in [(1.0, -1.0), (1.0, 2.5)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[:4]
-                elif (m0, msub) in [(2.5, -1.0)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
-                elif (m0, msub) in [(2.5, -2.5)]:
-                    arr = 10 * np.abs(eigenvalues.imag) - np.abs(eigenvalues.real)
-                    close_to_zero_idxs = np.argsort(arr)[:2]
-            elif all([any(h != 0 for h in h_vector[:2]), Lattice.defect_type == 'frenkel_pair']):
-                if (m0, msub) in [(1.0, -1.0), (1.0, 2.5)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[:4]
-        elif np.abs(h_vector[2]) >= 1 :
-            if Lattice.defect_type in ['substitution', 'interstitial', 'frenkel_pair']:
-                close_to_zero_idxs = get_separated_points(eigenvalues)
-            else:
-                if np.abs(m0) >= 2.0:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[:2]
-        elif np.abs(h_vector[0]) >= 1 and Lattice.defect_type != 'none':
-            if Lattice.defect_type == 'interstitial':
-                if (m0, msub) in [(1.0, 2.5)]:
-                    close_to_zero_idxs = np.argsort(np.abs(eigenvalues))[:4]
-        elif h_vector[2] == 0.5 and Lattice.defect_type == 'interstitial':
-            if (m0, msub) in [(1.0, -3.0)]:
-                close_to_zero_idxs = np.argsort(np.abs(eigenvalues.real))[-2:]
-            if (m0, msub) in [(1.0, -1.0)]:
-                close_to_zero_idxs = get_separated_points(eigenvalues)
-        elif h_vector[2] == 0.5 and Lattice.defect_type == 'substitution':
-            if (m0, msub) in [(3., -3.)]:
-                close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
+    if all([Lattice.defect_type == 'substitution',
+            m0 == -1.0,
+            h0_vector[0] == 0.5]):
+        close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[-2:]
+    if all([Lattice.defect_type == 'substitution',
+            m0 == -1.0,
+            h0_vector[2] == 0.5]):
+        close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[-2:]
+    if all([Lattice.defect_type == 'interstitial',
+            m0 == -1.5,
+            h0_vector[2] == 0.5]):
+        close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[-2:]
+    if all([Lattice.defect_type == 'interstitial',
+            m0 == -1.5,
+            h0_vector[2] == 1.5]):
+        close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
+    if all([Lattice.defect_type == 'interstitial',
+            m0 == -1.0,
+            h0_vector[2] in [0.5]]):
+        close_to_zero_idxs = get_separated_points(eigenvalues)[-4:-2]
+        print(close_to_zero_idxs)
+    if all([Lattice.defect_type == 'interstitial',
+            m0 == -1.0,
+            h0_vector[2] in [1.5]]):
+        close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
+    if all([Lattice.defect_type == 'frenkel_pair',
+            m0 == -1.,
+            h0_vector[2] == 1.5]):
+        close_to_zero_idxs = np.argsort(np.abs(eigenvalues.imag))[:2]
+
+    eigval_sum = np.sum(eigenvalues[close_to_zero_idxs])
+    if Lattice.defect_type != 'frenkel_pair':
+        while (np.abs(eigval_sum) > 1e-6) and (n_closest_to_zero < len(eigenvalues)):
+            n_closest_to_zero += 2
+            close_to_zero_idxs = abs_sorted_idxs[:n_closest_to_zero]
+            eigval_sum = np.sum(eigenvalues[close_to_zero_idxs])
 
     close_left = left_eigenvectors[:, close_to_zero_idxs] # Eigenstates of selected eigenvalues
     close_right = right_eigenvectors[:, close_to_zero_idxs]
@@ -488,8 +452,8 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
         return arr[0::2] + arr[1::2]
 
     def ensure_eigenvector_shape_for_schottky(eigenvector):
-        mask = np.full(hamiltonian.shape[0] + len(Lattice.defect_indices), True)
-        for i, idx in enumerate(Lattice.defect_indices):
+        mask = np.full(hamiltonian.shape[0] + len(Lattice.defect_indices), True) # type: ignore
+        for i, idx in enumerate(Lattice.defect_indices): # type: ignore
             mask[2 * idx + i % 2] = False
         resized_eigenvector = np.zeros(mask.shape, dtype = L.dtype)
         resized_eigenvector[mask] = eigenvector
@@ -511,22 +475,12 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
         'selected_right_eigenvectors' : sum_over_orbitals(close_right)
         }
     return data_dictionary
-
-
-def compute_gap(Lattice, m0, hvec, msub=None):
-    hamiltonian = compute_hamiltonian(Lattice, m0, hvec, 1.0, 1.0, msub)
-    eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(hamiltonian, left=True, right=True, overwrite_a=True)
-    
-    lowest_energy_eigval = np.sort(np.abs(eigenvalues))[0]
-
-    return lowest_energy_eigval
 # endregion
 # =============================================================================
 # =============================================================================
 # region Plotting
-def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, Lattice:DefectLattice, color_array:np.ndarray, plot_type:str, 
-                    
-                    cmap:str = 'cividis', title:str = None, tick_fontsize:int = 16, label_fontsize:int = 20, scatter_size:int=10,
+def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, Lattice:DefectLattice, color_array:np.ndarray, plot_type:str,  # type: ignore
+                    cmap:str = 'cividis', title:"str|None" = None, tick_fontsize:int = 16, label_fontsize:int = 20, scatter_size:int=10,
                     rasterized:bool = True):
     
     lattice = Lattice.lattice
@@ -536,15 +490,15 @@ def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, Lattice:DefectLattice, col
     if plot_type == 'trisurf':
         ax_pos = ldos_ax.get_position()
         ldos_ax.remove()
-        ldos_ax = fig.add_axes(ax_pos, projection="3d")
-        plot = ldos_ax.plot_trisurf(X, Y, color_array, cmap=cmap, linewidth=0.2, antialiased=False, rasterized=rasterized)
+        ldos_ax = fig.add_axes(ax_pos, projection="3d") # type: ignore
+        plot = ldos_ax.plot_trisurf(X, Y, color_array, cmap=cmap, linewidth=0.2, antialiased=False, rasterized=rasterized) # type: ignore
     elif plot_type == 'scatter':
         plot = ldos_ax.scatter(X, Y, c=color_array, cmap=cmap, s=scatter_size, marker='.', rasterized=rasterized)
     elif plot_type == 'imshow':
         Z = np.full(lattice.size, np.nan)
         filled_idxs = np.argwhere(lattice.flatten() >= 0).flatten()
         Z[filled_idxs] = color_array
-        plot = ldos_ax.imshow(Z.reshape(lattice.shape), cmap=cmap, origin='lower', extent=(np.min(X), np.max(X), np.min(Y), np.max(Y)), rasterized=rasterized)
+        plot = ldos_ax.imshow(Z.reshape(lattice.shape), cmap=cmap, origin='lower', extent=(np.min(X), np.max(X), np.min(Y), np.max(Y)), rasterized=rasterized) # type: ignore
     elif plot_type == "tripcolor":
         triang = tri.Triangulation(X, Y)
         xtri = triang.x[triang.triangles]
@@ -574,7 +528,7 @@ def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, Lattice:DefectLattice, col
 
     vmin, vmax = plot.get_clim()
     ticks = np.linspace(vmin, vmax, 3)
-    cbar.set_ticks(ticks)
+    cbar.set_ticks(ticks) # type: ignore
 
     cbar.ax.yaxis.offsetText.set_fontsize(tick_fontsize)
     cbar.ax.tick_params(labelsize=tick_fontsize)
@@ -585,23 +539,27 @@ def plot_on_lattice(fig:plt.Figure, ldos_ax:plt.Axes, Lattice:DefectLattice, col
 
     ldos_ax.set_xticks(xticks)
     ldos_ax.set_yticks(yticks)
-    ldos_ax.set_xticklabels([1, Lattice.Lx], fontsize=tick_fontsize)
-    ldos_ax.set_yticklabels([1, Lattice.Ly], fontsize=tick_fontsize)
+    ldos_ax.set_xticklabels([1, Lattice.Lx], fontsize=tick_fontsize) # type: ignore
+    ldos_ax.set_yticklabels([1, Lattice.Ly], fontsize=tick_fontsize) # type: ignore
 
     ldos_ax.set_xlabel("$x$", fontsize=label_fontsize, labelpad=-15)
     ldos_ax.set_ylabel("$y$", rotation=0, fontsize=label_fontsize, labelpad=-10)
 
-    ldos_ax.set_title(title, fontsize=16)
+    ldos_ax.set_title(title, fontsize=16) # type: ignore
     return ldos_ax, cax
 
 
-def plot_complex_spectrum(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_kwargs = {}, highlighted_idxs:int = None, 
+def plot_complex_spectrum(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_kwargs = {}, highlighted_idxs:"int|None" = None,  # type: ignore
                           zoomGap:bool = False):
     eig_real, eig_imag = eigenvalues.real, eigenvalues.imag
     scat = spectrum_ax.scatter(eig_real, eig_imag, **scatter_kwargs, rasterized = False)
+    #scat_real = spectrum_ax.scatter(np.arange(len(eig_real)), eig_real, c='blue', s=25, zorder=2, rasterized = False)
+    #scat_imag = spectrum_ax.scatter(np.arange(len(eig_imag)), eig_imag, c='orange', s=25, zorder=2, rasterized = False)
 
     if isinstance(highlighted_idxs, (np.ndarray, list, tuple)):
         scat2 = spectrum_ax.scatter(eig_real[highlighted_idxs], eig_imag[highlighted_idxs], c='red', s=25, zorder=2, rasterized = False)
+        #scat_real2 = spectrum_ax.scatter(np.arange(len(eig_real))[highlighted_idxs], eig_real[highlighted_idxs], c='red', s=25, zorder=3, rasterized = False)
+        #scat_imag2 = spectrum_ax.scatter(np.arange(len(eig_imag))[highlighted_idxs], eig_imag[highlighted_idxs], c='red', s=25, zorder=3, rasterized = False)
 
     xmax, ymax = np.round(np.max(eig_real), 1), np.round(np.max(eig_imag), 1)
     xticks = [-xmax, 0.0, xmax]
@@ -627,7 +585,7 @@ def plot_complex_spectrum(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_
         dx = width_real + 1e-3
         dy = width_imag + 1e-3
         axins = spectrum_ax.inset_axes(
-            [0.7, 0.05, 0.25, 0.25],
+            [0.7, 0.05, 0.25, 0.25], # type: ignore
             xlim = (min_real - dx, max_real + dx), ylim = (min_imag - dy, max_imag + dy),
             xticklabels = [], yticklabels = [])
         axins.scatter(eig_real, eig_imag, c='k', s=25, zorder=1)
@@ -639,8 +597,8 @@ def plot_complex_spectrum(spectrum_ax:plt.Axes, eigenvalues:np.ndarray, scatter_
     return spectrum_ax
 
 
-def plot_spectrum_ldos(fig, axs, Lattice:DefectLattice, m0:float, h_vector:list, msub:float = None, zoomGap:bool = False):
-    eigvec_dict = compute_eigenvectors_eigenvalues(Lattice, m0, h_vector, msub)
+def plot_spectrum_ldos(fig, axs, Lattice:DefectLattice, m0:float, h0_vector:np.ndarray, hsub_vector:"np.ndarray|None" = None, zoomGap:bool = False):
+    eigvec_dict = compute_eigenvectors_eigenvalues(Lattice, m0, h0_vector, hsub_vector) 
     eigenvalues, L, R, close_idxs, close_L, close_R = eigvec_dict.values()
 
     if Lattice.defect_type in ["interstitial", "frenkel_pair"]:
@@ -675,64 +633,49 @@ def plot_spectrum_ldos(fig, axs, Lattice:DefectLattice, m0:float, h_vector:list,
     return fig, axs
 
 
-def big_nvalues_probe(Lattice, m0_values, h_vector, msub_values, ext:str = '.png', overwrite:bool = False):
-    if h_vector[0]:
-        hdir = 'x'
-        h = h_vector[0]
-    elif h_vector[1]:
-        hdir = 'y'
-        h = h_vector[1]
-    elif h_vector[2]:
-        hdir = 'z'
-        h = h_vector[2]
-    else:
-        hdir = 'NA'
-        h = 0.0
+def plot_many_spectrum_lr(defect_type: str, L: int, m0_values: list[float], h_dir: str, h0_values: list[float], hsub_values: "list[float]|None" = None, ext: str = '.png', defect_radius:int = 1, out_filename:str = ''):
+    assert defect_type in ['none', 'vacancy', 'schottky', 'substitution', 'interstitial', 'frenkel_pair'], "defect_type must be one of 'none', 'vacancy', 'schottky', 'substitution', 'interstitial', or 'frenkel_pair'"
+    assert h_dir in 'xyz', "h_dir must be 'x', 'y', or 'z'"
+    if hsub_values is not None:
+        assert len(h0_values) == len(hsub_values) == len(m0_values), "h0_values, hsub_values, and m0_values must be of equal length"
 
-    directory = "./NonHermitian/Plots/" + Lattice.defect_type.capitalize() + "/"
-    basename = f"{Lattice.defect_type}_h{hdir}={h}"
-    if Lattice.defect_type == "frenkel_pair":
-        basename += f"_fx={Lattice._fp_xdisp}_fy={Lattice._fp_ydisp}"
-    basename += f"_L={Lattice.Lx}"
+    if defect_type in ['none', 'vacancy', 'schottky']:
+        hsub_values = h0_values
 
-    if os.path.exists(directory + basename + ext) and not overwrite:
-        print(f"File '{directory + basename + ext}' exists and overwrite is False")
-        return
+    directory = "./NonHermitian/Plots/" + defect_type.capitalize() + "/"
+    basename = f"{defect_type}_h{h_dir}"
 
+     
     plt.rcParams['axes.linewidth'] = 2.5
-    plt.rc(('xtick.major', 'ytick.major'), width=2.5)
+    plt.rc(('xtick.major', 'ytick.major'), width=2.5) # type: ignore
 
     fig, axs = plt.subplots(len(m0_values), 5, figsize=(6 * 5, 6 * len(m0_values)))
 
     if len(m0_values) == 1:
         axs = np.array(axs).reshape(1, 5)
 
-    if len(msub_values) != len(m0_values):
-        msub_values = [None] * len(m0_values)
+    for i, (m0, h0, hsub) in enumerate(zip(m0_values, h0_values, hsub_values)): # type: ignore
+        Lattice = DefectLattice(L, L, defect_type, True, schottky_separation = L // 4, 
+                                frenkel_x_disp = -3.5, frenkel_y_disp = -3.5, defect_radius = defect_radius)
 
-    for i, (m0, msub) in enumerate(zip(m0_values, msub_values)):
-        if all([
-            abs(m0) == 2.5,
-            msub is not None and abs(msub) == 1.0 and m0 * msub == -2.5,
-            any(h == 0.25 for h in h_vector[:2]),
-            any(h <= 1.0 for h in h_vector[:2]),
-            Lattice.defect_type == "substitution",
-            ]):
-            zoomGap = True
-        elif all([Lattice.defect_type == 'frenkel_pair', m0 == -2.5, any(h != 0 for h in h_vector[:2])]):
-            zoomGap = True
-        else:
-            zoomGap = False
+        if h_dir == 'x':
+            h_vector = np.array([h0, 0.0, 0.0])
+            hsub_vector = np.array([hsub, 0.0, 0.0]) if hsub is not None else None
+        elif h_dir == 'y':
+            h_vector = np.array([0.0, h0, 0.0])
+            hsub_vector = np.array([0.0, hsub, 0.0]) if hsub is not None else None
+        elif h_dir == 'z':
+            h_vector = np.array([0.0, 0.0, h0])
+            hsub_vector = np.array([0.0, 0.0, hsub]) if hsub is not None else None
 
-        fig, axs[i, :] = plot_spectrum_ldos(fig, axs[i, :], Lattice, m0, h_vector, msub, zoomGap)
+        fig, axs[i, :] = plot_spectrum_ldos(fig, axs[i, :], Lattice, m0, h_vector, hsub_vector)
 
-        
         if Lattice.defect_type in ["vacancy", "schottky", "none"]:
-            annotation_text = f'$m_0 = {m0}$'
+            annotation_text = f'$m_0 = {m0}$\n$h_0={h0} \\hat{{{h_dir}}}$'
         elif Lattice.defect_type == "substitution":
-            annotation_text = f'$m_0^{{\\rm back}} = {m0}$' + f"\n$m_0^{{\\rm sub}} = {msub}$"
+            annotation_text = f'$m_0 = {m0}$\n$h_0={h0} \\hat{{{h_dir}}}$\n$h_0^{{\\rm sub}}={hsub} \\hat{{{h_dir}}}$'
         elif Lattice.defect_type in ["interstitial", "frenkel_pair"]:
-            annotation_text = f'$m_0^{{\\rm back}} = {m0}$' + f"\n$m_0^{{\\rm int}} = {msub}$"
+            annotation_text = f'$m_0 = {m0}$\n$h_0={h0} \\hat{{{h_dir}}}$\n$h_0^{{\\rm int}}={hsub} \\hat{{{h_dir}}}$'
 
         axs[i, 0].annotate(
             annotation_text,
@@ -754,138 +697,170 @@ def big_nvalues_probe(Lattice, m0_values, h_vector, msub_values, ext:str = '.png
         ax.set_xlabel(ax.get_xlabel(), fontsize=20)
         ax.set_ylabel(ax.get_ylabel(), fontsize=20)
 
-    plt.savefig(directory + basename + ext, bbox_inches='tight', pad_inches=0, dpi=96)
-    #plt.savefig(directory + basename + '.png', bbox_inches='tight', pad_inches=0, dpi=300)
-
-
-def plot_nhse_xyz_left_right(Lx:int, Ly:int, m0:float):
-    fig, axs = plt.subplots(3, 3, figsize=(18, 18))
-    plt.subplots_adjust(hspace=0.33, wspace=0.33)
-
-    Lattice_obc = DefectLattice(Lx, Ly, "none", False)
-    Lattice_pbc = DefectLattice(Lx, Ly, "none", True)
-    eig1_obc, L1, R1, _, _, _ = compute_eigenvectors_eigenvalues(Lattice_obc, m0, [0.25, 0.0, 0.0]).values()
-    eig2_obc, L2, R2, _, _, _ = compute_eigenvectors_eigenvalues(Lattice_obc, m0, [0.0, 0.25, 0.0]).values()
-    eig3_obc, L3, R3, _, _, _ = compute_eigenvectors_eigenvalues(Lattice_obc, m0, [0.0, 0.0, 0.25]).values()
-    eig1_pbc, _, _, _, _, _ =   compute_eigenvectors_eigenvalues(Lattice_pbc, m0, [0.25, 0.0, 0.0]).values()
-    eig2_pbc, _, _, _, _, _ =   compute_eigenvectors_eigenvalues(Lattice_pbc, m0, [0.0, 0.25, 0.0]).values()
-    eig3_pbc, _, _, _, _, _ =   compute_eigenvectors_eigenvalues(Lattice_pbc, m0, [0.0, 0.0, 0.25]).values()
-
-    eigval_obc_list = [eig1_obc, eig2_obc, eig3_obc]
-    eigval_pbc_list= [eig1_pbc, eig2_pbc, eig3_pbc]
-    L_list = [L1, L2, L3]
-    R_list = [R1, R2, R3]
-
-    for i in range(3):
-        plot_complex_spectrum(axs[i, 0], eigval_obc_list[i], scatter_kwargs = {'c':'red', 'label':'OBC'})
-        plot_complex_spectrum(axs[i, 0], eigval_pbc_list[i], scatter_kwargs = {'c':'blue', 'label':'PBC'})
-        axs[i, 0].legend()
-        axs[i, 0].set_title('')
-        
-        plot_on_lattice(fig, axs[i, 1], Lattice_obc, L_list[i], 'imshow', label_fontsize=24, tick_fontsize=20)
-        plot_on_lattice(fig, axs[i, 2], Lattice_obc, R_list[i], 'imshow', label_fontsize=24, tick_fontsize=20)
-
-    #plt.tight_layout()
-    plt.savefig(f'./NonHermitian/Plots/nhse_square_lattice_m0={m0}.png')
-
-
-def compute_figures(L, defect_types, h, h_directions = 'xz', fpd=-3.5,
-                    m0_values =   [2.5, 1.0],
-                    msub_values = [2.5, 1.0, -1.0, -2.5],
-                    overwrite = False,
-                    set_values:list = []):
-    
-
-
-    if set_values == []:
-        unique_pairs = np.array(list({(xi, yi) for xi in m0_values for yi in msub_values if xi != yi}))
-        sort = np.lexsort((unique_pairs[:, 1], -unique_pairs[:, 0]))
-        unique_pairs = unique_pairs[sort]
+    if out_filename == '':
+        plt.savefig(directory + basename + ext, bbox_inches='tight', pad_inches=0, dpi=96)
     else:
-        unique_pairs = np.array(set_values)
-
-    default = np.array((h, 0.0, 0.0))
-    dir_map = {'x':0,'y':1,'z':2}
-    h_vectors = [np.roll(default, dir_map[d]) for d in h_directions]
-    # 'none', 'vacancy', 'schottky', 'substitution'
-    for deftype in defect_types:
-        Lattice = DefectLattice(L, L, deftype, True, schottky_separation=7, defect_radius=1)
-        for hv in h_vectors:
-            if deftype in ['vacancy', 'schottky', 'none']:
-                big_nvalues_probe(Lattice, m0_values, hv, [], overwrite=overwrite)
-            else:
-                big_nvalues_probe(Lattice, unique_pairs[:, 0], hv, unique_pairs[:, 1], overwrite=overwrite)
-
-    if 'frenkel_pair' not in defect_types:
-        return
-
-    for (fpx, fpy) in [(fpd, fpd)]:
-        Lattice = DefectLattice(L, L, "frenkel_pair", True, frenkel_x_disp=fpx, frenkel_y_disp=fpy)
-        for hv in h_vectors:
-            big_nvalues_probe(Lattice, unique_pairs[:, 0], hv, unique_pairs[:, 1], overwrite=overwrite)
+        plt.savefig(directory + out_filename + ext, bbox_inches='tight', pad_inches=0, dpi=96)
+    #plt.show()
 
 # endregion
 # =============================================================================
 # =============================================================================
 
-def big_defect():
+def main():
     L = 20
-    dr = 1
-    Lattice = DefectLattice(L, L, "interstitial", True, frenkel_x_disp=-5.5, frenkel_y_disp=-5.5, defect_radius=dr)
-    fig, axs = plt.subplots(1, 6, figsize=(20, 4))
-    m0, hv, msub = -1.0, [0.25, 0., 0.], -2.5
-    plot_spectrum_ldos(fig, axs[1:], Lattice, m0, hv, msub, False)
-    eigval_dict = compute_eigenvectors_eigenvalues(Lattice, m0, hv, msub)
-    eigvals = eigval_dict['eigenvalues']
-    #axs[0].scatter(np.arange(len(eigvals)), np.abs(eigvals), c='k', zorder=0)
-    axs[0].scatter(np.arange(len(eigvals)), eigvals.real, c='b', zorder=1, alpha=0.5)
-    axs[0].scatter(np.arange(len(eigvals)), eigvals.imag, c='r', alpha=0.1, zorder=2)
-    points = np.array([(L / 2 - dr + 0.5, L / 2 - 0.5), (L / 2 - 0.5, L / 2 - dr + 0.5), (L / 2 + dr - 1.5, L / 2 - 0.5), (L / 2 - 0.5, L / 2 + dr - 1.5), (L / 2 - dr + 0.5, L / 2 - 0.5)])
-    for ax in axs[2:].flatten():
-        ax.plot(points[:, 0], points[:, 1], c='r', ls='-', lw=2, alpha=0.25, zorder=100)
 
-    plt.show()
+    h_dir = 'x'
+    m0_values = [-1., -1.]
+    h0_values = [0.5, 1.5]
+    hsub_values = [1.5, 0.5]
+    plot_many_spectrum_lr('vacancy',  L, m0_values, h_dir, h0_values)
+    plot_many_spectrum_lr('schottky', L, m0_values, h_dir, h0_values)
+    plot_many_spectrum_lr('frenkel_pair', L, m0_values, h_dir, h0_values, hsub_values)
+
+    m0_values = [-1.5, -1.5]
+    h0_values = [0.5, 1.5]
+    hsub_values = [1.5, 0.5]
+    plot_many_spectrum_lr('substitution', L, m0_values, h_dir, h0_values, hsub_values, defect_radius = 1)
+    plot_many_spectrum_lr('interstitial', L, m0_values, h_dir, h0_values, hsub_values, defect_radius = 1)
+    
+    h_dir = 'z'
+    m0_values = [-1., -1.]
+    h0_values = [0.5, 1.5]
+    hsub_values = [1.5, 0.5]
+    plot_many_spectrum_lr('vacancy',  L, m0_values, h_dir, h0_values)
+    plot_many_spectrum_lr('schottky', L, m0_values, h_dir, h0_values)
+    plot_many_spectrum_lr('frenkel_pair', L, m0_values, h_dir, h0_values, hsub_values)
+
+    m0_values = [-1.5, -1.5]
+    h0_values = [0.5, 1.5]
+    hsub_values = [1.5, 0.5]
+    plot_many_spectrum_lr('substitution', L, m0_values, h_dir, h0_values, hsub_values, defect_radius = 1)
+    plot_many_spectrum_lr('interstitial', L, m0_values, h_dir, h0_values, hsub_values, defect_radius = 1)
 
 
-def compute_gap_over_region(L, deftype, m0_range, h_range, hdir, resolution=(25,25)):
-    Lattice = DefectLattice(L, L, deftype, True, schottky_separation=5)
-    parameters = tuple(product(np.linspace(m0_range[0], m0_range[1], resolution[0]), 
-                               np.linspace(h_range[0], h_range[1], resolution[1])))
+def plot_spectrum_and_ldos():
+    L = 20
+    Lattice = DefectLattice(L, L, 'substitution', True, defect_radius = 1)
 
-    hmap = {'x':0, 'y':1, 'z':2}
-    def h_vec_map(h):
-        arr = [0., 0., 0.]
-        arr[hmap[hdir]] = h
-        return arr
+    H = compute_hamiltonian(Lattice, -1., np.array([0.5, 0.0, 0.0]), 1.0, 1.0, np.array([1.5, 0.0, 0.0]))
+    eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(H, left=True, right=True, overwrite_a=True) # type: ignore
+    sort_idxs = np.argsort(eigenvalues.real)
+    eigenvalues = eigenvalues[sort_idxs]
+    left_eigenvectors = left_eigenvectors[:, sort_idxs]
+    right_eigenvectors = right_eigenvectors[:, sort_idxs]
 
-    def worker_function(i):
-        m0, h = parameters[i]
-        h_vec = h_vec_map(h)
-        gap = compute_gap(Lattice, m0, h_vec, msub=-1)
-        return [m0, h, gap]
+    eigenvalue_dict = compute_eigenvectors_eigenvalues(Lattice, -1., 
+                        np.array([0.5, 0.0, 0.0]), np.array([1.5, 0.0, 0.0]), n_closest_to_zero = 2)
+  
+    eigenvalues = eigenvalue_dict['eigenvalues']
+    selected_idxs = eigenvalue_dict['selected_idxs']
+    selected_left_eigenvectors = eigenvalue_dict['selected_left_eigenvectors']
+    selected_right_eigenvectors = eigenvalue_dict['selected_right_eigenvectors']
+    L = eigenvalue_dict['L']
+    R = eigenvalue_dict['R']
+    n = np.arange(len(eigenvalues))
+    
+    # Spectrum & LDOS
+    if 0:
+        fig, axs = plt.subplots(1, 7, figsize=(6*7, 6))
+        axs[0].scatter(n, eigenvalues.real, c='black', s=25, zorder=0)
+        axs[0].scatter(n[selected_idxs], eigenvalues.real[selected_idxs], c='red', s=25, zorder=1)
+        axs[1].scatter(n, eigenvalues.imag, c='black', s=25, zorder=0)
+        axs[1].scatter(n[selected_idxs], eigenvalues.imag[selected_idxs], c='red', s=25, zorder=1)
 
-    with tqdm_joblib(tqdm(total=len(parameters), desc=f"hi")) as progress_bar:
-        data = np.array(Parallel(n_jobs=-1)(delayed(worker_function)(i) for i in range(len(parameters)))).T
+        for ax in axs[:2]:
+            ax.set_xlabel("$n$")
+            ax.set_ylabel("$E_n$")
+        
+        axs[0].set_title("Real Part of Eigenvalues")
+        axs[1].set_title("Imaginary Part of Eigenvalues")
 
-    M0, H, GAP = data
-    return [M0, H, np.flipud(GAP.reshape(resolution).T)]
+        axs[2].scatter(eigenvalues.real, eigenvalues.imag, c='black', s=25, zorder=0)
+        axs[2].scatter(eigenvalues.real[selected_idxs], eigenvalues.imag[selected_idxs], c='red', s=25, zorder=1)
+        axs[2].set_xlabel("$\\Re(E)$")
+        axs[2].set_ylabel("$\\Im(E)$")
+        axs[2].set_title("Complex Eigenvalue Spectrum")
+
+        axs[3].tripcolor(Lattice.X, Lattice.Y, selected_left_eigenvectors, shading='flat', cmap='cividis')
+        axs[4].tripcolor(Lattice.X, Lattice.Y, selected_right_eigenvectors, shading='flat', cmap='cividis')
+        axs[5].tripcolor(Lattice.X, Lattice.Y, L, shading='flat', cmap='cividis')
+        axs[6].tripcolor(Lattice.X, Lattice.Y, R, shading='flat', cmap='cividis')
+        plt.savefig('./NonHermitian/Plots/temp.png')
+
+
+def plot_ipr(method, Ls: list[int], m0: float, h0: float, hsub: float, h_dir: str, ax):
+    left_IPRs = []
+    eigenvalues_list = []
+
+    h_dir_mapping = {'x': 0, 'y': 1, 'z': 2}
+    h0_vector = np.zeros(3)
+    hsub_vector = np.zeros(3)
+    h0_vector[h_dir_mapping[h_dir]] = h0
+    hsub_vector[h_dir_mapping[h_dir]] = hsub
+
+    for L in Ls:
+        Lattice = DefectLattice(L, L, method, True, defect_radius = 1)
+
+        H = compute_hamiltonian(Lattice, m0, h0_vector, 1.0, 1.0, hsub_vector)
+        eigenvalues, left_eigenvectors, right_eigenvectors = spla.eig(H, left=True, right=True, overwrite_a=True) # type: ignore
+        sort_idxs = np.argsort(eigenvalues.real)
+        eigenvalues = eigenvalues[sort_idxs]
+        left_eigenvectors = left_eigenvectors[:, sort_idxs]
+
+        left_eigvec_sq = np.abs(left_eigenvectors) ** 2
+        left_eigvec_sq = left_eigvec_sq[len(eigenvalues) // 2:, :] + left_eigvec_sq[:len(eigenvalues) // 2, :]
+        left_IPR = np.sum(left_eigvec_sq ** 2, axis=0)
+        
+        left_IPRs.append(left_IPR)
+        eigenvalues_list.append(eigenvalues)
+        print(f"Completed computation for L = {L}")
+
+    for L, eigs, left_IPR in zip(Ls, eigenvalues_list, left_IPRs):
+        t = np.abs(eigs) * np.sign(eigs.real)
+        label = f'L={L}'
+        ax.scatter(t, left_IPR,  s=25, alpha=0.25, label=label)
+
+    ax.set_ylabel("IPR")
+    ax.set_title("Left Eigenvector IPR")
+    ax.set_xlabel("$|E|\\times {\\rm sign}(\\Re(E))$")
+    ax.legend()
+
+    return ax
+
+
+def plot_ipr_figure(method, h_dir, Ls, m0_values, h0_values, hsub_values):
+    fig, axs = plt.subplots(1, len(m0_values), figsize=(6 * len(m0_values), 6))
+    axs = np.array(axs)
+    
+    all_annotations = [f"({letter})" for letter in 'abcdefghijklmnopqrstuvwxyz']
+
+    for i, (m0, h0, hsub) in enumerate(zip(m0_values, h0_values, hsub_values)):
+        print(f"Plotting for m0={m0}, h0={h0}, hsub={hsub}")
+        axs[i] = plot_ipr(method, Ls, m0, h0, hsub, h_dir, axs[i])
+        axs[i].annotate(
+            all_annotations[i],
+            xy = (0.025, 0.975),
+            xycoords='axes fraction', 
+            ha='left', 
+            fontsize=24, 
+            rotation=0,
+            va='top',
+            bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.75)
+        )
+
+    plt.tight_layout()
+    plt.savefig(f'./NonHermitian/Plots/IPR/{method}_ipr_{h_dir}.png')
+
 
 if __name__ == "__main__":
-    for h in [.5]: 
-        if 0: compute_figures(30, ['none', 'vacancy', 'schottky'], h=h, overwrite=True, h_directions='x', m0_values=[0.85, 0.9])
-        if 1: compute_figures(20, ['substitution', 'interstitial', 'frenkel_pair'], h=h, overwrite=True, h_directions='x', set_values=[(1., -3.), (1, -1.), (3, -1.), (3.0, -3.0)])
-    if 0: 
-        Lattice = DefectLattice(20, 20, 'substitution', True)
-        find_defect_points(Lattice, 2.5, [0., 0., 0.], -2.5)
-    if 0:
-        method = 'substitution'
-        hdir = 'x'
-        M0, H, GAP = compute_gap_over_region(20, method, (0., 2.), (0., 2.), hdir, resolution=(51, 51))
-    
-        plt.imshow(GAP, extent=(np.min(M0), np.max(M0), np.min(H), np.max(H)))
-        plt.xlabel('$m_0$')
-        plt.ylabel(f'$h_{hdir}$', rotation=0)
-        plt.title(f'Value of Smallest Magnitude Eigenvalue : {method}')
-        plt.colorbar()
-        plt.savefig('./NonHermitian/Plots/'+f"{method}_{hdir}.png")
-        #plt.show()
+    #main()
+    method = 'vacancy'
+    Ls = [10, 20, 30, 40]
+
+    m0_values = [-1.0, -1.0]
+    h0_values = [0.5, 1.5]
+    hsub_values = [1.5, 0.5]
+
+    for h_dir in 'xz':
+        plot_ipr_figure(method, h_dir, Ls, m0_values, h0_values, hsub_values)
