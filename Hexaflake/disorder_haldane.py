@@ -8,19 +8,12 @@ from joblib import Parallel, delayed
 from multiprocessing import Manager
 from time import time
 from fractions import Fraction
-from HaldaneModel import compute_bott_index, compute_geometric_data, compute_hamiltonian
+from HaldaneModel import compute_geometric_data, compute_hamiltonian, compute_bott_from_hamiltonian
 from matplotlib.colors import ListedColormap, BoundaryNorm
 import traceback
 
 
 
-def compute_bott_from_hamiltonian(H, method, geometry_data):
-    x, y = geometry_data['x'], geometry_data['y']
-    eigenvalues, eigenvectors = sp.linalg.eigh(H, overwrite_a=True)
-    if method in ['site_elim', 'renorm']:
-        hexaflake = geometry_data['hexaflake']
-        x, y = x[hexaflake], y[hexaflake]
-    return compute_bott_index({'x':x, 'y':y, 'eigenvalues':eigenvalues, 'eigenvectors':eigenvectors, 'S':geometry_data['x'].size})
 
 #------------------------------------------------------------
 #------------------------------------------------------------
@@ -394,7 +387,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
     for i, method in enumerate(methods):
         clean_files_array[i] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
         for j, disorder_strength in enumerate(disorder_strengths):
-            files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]})_w{disorder_strength}.h5"
+            files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]})_w{disorder_strength}_i10.h5"
 
     for i in range(len(methods)):
         clean_file = clean_files_array[i]
@@ -741,16 +734,16 @@ def gens_comparison_w1():
 #------------------------------------------------------------
 #------------------------------------------------------------
 def main(): 
-    compute_these_disorder_strengths = [1.0, 5., 7.5, 10., 12.5]
-    plot_these_disorder_strengths = [1.0, 5., 7.5, 10., 12.5]
+    compute_these_disorder_strengths = [1.0]
+    plot_these_disorder_strengths = [1.0]
 
-    methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
+    methods = ['hexagon']
     plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
     titles = ['Pristine', 'Renormalization 1', 'Renormalization 2', 'Site Elimination']
     res = (25, 25)
     generation = 2
     compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
-                                iterations=100, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True)
+                                iterations=10, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True)
     make_large_figure(generation, res, plot_methods, 
                     disorder_strengths=plot_these_disorder_strengths,
                     directory="./Hexaflake/Data/",
@@ -761,10 +754,16 @@ def main():
                     image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
 
 
-
-
 if __name__ == "__main__":
-    compute_many_phase_diagrams(2, [1.0], ['site_elim'], (25, 25), 
-                            iterations=30, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True,
-                            clean_file_override='./Hexaflake/Data/site_elim_g4_selected_points_for_w1.h5',
-                            num_chunks = 1)
+    fname = compute_phase('site_elim', 2, (35, 35), M_range=(0, 5.5), phi_range = (np.pi/2, np.pi), fileOverwrite=True)
+    with h5py.File(fname, 'r') as file:
+        phi = file['phi'][:] # type: ignore
+        M = file['M'][:] # type: ignore
+        bott = file['bott_index'][:] # type: ignore
+
+
+    print(np.sum(bott))
+    plt.scatter(phi, M, c=bott)
+    t = np.linspace(np.pi/2, np.pi, 101)
+    plt.plot(t, np.sin(t) * 3 * np.sqrt(3))
+    plt.show()
