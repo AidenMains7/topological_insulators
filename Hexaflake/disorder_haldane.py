@@ -737,33 +737,23 @@ def main():
     compute_these_disorder_strengths = [1.0]
     plot_these_disorder_strengths = [1.0]
 
-    methods = ['hexagon']
-    plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
-    titles = ['Pristine', 'Renormalization 1', 'Renormalization 2', 'Site Elimination']
+    methods = ['site_elim']
     res = (25, 25)
-    generation = 2
+    generation = 4
     compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
                                 iterations=10, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True)
-    make_large_figure(generation, res, plot_methods, 
-                    disorder_strengths=plot_these_disorder_strengths,
-                    directory="./Hexaflake/Data/",
-                    cmap="jet", 
-                    plotUndisordered=True, plotSineBoundary=False, plotFull=False,
-                    row_labels=titles,
-                    title="", 
-                    image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
+    #make_large_figure(generation, res, plot_methods, 
+    #                disorder_strengths=plot_these_disorder_strengths,
+    #                directory="./Hexaflake/Data/",
+    #                cmap="jet", 
+    #                plotUndisordered=True, plotSineBoundary=False, plotFull=False,
+    #                row_labels=titles,
+    #                title="", 
+    #                image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
 
 
 if __name__ == "__main__":
-    fname = compute_phase('site_elim', 2, (35, 35), M_range=(0, 5.5), phi_range = (np.pi/2, np.pi), fileOverwrite=True)
-    with h5py.File(fname, 'r') as file:
-        phi = file['phi'][:] # type: ignore
-        M = file['M'][:] # type: ignore
-        bott = file['bott_index'][:] # type: ignore
-
-
-    print(np.sum(bott))
-    plt.scatter(phi, M, c=bott)
-    t = np.linspace(np.pi/2, np.pi, 101)
-    plt.plot(t, np.sin(t) * 3 * np.sqrt(3))
-    plt.show()
+    n_jobs = -4
+    n_chunks = 10
+    compute_disorder('./Hexaflake/Data/site_elim_g4_selected_points_for_w1.h5', 'site_elim', 4, 1.0, 30, 1.0, 1.0, n_jobs, True, False, False, n_chunks)
+    
