@@ -331,7 +331,8 @@ def pi_tick_labels(value):
 def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_strengths=None, 
                       directory=".", cmap="cividis", 
                       plotUndisordered=True, plotSineBoundary=True, 
-                      row_labels=None, column_labels=None, title:str="", image_filename=None, plotFull=False):
+                      row_labels=None, column_labels=None, title:str="", image_filename=None, plotFull=False,
+                      data_fname = None):
     
     if type(methods) is str:
         methods = [methods]
@@ -339,11 +340,14 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
         raise ValueError("Invalid method. Options are ['hexagon', 'site_elim', 'renorm1', 'renorm2']")
     
-    and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})']
+    and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})', 'i30']
     or_contain_list = methods
 
     files = glob.glob(os.path.join(directory, f'*.h5'))
     files = get_all_files_matching_criteria(files, contains_all=and_contain_list, contains_any=or_contain_list, does_not_contain=['_temp_chunk'])
+
+    if data_fname != None:
+        files = [data_fname]
     
     if disorder_strengths is None:
         disorder_strengths = get_disorder_strength_from_files(files)
@@ -736,24 +740,71 @@ def gens_comparison_w1():
 def main(): 
     compute_these_disorder_strengths = [1.0]
     plot_these_disorder_strengths = [1.0]
-
+    plot_methods = ['site_elim']
+    titles = ["Site Elimination"]
     methods = ['site_elim']
     res = (25, 25)
     generation = 4
-    compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
-                                iterations=10, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True)
-    #make_large_figure(generation, res, plot_methods, 
-    #                disorder_strengths=plot_these_disorder_strengths,
-    #                directory="./Hexaflake/Data/",
-    #                cmap="jet", 
-    #                plotUndisordered=True, plotSineBoundary=False, plotFull=False,
-    #                row_labels=titles,
-    #                title="", 
-    #                image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",)
+    #compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
+    #                            iterations=10, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True)
+    make_large_figure(generation, res, plot_methods, 
+                    disorder_strengths = plot_these_disorder_strengths,
+                    directory="./Hexaflake/Data/",
+                    cmap="jet", 
+                    plotUndisordered=True, plotSineBoundary=False, plotFull=False,
+                    row_labels=titles,
+                    title="", 
+                    image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",
+                    data_fname = "./Hexaflake/Data/site_elim_g4_selected_points_for_w1_w1.0_i30.h5")
 
 
-if __name__ == "__main__":
-    n_jobs = -4
-    n_chunks = 10
-    compute_disorder('./Hexaflake/Data/site_elim_g4_selected_points_for_w1.h5', 'site_elim', 4, 1.0, 30, 1.0, 1.0, n_jobs, True, False, False, n_chunks)
-    
+def b_vs_i():
+    f = f'./Hexaflake/Data/site_elim_g4_w1.0_i50.h5'
+    with h5py.File(f, 'r') as file:
+        M = file['M'][:] # type: ignore
+        phi = file['phi'][:] # type: ignore
+        disorder_alls = file['disorder_all'][:] # type: ignore
+    vals = np.nanmean(disorder_alls, axis=1) # type: ignore
+    phi_unique = np.sort(np.unique(phi)) # type: ignore
+    M_unique = np.sort(np.unique(M)) # type: ignore
+
+    grid = np.zeros((M_unique.size, phi_unique.size), dtype=float)
+    phi_idx = {v: i for i, v in enumerate(phi_unique)}
+    M_idx = {v: i for i, v in enumerate(M_unique)}
+    for p, m, v in zip(phi, M, vals): # type: ignore
+        grid[M_idx[m], phi_idx[p]] = v
+
+    grid = np.hstack([np.fliplr(grid), grid])
+
+    plt.imshow(
+        grid,
+        origin='lower',
+        aspect='auto',
+        cmap='jet',
+        extent=[0., np.pi, 0., np.unique(M).max()] # type: ignore
+    )
+    plt.xlabel('$\\phi$')
+    plt.ylabel('M')
+    plt.colorbar(label='Disorder')
+    plt.title("Site Elimination $g=4$ and $W=1.0$")
+    plt.show()
+
+    disorder_alls = np.round(disorder_alls, 3) # type: ignore
+
+    arr = []
+    for i in range(disorder_alls.shape[1]):
+        arr.append(np.nanmean(disorder_alls[:, :i], axis=1))
+
+    arr = np.array(arr).T[:, 0:]
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    for i in range(arr.shape[0]):
+        ax.plot(np.arange(len(arr[i, :])), arr[i, :], label=f"Point {i}", alpha=0.25)
+    ax.set_xlabel("Number of Iterations Averaged")
+    ax.set_ylabel("Average Disorder")
+
+    plt.show()
+
+
+if __name__ == "__main__":       
+    pass
