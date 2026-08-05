@@ -114,13 +114,15 @@ def compare_generations(generations = np.array([2, 3, 4])):
     print("Disorder Ratios (n_disorder_is_1 / n_in_topo):", disorder_ratios)
     print("Ratio of Ratios (Pristine / Disorder):", ratio_ratios)
 
-    plt.scatter(1 / generations, pristine_ratios, label="Pristine Ratios", color='blue')
-    plt.scatter(1 / generations, disorder_ratios, label="Disorder Ratios", color='red')
-    plt.xlabel("Generation")
+    n_sites = 6 * (7 ** np.array(generations))
+    plt.scatter(1 / n_sites, pristine_ratios, label="Pristine Ratios", color='blue')
+    plt.scatter(1 / n_sites, disorder_ratios, label="Disorder Ratios", color='red')
+    plt.xlabel("1/N")
     plt.ylabel("Ratios")
-    plt.xticks([0, 0.25, 0.5, 1.0], ["∞", "4", "2", "1"])
+    plt.xscale('log')
     plt.legend()
-    plt.show()
+    plt.savefig('./Hexaflake/Figures/percentage_comparison.svg')
+    plt.close()
 
 
     new_values = []
@@ -152,23 +154,45 @@ def compare_generations(generations = np.array([2, 3, 4])):
     fig, axs = plt.subplots(2, 3, figsize=(15, 10), sharex=True, sharey=True, layout='constrained')
     vmin, vmax = -1.0, 0.0
 
+    row_label = ['i', 'ii']
+    col_label = 'abc'
+
     for i in range(2):
         for j, g in enumerate(generations):
             arr = bis[:, j] if i == 0 else disorders[:, j]
             arr[np.isnan(arr)] = 0.0
-            plot = axs[i, j].scatter(phi, M, c=arr, vmin=vmin, vmax=vmax)
+            #plot = axs[i, j].scatter(phi, M, c=arr, vmin=vmin, vmax=vmax)
+            Z = arr.reshape(25, 25).T
+            plot = axs[i, j].imshow(Z, vmin=vmin, vmax=vmax, cmap='viridis', origin='lower', aspect='auto',
+                                    extent=(0., np.pi, 0., 3 * np.sqrt(3)))
 
             axs[i, j].set_xticks([0., np.pi/2, np.pi])
             axs[i, j].set_yticks([0., 3 * np.sqrt(3)])
-            axs[i, j].set_xticklabels(["0", "$\\pi / 2$", "$\\pi$"])
-            axs[i, j].set_yticklabels(["0", "$3\\sqrt{3}$"])
+            axs[i, j].set_xticklabels(["0", "$\\pi / 2$", "$\\pi$"], fontsize=16)
+            axs[i, j].set_yticklabels(["0", "$3\\sqrt{3}$"], fontsize=16)
 
             axs[-1, j].set_xlabel("$\\phi$", fontsize=16)
             axs[i, 0].set_ylabel("$M$", fontsize=16, rotation=0)
+            axs[i, j].annotate(
+                f"({col_label[j]}.{row_label[i]})",
+                xy=(0.05, 0.95), xycoords="axes fraction",
+                ha="left", va="top",
+                fontsize=24
+            )
 
-    cbar = fig.colorbar(plot, ax=axs[0], location='right')
+    cbar = fig.colorbar(plot, ax=axs, location='right')
+    plt.savefig("./Hexaflake/Figures/generation_comparison.svg")
+    plt.close()    
+
+    plt.imshow((disorders[:, -1].reshape(25, 25).T), vmin=-1., vmax=0., cmap='jet',
+                origin = 'lower', aspect='auto', extent=(0, np.pi, 0, 3 * np.sqrt(3)))
+    plt.xlabel('$\\phi$')
+    plt.ylabel('$M$')
+    plt.colorbar()
+    plt.xticks([0, np.pi/2, np.pi])
+    plt.yticks([0, 3 * np.sqrt(3)])
+    plt.savefig("./Hexaflake/Figures/g4_w1.svg")
     plt.show()
-    
 
 def f_asymptotic_exp(x: np.ndarray, a: float, b: float):
     """Returns `f(x) = a - (a + 1) * np.exp(-b * x)`, which is an asymptotic exponential function that approaches `a` as `x` increases."""
@@ -176,7 +200,6 @@ def f_asymptotic_exp(x: np.ndarray, a: float, b: float):
 
 
 def plot_iterations():
-
     with h5py.File("./Hexaflake/Data/site_elim_g4_w1.0_i50.h5", 'r') as f:
         phi = cast(np.ndarray, f["phi"])[()]
         M = cast(np.ndarray, f["M"])[()]
@@ -222,9 +245,11 @@ def plot_iterations():
 
     axs[0].set_title("Convergent to Topological (-1.0)")
     axs[1].set_title("Convergent to Other Values")
+    plt.savefig("./Hexaflake/Figures/g4_iterations.svg")
     plt.show()
 
 
 
 if __name__ == "__main__":
     compare_generations(generations=np.array([2, 3, 4]))
+    #plot_iterations()

@@ -87,7 +87,7 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
         M_vals = f['M'][:] # type: ignore
         bott_index_vals = f['bott_index'][:] # type: ignore
 
-    out_filename = in_filename.replace('.h5', f'_w{strength}_i{iterations}.h5')
+    out_filename = in_filename.replace('.h5', f'_w{strength}.h5')
     if method in ['renorm1', 'renorm2']:
         out_filename = out_filename.replace('renorm', method)
 
@@ -197,11 +197,17 @@ def plot_phase_diagram(fig, ax,
 
     X_range = [np.min(X_values), np.max(X_values)]
     Y_range = [np.min(Y_values), np.max(Y_values)]
+    extent = [X_range[0], X_range[1], Y_range[0], Y_range[1]]
+    extent = [0., np.pi, 0., 5.5]
 
     if np.ndim(Z_values) != 2 or Z_values.shape != (len(np.unique(Y_values)), len(np.unique(X_values))):
-        Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values))).T
+        l = np.sqrt(Z_values.size)
+        if np.isclose(int(l) - l, 0.):
+            Z_values = Z_values.reshape(int(l), int(l)).T
+        else: 
+            Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values))).T
 
-    im = ax.imshow(Z_values, extent=[X_range[0], X_range[1], Y_range[0], Y_range[1]], 
+    im = ax.imshow(Z_values, extent=extent, 
                    origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
                    rasterized=True, norm=norm)
     if plotFull:
@@ -278,16 +284,15 @@ def global_bounds(arrays:list, returnAbsBounds=True):
         return global_min, global_max
 
 
-def extract_data_from_h5_file(filename):
+def extract_data_from_h5_file(filename:str):
     try:
         with h5py.File(filename, 'r') as f:
             data = {k: v[:] for k, v in zip(f.keys(), f.values())}
         return data
     
-
     except Exception as e:
         print(f"Error extracting data from file: {e}")
-        return None
+        return {}
 
 
 def add_colorbar_to_figure(fig, axs, norm, cmap, cbar_label=None):
@@ -340,7 +345,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
         raise ValueError("Invalid method. Options are ['hexagon', 'site_elim', 'renorm1', 'renorm2']")
     
-    and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})', 'i30']
+    and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})']
     or_contain_list = methods
 
     files = glob.glob(os.path.join(directory, f'*.h5'))
@@ -391,7 +396,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
     for i, method in enumerate(methods):
         clean_files_array[i] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5"
         for j, disorder_strength in enumerate(disorder_strengths):
-            files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]})_w{disorder_strength}_i10.h5"
+            files_array[i, j] = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]})_w{disorder_strength}.h5"
 
     for i in range(len(methods)):
         clean_file = clean_files_array[i]
@@ -738,15 +743,15 @@ def gens_comparison_w1():
 #------------------------------------------------------------
 #------------------------------------------------------------
 def main(): 
-    compute_these_disorder_strengths = [1.0]
-    plot_these_disorder_strengths = [1.0]
-    plot_methods = ['site_elim']
-    titles = ["Site Elimination"]
-    methods = ['site_elim']
+    compute_these_disorder_strengths = [12.5]
+    methods = ['renorm1']
+    plot_these_disorder_strengths = [1.0, 5.0, 7.5, 10.0, 12.5]
+    plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
+    titles = ["Pristine", "Renormalization 1", "Renormalization 2", "Site Elimination"]
     res = (25, 25)
-    generation = 4
-    #compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
-    #                            iterations=10, n_jobs=4, directory="./Hexaflake/Data/", doHalf=True)
+    generation = 3
+    compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
+                                iterations=50, n_jobs=1, directory="./Hexaflake/Data/", doHalf=True)
     make_large_figure(generation, res, plot_methods, 
                     disorder_strengths = plot_these_disorder_strengths,
                     directory="./Hexaflake/Data/",
@@ -755,7 +760,7 @@ def main():
                     row_labels=titles,
                     title="", 
                     image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",
-                    data_fname = "./Hexaflake/Data/site_elim_g4_selected_points_for_w1_w1.0_i30.h5")
+                    )
 
 
 def b_vs_i():
@@ -807,4 +812,10 @@ def b_vs_i():
 
 
 if __name__ == "__main__":       
-    pass
+    main()
+    #with h5py.File("./Hexaflake/Data/renorm1_g3_(25_by_25)_w12.5.h5") as f:
+    #    d = (f["disorder"][()].reshape(25,25).T)
+    #
+    #print(np.round(d, 6))
+    #plt.imshow(d.reshape(25, 25), vmin=-1., vmax=0., cmap='jet')
+    #plt.show()

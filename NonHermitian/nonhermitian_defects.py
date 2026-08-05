@@ -78,6 +78,8 @@ class DefectLattice:
     @property
     def defect_indices(self): return self._defect_indices
     @property
+    def defect_positions(self): return self._defect_positions
+    @property
     def X(self): return self._X
     @property
     def Y(self): return self._Y
@@ -95,7 +97,6 @@ class DefectLattice:
     def Lx(self): return self._Lx
     @property
     def Ly(self): return self._Ly
-
     # endregion
 
 
@@ -110,13 +111,17 @@ class DefectLattice:
 
         lattice, _ = self.generate_square_lattice(Lx, Ly)
         defect_indices = []
+        defect_positions = []
         vacancy_index = -1
         for i in range(-vacancy_radius, vacancy_radius):
             for j in range(-vacancy_radius, vacancy_radius):
                 if abs(i) + abs(j) < vacancy_radius:
                     lattice[Ly // 2 + i, Lx // 2 + j] = vacancy_index
+                    defect_positions.append((Ly // 2 + i, Lx // 2 + j))
                     defect_indices.append(vacancy_index)
                     vacancy_index -= 1
+
+        self._defect_positions = defect_positions
         return lattice, defect_indices
 
 
@@ -324,7 +329,7 @@ class DefectLattice:
         return ax
 
 
-def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:float, t0:float, hsub:"np.ndarray|None" = None):
+def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:"np.ndarray|tuple", t:float, t0:float, hsub_vector:"np.ndarray|tuple|None" = None):
     pauli_x = np.array([[0, 1], [1, 0]], dtype=complex)
     pauli_y = np.array([[0, -1j], [1j, 0]], dtype=complex)
     pauli_z = np.array([[1, 0], [0, -1]], dtype=complex)
@@ -339,13 +344,13 @@ def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:np.ndarray, t:
     hz_matrix = 1.0j * hz * I
 
     if defect_indices is not None:
-        if hsub is None and Lattice.defect_type in ['substitution', 'interstitial', 'frenkel_pair']: 
+        if hsub_vector is None and Lattice.defect_type in ['substitution', 'interstitial', 'frenkel_pair']: 
             raise ValueError(f"`hsub` cannot be None when defect_indices are provided for 'substitution', 'interstitial', 'frenkel_pair'")
         for idx in defect_indices:
-            if (idx >= 0) and (Lattice.defect_type != "schottky") and (hsub != None):
-                hx_matrix[idx, idx] = 1.0j * hsub[0] 
-                hy_matrix[idx, idx] = 1.0j * hsub[1] 
-                hz_matrix[idx, idx] = 1.0j * hsub[2] 
+            if (idx >= 0) and (Lattice.defect_type != "schottky") and isinstance(hsub_vector, np.ndarray):
+                hx_matrix[idx, idx] = 1.0j * hsub_vector[0] 
+                hy_matrix[idx, idx] = 1.0j * hsub_vector[1] 
+                hz_matrix[idx, idx] = 1.0j * hsub_vector[2] 
 
     onsite_mass = m0 * I
     dx = t * Sx + hx_matrix
@@ -408,8 +413,8 @@ def compute_ipr(eigenvectors:np.ndarray):
 
 
 def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float, 
-                                     h0_vector:np.ndarray, hsub_vector:"np.ndarray|None" = None, 
-                                     n_closest_to_zero:int = 2):
+                                     h0_vector:"np.ndarray|tuple", hsub_vector:"np.ndarray|tuple|None" = None, 
+                                     n_closest_to_zero:int = 2) -> dict[str, np.ndarray]:
     if n_closest_to_zero is not None:
         assert (n_closest_to_zero <= len(Lattice.X) * 2), "Number of selected indices must be <= number of indices"
     
@@ -433,7 +438,7 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
     right_ipr = compute_ipr(right_eigenvectors)
     ipr = (left_ipr + right_ipr) / 2
     ipr_sorted_idxs = np.argsort(left_ipr)
-    close_to_zero_idxs = ipr_sorted_idxs[-2:]
+    close_to_zero_idxs = ipr_sorted_idxs[-n_closest_to_zero:]
 
     close_left = left_eigenvectors[:, close_to_zero_idxs] # Eigenstates of selected eigenvalues
     close_right = right_eigenvectors[:, close_to_zero_idxs]

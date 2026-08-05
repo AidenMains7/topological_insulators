@@ -39,18 +39,22 @@ def plot_on_lattice(ldos_ax, Lattice:DefectLattice, color_array:np.ndarray, plot
         Z[filled_idxs] = color_array
         plot = ldos_ax.imshow(Z.reshape(lattice.shape), cmap=cmap, origin='lower', extent=extent, rasterized=rasterized) 
     elif plot_type == "tripcolor":
-        triang = tri.Triangulation(X, Y)
-        xtri = triang.x[triang.triangles]
-        ytri = triang.y[triang.triangles]
-        l01 = np.sqrt((xtri[:,1] - xtri[:,0])**2 + (ytri[:,1] - ytri[:,0])**2)
-        l12 = np.sqrt((xtri[:,2] - xtri[:,1])**2 + (ytri[:,2] - ytri[:,1])**2)
-        l20 = np.sqrt((xtri[:,0] - xtri[:,2])**2 + (ytri[:,0] - ytri[:,2])**2)
-        lmax = np.maximum.reduce([l01, l12, l20])
-        mask = lmax > np.sqrt(2) + 1e-6
-        triang.set_mask(mask)
-        plot = ldos_ax.tripcolor(triang, color_array, cmap=cmap, shading='flat', rasterized=rasterized)
-        ldos_ax.set_xlim(extent[0], extent[1])
-        ldos_ax.set_ylim(extent[2], extent[3])
+
+        plot = ldos_ax.scatter(Lattice.X, Lattice.Y, c=color_array, cmap='Greys', s=200)
+        ldos_ax.scatter(Lattice.Lx / 2, Lattice.Ly / 2, facecolor='w', edgecolor='r', s=200, lw=2, ls='--')
+        if 0:
+            triang = tri.Triangulation(X, Y)
+            xtri = triang.x[triang.triangles]
+            ytri = triang.y[triang.triangles]
+            l01 = np.sqrt((xtri[:,1] - xtri[:,0])**2 + (ytri[:,1] - ytri[:,0])**2)
+            l12 = np.sqrt((xtri[:,2] - xtri[:,1])**2 + (ytri[:,2] - ytri[:,1])**2)
+            l20 = np.sqrt((xtri[:,0] - xtri[:,2])**2 + (ytri[:,0] - ytri[:,2])**2)
+            lmax = np.maximum.reduce([l01, l12, l20])
+            mask = lmax > np.sqrt(2) + 1e-6
+            triang.set_mask(mask)
+            plot = ldos_ax.tripcolor(triang, color_array, cmap=cmap, shading='flat', rasterized=rasterized)
+            ldos_ax.set_xlim(extent[0], extent[1])
+            ldos_ax.set_ylim(extent[2], extent[3])
     elif plot_type == "tricontourf":
         plot = ldos_ax.tricontourf(X, Y, color_array, 10, cmap=cmap, rasterized=rasterized)
     else:
@@ -592,14 +596,6 @@ def figure_layout(fig, master_gs, do_inset:bool = True, epsilon:float = 0.1):
         fig.add_axes(ax_a_inset)
 
 
-def plot_spectrum_ipr_color(ax,  cbar_ax, eigenvalues, ipr, selected_idxs=[], cmap='jet'):
-    scat1 = ax.scatter(eigenvalues.real, eigenvalues.imag, c=ipr, cmap=cmap, zorder=0)
-    if len(selected_idxs) > 0:
-        print(selected_idxs)
-        scat2 = ax.scatter(eigenvalues.real[selected_idxs], eigenvalues.imag[selected_idxs], c=ipr[selected_idxs], marker="*", s=100, cmap=cmap)
-    cbar = plt.colorbar(scat1, cbar_ax)
-
-
 def remove_ax_ticks_and_labels(ax):
     ax.set_xticklabels([])
     ax.set_yticklabels([])
@@ -621,11 +617,12 @@ def format_colorbar(cbar, vmin, vmax):
     cbar.ax.tick_params(labelsize=14)
 
 
-def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, do_additional_plotting:bool = True):
+def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, 
+                            defect_radius:int = 1, break_c4:bool = False, 
+                            do_additional_plotting:bool = True):
     Ls = np.sort(Ls)
 
     ldos_plot_radius = max(Ls[-1] // 4, 5)
-    ldos_plot_radius = min(ldos_plot_radius, Ls[-1] // 2)
     all_colors = np.array(['tab:purple', 'tab:blue', 'tab:green', 'tab:orange', 'tab:pink', 'tab:olive', 'tab:cyan'])
     colors = all_colors[np.arange(Ls.size)]
     colors[-1] = 'r'
@@ -638,10 +635,20 @@ def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, do
         if schottky_sep % 2 == 0:
             schottky_sep += 1
         if method == "schottky": print(f"L={L} : schottky_separation={schottky_sep}")
-        Lattice = DefectLattice(L, L, method, True, schottky_separation=schottky_sep)
+        fpx = fpy = -schottky_sep - 0.5
+        if method == "frenkel_pair": print(f"L={L}: fpx = {fpx}, fpy = {fpy}")
+
+        Lattice = DefectLattice(L, L, method, True, schottky_separation=schottky_sep, 
+                                frenkel_x_disp = fpx, frenkel_y_disp= fpy,
+                                defect_radius = defect_radius, break_c4 = break_c4)
+        
         ed = compute_eigenvectors_eigenvalues(Lattice, m0, h0_vector, hsub_vector, n)
         lattices.append(Lattice)
         eig_dicts.append(ed)
+
+    if method in ["schottky", "frenkel_pair"]: ldos_plot_radius = max(ldos_plot_radius, 4+-int(round(max(abs(fpx), abs(fpy)), 0)), 2 + schottky_sep // 2)
+
+    ldos_plot_radius = min(ldos_plot_radius, Ls[-1] // 2)
 
     if do_additional_plotting:
         ax_a, ax_b, ax_b_cb, ax_c, ax_a_inset = axes  
@@ -657,15 +664,19 @@ def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, do
         a_xaxis = np.abs(eigenvalues) * np.sign(eigenvalues.real)
         ax_a.scatter(a_xaxis, 1e2*ipr, zorder=0, c=c, alpha=0.5, label=f"$L={L}$")
         if do_additional_plotting and L == np.max(Ls): ax_a.scatter(a_xaxis[selected_idxs], 1e2*ipr[selected_idxs], marker="*", c="r", s=100, zorder=1)
-        ax_a.set_xlabel("$|E| \\times {\\rm sign}(E)$")
+        ax_a.set_xlabel("$|E| \\times {\\rm sign}[\\Re (E)]$")
         ax_a.set_ylabel("${\\rm IPR} \\times 10^2$")
         ax_a.legend(loc = 'upper right')
+
+    ext_min = max(L // 2 - ldos_plot_radius, 0)
+    ext_max = min(L // 2 + ldos_plot_radius, L)
+    ldos_extent = (ext_min, ext_max, ext_min, ext_max)
 
     # Axis (a_inset)
     if do_additional_plotting:
         ax_a_inset, a_inset_cbar = plot_on_lattice(ax_a_inset, Lattice, ed["selected_left_eigenvectors"], 
-                                                "tripcolor", "cividis", plot_colorbar=False,
-                                                extent = (L // 2 - ldos_plot_radius, L // 2 + ldos_plot_radius, L // 2 - ldos_plot_radius, L // 2 + ldos_plot_radius))
+                                                "tripcolor", "Greys", plot_colorbar=False,
+                                                extent = ldos_extent)
         #remove_ax_ticks_and_labels(ax_a_inset)
         ax_a_inset.tick_params(axis="both", labelsize=10)
         ax_a_inset.set_xlabel("$X$", fontsize=10)
@@ -677,7 +688,6 @@ def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, do
     b_scat1 = ax_b.scatter(eigenvalues.real[~selected_mask], eigenvalues.imag[~selected_mask] * 1e1, c=ipr[~selected_mask], cmap='jet', zorder=0)
     vmin, vmax = b_scat1.get_clim()
     if do_additional_plotting: b_scat2 = ax_b.scatter(eigenvalues.real[selected_idxs], eigenvalues.imag[selected_idxs] * 1e1, c=ipr[selected_idxs], marker="*", s=100, cmap='jet', vmin=vmin, vmax=vmax)
-    print(eigenvalues.real[selected_idxs], eigenvalues.imag[selected_idxs], ipr[selected_idxs])
 
     b_scat1.set_clim(vmin=0)
     b_cbar = plt.colorbar(b_scat1, ax_b_cb)
@@ -688,8 +698,8 @@ def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, do
 
     # Axis (c) and (c_colorbar)
     ax_c, ax_c_cb = plot_on_lattice(ax_c, Lattice, ed["L"], 
-                                    "tripcolor", "cividis", plot_colorbar=False,
-                                    extent = (L // 2 - ldos_plot_radius, L // 2 + ldos_plot_radius, L // 2 - ldos_plot_radius, L // 2 + ldos_plot_radius))
+                                    "tripcolor", "Greys", plot_colorbar=False,
+                                    extent = ldos_extent)
     ax_c.tick_params(axis="both", labelsize=10)
     ax_c.set_xlabel("$X$", fontsize=10)
     ax_c.set_ylabel("$Y$", fontsize=10)
@@ -699,7 +709,7 @@ def spectrum_and_ipr_figure(axes, method, m0, h0_vector, hsub_vector, Ls, ns, do
 # ============================
 
 
-def plot_figs_12_to_21(method, Ls, ns, hdir):
+def plot_ipr_figs1(method, Ls, ns, hdir):
     fig = plt.figure(figsize=(20, 10))
     plt.subplots_adjust(wspace=0.1)
     master_gs = gridspec.GridSpec(1, 2, figure=fig)
@@ -733,11 +743,136 @@ def plot_figs_12_to_21(method, Ls, ns, hdir):
             bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.75)
         )
 
-    plt.savefig(f"./NonHermitian/Plots/IPR/{method}_ipr_h{hdir}.png", dpi=300, bbox_inches="tight")
+    plt.savefig(f"./NonHermitian/Plots/IPR/{method}_ipr_{hdir}_greys.png", dpi=300, bbox_inches="tight")
+
+
+def plot_ipr_figs2(method, Ls, ns, hdir):
+    fig = plt.figure(figsize=(20, 30))
+    plt.subplots_adjust(wspace=0.1)
+    master_gs = gridspec.GridSpec(3, 2, figure=fig)
+
+    figure_layout(fig, master_gs[0, 0])
+    figure_layout(fig, master_gs[0, 1], False)
+    figure_layout(fig, master_gs[1, 0])
+    figure_layout(fig, master_gs[1, 1], False)
+    figure_layout(fig, master_gs[2, 0])
+    figure_layout(fig, master_gs[2, 1], False)
+    
+    axes = np.array(fig.axes)
+    axes_chunks = [axes[:5], axes[5:9], axes[9:14], axes[14:18], axes[18:23], axes[23:]]
+
+    h_dir_mapping = {'x': 0, 'y': 1, 'z': 2}
+    v1 = np.zeros(3)
+    v2 = np.zeros(3)
+    v1[h_dir_mapping[hdir]] = 0.5
+    v2[h_dir_mapping[hdir]] = 1.5
+
+    spectrum_and_ipr_figure(axes_chunks[0], method, -1.0, v1, v2, Ls, ns)
+    spectrum_and_ipr_figure(axes_chunks[1], method, -1.0, v2, v1, Ls, ns, do_additional_plotting = False)
+    spectrum_and_ipr_figure(axes_chunks[2], method, -1.0, v1, v2, Ls, ns, defect_radius = 2)
+    spectrum_and_ipr_figure(axes_chunks[3], method, -1.0, v2, v1, Ls, ns, defect_radius = 2, do_additional_plotting = False)
+    spectrum_and_ipr_figure(axes_chunks[4], method, -1.0, v1, v2, Ls, ns, defect_radius = 2, break_c4 =  True)
+    spectrum_and_ipr_figure(axes_chunks[5], method, -1.0, v2, v1, Ls, ns, defect_radius = 2, break_c4 =  True, do_additional_plotting = False)
+
+    fig_row_labels = ["i", "ii", "iii"]
+    for i in range(3):
+        for j, ax in enumerate(fig.axes[9*i:9*(i+1)]):
+            lab = "(" + fig_row_labels[i] + "." + "ab_c_de_f"[j] + ")"
+            if lab[-2] == "_":
+                continue
+            ax.annotate(
+                lab,
+                xy = (0.025, 0.975),
+                xycoords='axes fraction',
+                ha='left',
+                fontsize=16,
+                bbox=dict(boxstyle="round,pad=0.2", fc="white", ec="none", alpha=0.75)
+            )
+
+    plt.savefig(f"./NonHermitian/Plots/IPR/{method}_ipr_{hdir}.png", dpi=300, bbox_inches="tight")
+
+
+def figure_layout2():
+    fig = plt.figure()
+    gs = gridspec.GridSpec(2, 3, figure=fig, width_ratios=[1., 1.5, 1.5])
+
+    gs0 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[:, 0])
+    ax1 = fig.add_subplot(gs0[0, 0], label="a")
+    ax2 = fig.add_subplot(gs0[0, 1], label="b")
+
+    gs1_a = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0, 1], width_ratios=[1, .1])
+    ax3 = fig.add_subplot(gs1_a[0, 0], label="c")
+    ax3_cb = fig.add_subplot(gs1_a[0, 1], label="c_cb")
+    gs1_b = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[0, 2], width_ratios=[1, .1])
+    ax4 = fig.add_subplot(gs1_b[0, 0], label="d")
+    ax4_cb = fig.add_subplot(gs1_b[0, 1], label="d_cb")
+
+    gs2 = gridspec.GridSpecFromSubplotSpec(1, 2, subplot_spec=gs[1, 1], width_ratios=[1, .1])
+    ax5 = fig.add_subplot(gs2[0, 0], label="e")
+    ax5_cb = fig.add_subplot(gs2[0, 1], label="e_cb")
+    gs3 = gridspec.GridSpecFromSubplotSpec(1, 3, subplot_spec=gs[1, 2], width_ratios=[1, 1, .1])
+    ax6 = fig.add_subplot(gs3[0, 0], label="f")
+    ax7 = fig.add_subplot(gs3[0, 1], label="g")
+    ax_6_7_cb = fig.add_subplot(gs3[0, 2], label="67_cb")
+
+    ax3_cb_box = ax3_cb.get_position()
+    ax3_box = ax3.get_position()
+    ax3_cb.set_position((ax3_cb_box.x0, ax3_cb_box.y0, ax3_cb_box.width, ax3_box.height))
+    ax4_cb_box = ax4_cb.get_position()
+    ax4_box = ax4.get_position()
+    ax4_cb.set_position((ax4_cb_box.x0, ax4_cb_box.y0, ax4_cb_box.width, ax4_box.height))
+
+    for ax in fig.axes:
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.tick_params(width=1.5)
+        for k in ax.spines.keys():
+            ax.spines[k].set_linewidth(1.5)
+
+    return fig
+
 
 if __name__ == "__main__":
-    Ls = [10, 20, 30, 40]
-    ns = [2, 2, 2, 2]
-    for hd in "xy":
-        for m  in ["vacancy", "schottky", "frenkel_pair"]:
-            plot_figs_12_to_21(m, Ls, ns, hd)
+    #plot_ipr_figs1('vacancy', [10], [2], 'x')
+    fig = figure_layout2()
+
+    Lattice = DefectLattice(10, 10, "vacancy", True)
+    eig_dict_1 = compute_eigenvectors_eigenvalues(Lattice, -1.0, [0.5, 0., 0.])
+    eig_dict_2 = compute_eigenvectors_eigenvalues(Lattice, -1.0, [1.5, 0., 0.])
+
+    ax_a, ax_b, ax_c, ax_c_cb, ax_d, ax_d_cb, ax_e, ax_e_cb, ax_f, ax_g, ax_fg_cb = fig.axes
+
+
+    axes = fig.axes
+    for ed, ipr_ax, s_ax, cb_ax in zip([eig_dict_1, eig_dict_2], [ax_a, ax_b], [ax_c, ax_d], [ax_c_cb, ax_d_cb]):
+        eigvals = ed["eigenvalues"]
+        ipr = ed["left_ipr"]
+        ipr_ax.scatter(np.abs(eigvals) * np.sign(eigvals.real), ipr, c='r', alpha=0.5, zorder=0)
+        s_scat = s_ax.scatter(eigvals.real, eigvals.imag, c=ipr, cmap='jet')
+        cb = plt.colorbar(s_scat, cb_ax)
+
+
+    close = eig_dict_1["selected_left_eigenvectors"]
+    L1 = eig_dict_1["L"]
+    L2 = eig_dict_2["L"]
+
+    close -= np.min(close)
+    L1 -= np.min(L1)
+    L2 -= np.min(L2)
+
+    close /= np.max(close)
+
+    skin_max = max(np.max(L1), np.max(L2))
+    L1 /= skin_max
+    L2 /= skin_max
+
+    X, Y = Lattice.X, Lattice.Y
+    s1 = ax_e.scatter(X, Y, c=close, cmap="Greys", s=100, vmin=0., vmax=1., zorder=1)
+    d_idxs = Lattice.defect_indices
+    s1_defects = ax_e.scatter(X[d_idxs], Y[d_idxs], zorder=2, lw=1, facecolor='w', edgecolor='r')
+    top_cb = plt.colorbar(s1, ax_e_cb)
+
+    s2 = ax_f.scatter(X, Y, c=L1, cmap="Greys", s=100, vmin=0., vmax=1.)
+    s3 = ax_g.scatter(X, Y, c=L2, cmap="Greys", s=100, vmin=0., vmax=1.)
+    skin_cb = plt.colorbar(s2, ax_fg_cb)
+    plt.show()
