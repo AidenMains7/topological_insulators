@@ -1,7 +1,3 @@
-/preliminary/
-/dan_code/
-/hexaflake/dans_stuff/
-/references/
 /.venv/
 */__pycache__/*
-/Floquet/env/*
+/NonHermitian/Data/*

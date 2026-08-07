@@ -60,6 +60,8 @@ class DefectLattice:
             case _:
                 raise ValueError('Defect type not properly provided')
 
+        self._defect_positions = np.array([[(x, y) for y, x in zip(*np.where(self.lattice == idx))] for idx in self.defect_indices])[:, 0, :].T
+
         Y, X = np.where(self.lattice >= 0)[:]
         if defect_type in ['interstitial', 'frenkel_pair']:
             self._X, self._Y = X / 2, Y / 2
@@ -111,17 +113,14 @@ class DefectLattice:
 
         lattice, _ = self.generate_square_lattice(Lx, Ly)
         defect_indices = []
-        defect_positions = []
         vacancy_index = -1
         for i in range(-vacancy_radius, vacancy_radius):
             for j in range(-vacancy_radius, vacancy_radius):
                 if abs(i) + abs(j) < vacancy_radius:
                     lattice[Ly // 2 + i, Lx // 2 + j] = vacancy_index
-                    defect_positions.append((Ly // 2 + i, Lx // 2 + j))
                     defect_indices.append(vacancy_index)
                     vacancy_index -= 1
 
-        self._defect_positions = defect_positions
         return lattice, defect_indices
 
 
@@ -412,6 +411,13 @@ def compute_ipr(eigenvectors:np.ndarray):
     return IPR
 
 
+def get_close_to_zero_idxs(eigenvectors, n_idxs):
+    ipr = compute_ipr(eigenvectors)
+    sort = np.argsort(ipr)
+    idxs  = sort[-n_idxs:]
+    return idxs
+
+
 def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float, 
                                      h0_vector:"np.ndarray|tuple", hsub_vector:"np.ndarray|tuple|None" = None, 
                                      n_closest_to_zero:int = 2) -> dict[str, np.ndarray]:
@@ -477,7 +483,9 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
         "right_eigenvectors" : right_eigenvectors,
         "left_ipr" : left_ipr,
         "right_ipr": right_ipr,
-        "average_ipr": ipr
+        "average_ipr": ipr,
+        "left_eigenvectors": left_eigenvectors,
+        "right_eigenvectors": right_eigenvectors
         }
     return data_dictionary
 
