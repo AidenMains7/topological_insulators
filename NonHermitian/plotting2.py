@@ -19,6 +19,8 @@ from nonhermitian_defects import DefectLattice, compute_eigenvectors_eigenvalues
 
 # region Saving and Reading Data
 def save_ipr_data(Ls:list[int], eig_dicts:list[dict], fname:str, directory:str = "./NonHermitian/Data/"):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     with h5py.File(directory + fname, "w") as f:
         f.create_dataset(name="Ls", data=Ls)
         for L, ed in zip(Ls, eig_dicts):
@@ -56,8 +58,8 @@ def get_selected_modes(eig_dict, n_idxs):
   
 
 def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:str = "./NonHermitian/Data/", **kwargs):
-    file1 = directory + f"{method}_ipr_data_h{hdir}=0.5.h5"
-    file2 = directory + f"{method}_ipr_data_h{hdir}=1.5.h5"
+    file1 = f"{method}_ipr_data_h{hdir}=0.5.h5"
+    file2 = f"{method}_ipr_data_h{hdir}=1.5.h5"
 
     if method in ["substitution", "interstitial"]:
         n_defects = 1
@@ -71,10 +73,10 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
     schottky_separations = [L // 4 + (L // 4 + 1) % 2 for L in Ls]
     fpxs = fpys = [-s -0.5 for s in schottky_separations]
 
-    if all([os.path.exists(file) for file in [file1, file2]]):
+    if all([os.path.exists(directory + file) for file in [file1, file2]]):
         print(f"IPR data files already exist for method {method} and hdir {hdir}.")
-        new_Ls1, data1 = read_ipr_data(file1, "")
-        new_Ls2, data2 = read_ipr_data(file2, "")
+        new_Ls1, data1 = read_ipr_data(file1, directory)
+        new_Ls2, data2 = read_ipr_data(file2, directory)
         assert new_Ls1 == new_Ls2, "Mismatch in Ls between the two IPR data files."
         data1 = [get_selected_modes(ed, n_idxs) for ed in data1]
         data2 = [get_selected_modes(ed, n_idxs) for ed in data2]
@@ -99,8 +101,8 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
     print("Computed eigenvectors and eigenvalues for (v1, v2).")
     ed2s = [compute_eigenvectors_eigenvalues(Lattice, -1.0, v2, v1, n_idxs) for Lattice in lattices]
     print("Computed eigenvectors and eigenvalues for (v2, v1).")
-    save_ipr_data(Ls, ed1s, file1, "")
-    save_ipr_data(Ls, ed2s, file2, "")
+    save_ipr_data(Ls, ed1s, file1, "./NonHermitian/Data/")
+    save_ipr_data(Ls, ed2s, file2, "./NonHermitian/Data/")
     return Ls, ed1s, ed2s, lattices[-1]
 
 # endregion
@@ -296,7 +298,7 @@ def plot_ipr(ax:Axes, eigenvalues:tuple, iprs:tuple, Ls:"list|tuple", selected_i
 
 
 def figure_layout():
-    fig = plt.figure()
+    fig = plt.figure(figsize=(30,10))
 
     # Master Gridspec
     gs = gridspec.GridSpec(2, 3, figure=fig, width_ratios=[2., 1.5, 1.5], hspace=0.3)
@@ -406,9 +408,9 @@ def main(method:str, Ls:list, n:int, hdir:str, **kwargs):
     L2 /= skin_max
 
     # Plot the LDOS
-    plot_ldos(LargestLattice, ax_e, topo_ldos, ax_e_cb, extent=find_ldos_view_area(LargestLattice, topo_ldos))
-    plot_ldos(LargestLattice, ax_f, L1, ax_fg_cb, extent=find_ldos_view_area(LargestLattice, L1))
-    plot_ldos(LargestLattice, ax_g, L2, ax_fg_cb, extent=find_ldos_view_area(LargestLattice, L2))
+    plot_ldos(LargestLattice, ax_e, topo_ldos, ax_e_cb, extent=find_ldos_view_area(LargestLattice, topo_ldos), scatter_size=30)
+    plot_ldos(LargestLattice, ax_f, L1, ax_fg_cb, extent=find_ldos_view_area(LargestLattice, L1), scatter_size=30)
+    plot_ldos(LargestLattice, ax_g, L2, ax_fg_cb, extent=find_ldos_view_area(LargestLattice, L2), scatter_size=30)
 
 
     # Remove some labels and legends for clarity
@@ -420,8 +422,7 @@ def main(method:str, Ls:list, n:int, hdir:str, **kwargs):
     for ax in [ax_e, ax_f, ax_g]:
         ax.set_aspect("equal")
 
-    plt.show()
-
 if __name__ == "__main__":
-    Ls = [10, 20, 30, 40, 50]
-    main("substitution", Ls, 4, "x", defect_radius = 2, break_c4 = False)
+    Ls = [10, 20, 30]
+    main("vacancy", Ls, 2, "x", defect_radius = 1, break_c4 = False, dislocation_direction='x', core_separation=5)
+    plt.savefig("./NonHermitian/Plots/IPR/cbar.svg")

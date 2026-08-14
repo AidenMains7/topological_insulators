@@ -29,7 +29,11 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
         phi_values = np.linspace(phi_range[0], phi_range[1], dimensions[0])
     geometry_data = compute_geometric_data(generation, True)
 
-    out_filename = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5" if outfname is None else outfname
+    if method in ['renorm1', 'renorm2']:
+        out_filename = directory+f"renorm_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5" if outfname is None else outfname
+    else:
+        out_filename = directory+f"{method}_g{generation}_({dimensions[0]}_by_{dimensions[1]}).h5" if outfname is None else outfname
+
     if os.path.exists(out_filename) and fileOverwrite == False:
         return out_filename
 
@@ -63,23 +67,13 @@ def compute_phase(method, generation, dimensions=(50,50), M_range=(-5.5,5.5), ph
     return out_filename
 
 
-def compute_disorder_iterations(phi, M, method, strength, t1, t2, geometry_data, iterations=100, n_jobs=-2, show_progress=False):
-    def worker_function(i):
-        H = compute_hamiltonian(method, M, phi, t1, t2, geometry_data, strength, True if method == 'renorm1' else False)
-        bott = compute_bott_from_hamiltonian(H, method, geometry_data)
-        return bott
-    
-    if show_progress:
-        with tqdm_joblib(tqdm(total=iterations, desc="Computing disorder iterations")) as progress_bar:
-            iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
-    else:
-        iter_data = np.array(Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in range(iterations)))
-
-    # Return the full array of all iterations instead of just the average
-    return iter_data
-
-
 def compute_disorder(in_filename, method, generation, strength, iterations=100, t1=1.0, t2=1.0, n_jobs=-2, show_progress=True, fileOverwrite=False, doHalf:bool = True, num_chunks:int = 10):
+    """Compute disorder samples by flattening all jobs and running them in chunks.
+
+    This preserves the same output layout as compute_disorder, but avoids the
+    nested Parallel call pattern by scheduling each (phi, M, disorder_index)
+    sample as a single job.
+    """
     geometry_data = compute_geometric_data(generation, True)
 
     with h5py.File(in_filename, 'r') as f:
@@ -87,110 +81,98 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
         M_vals = f['M'][:] # type: ignore
         bott_index_vals = f['bott_index'][:] # type: ignore
 
+    if method in ['renorm1', 'renorm2']:
+        in_filename = in_filename.replace('renorm', method)
     out_filename = in_filename.replace('.h5', f'_w{strength}.h5')
-    if method in ['renorm1', 'renorm2']:
-        out_filename = out_filename.replace('renorm', method)
-    out_filename = in_filename.replace('.h5', f'_w{strength}_i{iterations}.h5')
-    if method in ['renorm1', 'renorm2']:
-        out_filename = out_filename.replace('renorm', method)
 
     if os.path.exists(out_filename) and fileOverwrite == False:
+        print(out_filename)
         return out_filename
-    
-    def worker_function(index):
-        phi, M = phi_vals[index], M_vals[index] # type: ignore
-        all_botts = compute_disorder_iterations(phi, M, method, strength, t1=t1, t2=t2, geometry_data=geometry_data, iterations=iterations, n_jobs=1)
-        return phi, M, all_botts
 
-    # Use a flat mask so the half-selection only depends on phi sign.
+
+    bott_index_vals = np.round(np.asarray(bott_index_vals), 8)
     nonzero_indices = bott_index_vals.astype(bool).ravel() # type: ignore
     phi_flat = phi_vals.ravel() # type: ignore
+    M_flat = M_vals.ravel() # type: ignore
     if doHalf:
         compute_mask = np.logical_and(nonzero_indices, phi_flat >= np.pi / 2)
     else:
         compute_mask = nonzero_indices
 
     compute_these = np.flatnonzero(compute_mask)
-    print(len(compute_these))
 
     if not np.any(compute_these):
         print(f"All disorder values already computed for {method}, W = {strength}.")
         return out_filename
-    if not np.any(compute_these):
-        print(f"All disorder values already computed for {method}, W = {strength}.")
-        return out_filename
 
-    # Split the required computations into chunks
-    chunks = np.array_split(compute_these, min(num_chunks, len(compute_these)))
-    chunk_files = []
-    # Split the required computations into chunks (e.g., 10 separate batch files)
-    num_chunks = 10
-    chunks = np.array_split(compute_these, min(num_chunks, len(compute_these)))
-    chunk_files = []
+    n_points = len(compute_these)
+    point_to_row = {index: row for row, index in enumerate(compute_these)}
+    final_phis = phi_flat[compute_these]
+    final_Ms = M_flat[compute_these]
+    final_botts_all = np.full((n_points, iterations), np.nan, dtype=float)
 
-    # Reuse any chunk files that were already computed.
-    remaining_chunks = []
-    for chunk_idx, chunk in enumerate(chunks):
-        if len(chunk) == 0:
-            continue
+    jobs = [(index, disorder_index) for index in compute_these for disorder_index in range(iterations)]
+    chunk_count = min(num_chunks, len(jobs))
+    job_chunk_size = int(np.ceil(len(jobs) / chunk_count))
+    job_chunks = [jobs[i:i + job_chunk_size] for i in range(0, len(jobs), job_chunk_size)]
 
-        chunk_filename = out_filename.replace('.h5', f'_temp_chunk_{chunk_idx}.h5')
-        if os.path.exists(chunk_filename):
-            chunk_files.append(chunk_filename)
-        else:
-            remaining_chunks.append((chunk_idx, chunk))
+    def worker_function(job):
+        index, disorder_index = job
+        phi, M = phi_flat[index], M_flat[index] # type: ignore
+        H = compute_hamiltonian(
+            method,
+            M,
+            phi,
+            t1,
+            t2,
+            geometry_data,
+            strength,
+            True if method == 'renorm1' else False,
+        )
+        bott = compute_bott_from_hamiltonian(H, method, geometry_data)
+        return index, disorder_index, phi, M, bott
 
-    for chunk_idx, chunk in remaining_chunks:
+    for chunk_idx, chunk in enumerate(job_chunks):
         if show_progress:
-            print(f"Computing chunk {chunk_idx + 1}/{len(chunks)} for W = {strength}")
-            with tqdm_joblib(tqdm(total=len(chunk), desc=f"Chunk {chunk_idx + 1}")) as progress_bar:
-                results = Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in chunk)
+            print(f"Computing job chunk {chunk_idx + 1}/{len(job_chunks)} for W = {strength}")
+            with tqdm_joblib(tqdm(total=len(chunk), desc=f"Job chunk {chunk_idx + 1}")) as progress_bar:
+                results = Parallel(n_jobs=n_jobs)(delayed(worker_function)(job) for job in chunk)
         else:
-            results = Parallel(n_jobs=n_jobs)(delayed(worker_function)(i) for i in chunk)
+            results = Parallel(n_jobs=n_jobs)(delayed(worker_function)(job) for job in chunk)
 
-        # Unpack results
-        phis_chunk = np.array([res[0] for res in results]) # type: ignore
-        Ms_chunk = np.array([res[1] for res in results]) # type: ignore
-        botts_chunk = np.array([res[2] for res in results]) # Shape will be (len(chunk), iterations) # type: ignore
+        for index, disorder_index, _, _, bott in results: # type: ignore
+            row = point_to_row[index]
+            final_botts_all[row, disorder_index] = bott
 
-        # Save to temporary chunk file
-        chunk_filename = out_filename.replace('.h5', f'_temp_chunk_{chunk_idx}.h5')
-        with h5py.File(chunk_filename, 'w') as f:
-            f.create_dataset('phi', data=phis_chunk)
-            f.create_dataset('M', data=Ms_chunk)
-            f.create_dataset('disorder_all', data=botts_chunk)
-        
-        chunk_files.append(chunk_filename)
+    if doHalf:
+        mirrored_phis = np.pi - final_phis
+        mirrored_Ms = final_Ms.copy()
+        mirrored_botts_all = final_botts_all.copy()
 
-    # Compile all chunk files into the final h5 file
-    all_phis, all_Ms, all_botts = [], [], []
+        mirrored_mask = np.logical_and(mirrored_phis > 0, mirrored_phis < np.pi)
+        mirrored_mask &= ~np.isclose(mirrored_phis, final_phis)
 
-    for c_file in chunk_files:
-        try:
-            with h5py.File(c_file, 'r') as f:
-                all_phis.append(f['phi'][:]) # type: ignore
-                all_Ms.append(f['M'][:]) # type: ignore
-                all_botts.append(f['disorder_all'][:]) # type: ignore
-            os.remove(c_file) # Clean up intermediate files
-        except Exception as e:
-            print(f"Error compiling file {c_file}: {e}")
+        final_phis = np.concatenate([final_phis, mirrored_phis[mirrored_mask]])
+        final_Ms = np.concatenate([final_Ms, mirrored_Ms[mirrored_mask]])
+        final_botts_all = np.concatenate([final_botts_all, mirrored_botts_all[mirrored_mask]], axis=0)
 
-    # Concatenate the lists of arrays
-    final_phis = np.concatenate(all_phis)
-    final_Ms = np.concatenate(all_Ms)
-    final_botts_all = np.concatenate(all_botts, axis=0)
-    
-    # Calculate the average ignoring NaNs so your existing plotting scripts still work
+        sort_idx = np.lexsort((final_Ms, final_phis))
+        final_phis = final_phis[sort_idx]
+        final_Ms = final_Ms[sort_idx]
+        final_botts_all = final_botts_all[sort_idx]
+
     final_botts_avg = np.nanmean(final_botts_all, axis=1)
 
     with h5py.File(out_filename, 'w') as f:
         f.create_dataset(name='phi', data=final_phis)
         f.create_dataset(name='M', data=final_Ms)
-        f.create_dataset(name='disorder_all', data=final_botts_all) # New: 2D array of all iterations
-        f.create_dataset(name='disorder', data=final_botts_avg)     # Legacy: 1D array of averages
+        f.create_dataset(name='disorder_all', data=final_botts_all)
+        f.create_dataset(name='disorder', data=final_botts_avg)
 
     return out_filename
 
+
+# endregion
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
@@ -339,10 +321,7 @@ def pi_tick_labels(value):
     else:
         return sign + f"$\\frac{{{numerator.replace('$', ''	)}}}{{{fractional_value.denominator}}}$"
 
-# endregion
-#------------------------------------------------------------
-#------------------------------------------------------------
-#------------------------------------------------------------
+
 def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_strengths=None, 
                       directory=".", cmap="cividis", 
                       plotUndisordered=True, plotSineBoundary=True, 
@@ -352,11 +331,12 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
     if type(methods) is str:
         methods = [methods]
     if any([m in methods for m in ['hexagon', 'site_elim', 'renorm1', 'renorm2']]) == False:
-
         raise ValueError("Invalid method. Options are ['hexagon', 'site_elim', 'renorm1', 'renorm2']")
     
     and_contain_list = [f'g{generation}', f'({dimensions[0]}_by_{dimensions[1]})']
-    or_contain_list = methods
+    or_contain_list = methods.copy()
+    if 'renorm1' in methods or 'renorm2' in methods:
+        or_contain_list.append('renorm')
 
     files = glob.glob(os.path.join(directory, f'*.h5'))
     files = get_all_files_matching_criteria(files, contains_all=and_contain_list, contains_any=or_contain_list, does_not_contain=['_temp_chunk'])
@@ -368,7 +348,8 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
         disorder_strengths = get_disorder_strength_from_files(files)
 
     n_cols = len(disorder_strengths) + 1 if plotUndisordered else len(disorder_strengths)
-    fig, axs = plt.subplots(len(methods), n_cols, figsize=(30, 20), sharex=True, sharey=True)
+    print(methods)
+    fig, axs = plt.subplots(len(methods), n_cols, figsize=(n_cols * 4, len(methods) * 4), sharex=True, sharey=True)
     if len(methods) == 1:
         axs = axs.reshape(1, len(axs))
     elif n_cols == 1:
@@ -379,6 +360,8 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
 
     clean_data = [extract_data_from_h5_file(file) for file in clean_files]
     disorder_data = [extract_data_from_h5_file(file) for file in disorder_files]
+
+    print(disorder_data[0].keys())
 
     clean_bott_data = [data['bott_index'].T for data in clean_data] # type: ignore
     disorder_bott_data = [data['disorder'] for data in disorder_data]	 # type: ignore
@@ -492,12 +475,37 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
         ax.set_title(ax.get_title(), fontsize=20)
         ax.set_xlabel(ax.get_xlabel(), fontsize=20)
         ax.set_ylabel(ax.get_ylabel(), fontsize=20)
-        ax.set_aspect('equal')
+        #ax.set_aspect('equal')
 
-    add_colorbar_to_figure(fig, axs, norm, cmap, "Bott Index")
+        ax.set_xticks([0, np.pi/2, np.pi])
+        ax.set_xticklabels([])
+        ax.set_ylim([0, 3 * np.sqrt(3)])
+        ax.set_yticks([0, 3 * np.sqrt(3) / 2, 3 * np.sqrt(3)])
+        ax.tick_params(width=3., length = 5.0)
+        for spine in ax.spines.values():
+            spine.set_linewidth(3.)
+
+    for ax in axs[-1, :]:
+        ax.set_xticklabels(["0", "$\\pi/2$", "$\\pi$"])
+
+    for ax in axs[:, 0]:
+        ax.set_yticklabels(["0", "$3 \\sqrt{3} / 2$", "$3 \\sqrt{3}$"])
+
+    cbar = add_colorbar_to_figure(fig, axs, norm, cmap, "Bott Index")
+    cbar.set_ticks([-1.0, -0.5, 0.])
+    cbar.ax.tick_params(width=3., length=5.0, labelsize=20)
+    for spine in cbar.ax.spines.values():
+        spine.set_linewidth(3.)
+    
     if image_filename is not None:
         plt.savefig(image_filename, bbox_inches='tight', transparent=False)
 
+
+# endregion
+#------------------------------------------------------------
+#------------------------------------------------------------
+#------------------------------------------------------------
+ 
 
 def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensions=(50,50), iterations=100, n_jobs=6, directory=".", doHalf:bool = True, clean_file_override:str = '', num_chunks:int = 10):
     if not os.path.exists(directory):
@@ -506,254 +514,17 @@ def compute_many_phase_diagrams(generation, disorder_strengths, methods, dimensi
     for disorder_strength in disorder_strengths:
         for method in methods:
             if clean_file_override == '':
-                # Fix: Handle 'renorm' cleanly alongside 'renorm1' and 'renorm2' so clean_file is never None
-                if method in ['renorm1', 'renorm2', 'renorm']:
-                    clean_file = compute_phase('renorm', generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
-                else:
-                    clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
+                clean_file = compute_phase(method, generation, n_jobs=n_jobs, dimensions=dimensions, directory=directory, M_range=(0., 5.5), phi_range=(0., np.pi))
             else:
                 clean_file = clean_file_override
             disorder_file = compute_disorder(clean_file, method, generation, disorder_strength, iterations=iterations, n_jobs=n_jobs, show_progress=True, doHalf=doHalf, num_chunks=num_chunks)
 
 
-def compare_generations():
-    generations = [2, 3, 4]
-    method = 'site_elim'	
-    resolution = (25, 25)
-    directory = "./Hexaflake/Data/"
-    files = [directory + f"{method}_g{gen}_({resolution[0]}_by_{resolution[1]}).h5" for gen in generations]
-
-    fig, axs = plt.subplots(1, len(generations), figsize=(4 * len(generations), 4), sharex=True, sharey=True)
-
-    file_data = [extract_data_from_h5_file(file) for file in files]
-    M_data = [data["M"] for data in file_data] # type: ignore
-    phi_data = [data["phi"] for data in file_data] # type: ignore
-    bi_data = [np.round(data["bott_index"].flatten(), 0) for data in file_data] # type: ignore
-
-    phi_unique = np.unique(np.concatenate(phi_data))
-    M_unique = np.unique(np.concatenate(M_data))
-
-
-    M, phi = np.meshgrid(M_unique, phi_unique, indexing='ij')
-
-    bis = []
-    for i in range(len(generations)):
-        bis.append(np.full_like(M, 0.))
-        for j in range(len(phi_data[i])):
-            phi_idx = np.where(phi_unique == phi_data[i][j])[0][0]
-            M_idx = np.where(M_unique == M_data[i][j])[0][0]
-            bis[i][M_idx, phi_idx] = bi_data[i][j]
-
-    cmap = 'viridis'
-    unique_values = np.array((-1, 0))
-    cmap = plt.get_cmap(cmap)
-    discrete_colors = cmap(np.linspace(0, 1, len(unique_values)))
-    cmap = ListedColormap(discrete_colors)
-    norm = BoundaryNorm(boundaries=np.append(unique_values, unique_values[-1] + 1), ncolors=len(unique_values))
-
-    scatters = []
-    for i in range(len(generations)):
-        scat = axs[i].scatter(phi.flatten(), M.flatten(), c=bis[i].flatten(), norm=norm, cmap=cmap, zorder=1)
-        scatters.append(scat)
-        axs[i].plot(np.linspace(0, np.pi, 101), np.sin(np.linspace(0, np.pi, 101))*3*np.sqrt(3), c='k', ls=(0, (5, 1)), alpha=1., zorder=2)
-    for ax in axs.flatten():
-        ax.set_xlabel("$\\phi / \\pi$", fontsize=16)
-        ax.set_xticks([0., np.pi / 2, np.pi])
-        ax.set_xticklabels(['0', '$\\frac{1}{2}$', '1'], fontsize=16)
-        ax.set_yticks([0., 3*np.sqrt(3)])
-        ax.set_yticklabels(['0', '$3 \\sqrt{3}$'], fontsize=16)
-    axs[0].set_ylabel("M", fontsize=16, rotation=0)
-
-    phi_flat, M_flat = phi.flatten(), M.flatten()
-    in_region_mask = M_flat < np.sin(phi_flat)*3*np.sqrt(3)
-    number_in_region = np.sum(in_region_mask)
-
-
-    percentages = [np.sum(-bid*100/number_in_region) for bid in bi_data]
-    for i in range(len(generations)):
-        axs[i].set_title(f"Generation {generations[i]}")
-    print(percentages)
-
-
-    cbar = fig.colorbar(scatters[0], ax=axs[-1])
-    cbar.set_ticks(unique_values+0.5) # type: ignore
-    cbar.set_ticklabels([str(val) for val in unique_values], fontsize=16)
-    cbar.set_label("Bott Index", fontsize=16)
-
-    plt.tight_layout()
-    plt.savefig('./Hexaflake/Figures/generation_comparison.svg', bbox_inches='tight', transparent=True)
-
-    fig2, axs2 = plt.subplots(1, 2, figsize=(8, 4), sharey=True)
-    inv_gen = 1 / np.array(generations)
-    inv_n = 1 / np.array([6*7**gen for gen in generations])
-
-    axs2[0].set_ylim([0, 100])
-    axs2[0].set_xlim([0, 1])
-
-    axs2[0].scatter(inv_gen, percentages)
-    axs2[1].scatter(inv_n, percentages)
-
-    axs2[0].set_xlabel("1 / Generation", fontsize=16)
-    axs2[1].set_xlabel("1 / Number of Sites", fontsize=16)
-    axs2[0].set_ylabel("Percentage of Topological Phase", fontsize=16)
-    axs2[0].set_title("Percentage vs. 1/Generation", fontsize=16)
-    axs2[1].set_title("Percentage vs. 1/Number of Sites", fontsize=16)
-
-    from scipy.optimize import curve_fit
-
-    def linear_func(x, a, b):
-        return a * x + b
-    popt_gen, _ = curve_fit(linear_func, inv_gen, percentages)
-    
-    t = np.linspace(0, 1, 101)
-    axs2[0].plot(t, linear_func(t, *popt_gen), c='r', ls='--', label=f"Fit: {popt_gen[1]:.1f} + {popt_gen[0]:.1f} / gen")
-    axs2[0].legend()
-
-    plt.tight_layout()
-    plt.savefig('./Hexaflake/Figures/generation_extrapolation.svg', bbox_inches='tight', transparent=True)
-
-
-def haldane_diagram():
-    angles = (np.linspace(0, 2*np.pi, 7)[:-1] + np.pi/6) % (2*np.pi)
-
-    x = np.cos(angles)
-    y = np.sin(angles)
-
-    x = np.concatenate([x, x - 1, x + 1])
-    y = np.concatenate([y, y - 1.5, y - 1.5])
-
-    x *= 2 / np.sqrt(3)
-    y *= 2
-    x -= np.min(x)
-    y -= np.min(y)
-
-    x = np.round(x).astype(int)
-    y = np.round(y).astype(int)
-
-    sort_idxs = np.lexsort((y, x))
-    x = x[sort_idxs]
-    y = y[sort_idxs]
-
-    lattice = np.full((int(y.max() - y.min() + 1), int(x.max() - x.min() + 1)), 0, dtype=int)
-    lattice[y, x] = np.arange(len(x)) + 1
-
-    Y, X = np.where(lattice > 0)[:]
-    dx = X[:, None] - X[None, :]
-    dy = Y[:, None] - Y[None, :]
-    NN = (dx == 1) & (dy == 1) | (dx == -1) & (dy == 1) | (dx == 0) & (dy == 2)
-
-    sublattices = np.zeros(lattice.shape, dtype=int)
-    sublattices[::3, :] = lattice[::3, :]
-    sublattices[1::3, :] = -lattice[1::3, :]
-
-    Ay, Ax = np.where(sublattices > 0)
-    By, Bx = np.where(sublattices < 0)
-
-    Adx = Ax[:, None] - Ax[None, :]
-    Ady = Ay[:, None] - Ay[None, :]
-    Bdx = Bx[:, None] - Bx[None, :]
-    Bdy = By[:, None] - By[None, :]
-
-    B_NNN = ((Bdx == 1) & (Bdy == -3)) | ((Bdx == -2) & (Bdy == 0)) | ((Bdx == 1) & (Bdy == 3))
-    A_NNN = ((Adx == 2) & (Ady == 0)) | ((Adx == -1) & (Ady == -3)) | ((Adx == -1) & (Ady == 3))
-
-    # Rescale back to original coordinates for plotting
-    Ax = Ax.astype(float) * np.sqrt(3) / 2
-    Bx = Bx.astype(float) * np.sqrt(3) / 2
-    X = X.astype(float) * np.sqrt(3) / 2
-    Ay = Ay.astype(float) / 2
-    By = By.astype(float) / 2
-    Y = Y.astype(float) / 2
-
-    plt.scatter(Ax, Ay, c='red', zorder=0, s=100)
-    plt.scatter(Bx, By, c='blue', zorder=0, s=100)
-
-    # Hard coded removing hopping to make finite-size lattice look nicer.
-    A_NNN[2, 5] = False
-    A_NNN[6, 4] = False
-    A_NNN[1, 0] = False
-    A_NNN_idx = np.argwhere(A_NNN)
-
-
-    for j, i in A_NNN_idx:
-        plt.plot(Ax[[i, j]], Ay[[i, j]], c='black', ls='-', zorder=-2, lw=1)
-        plt.arrow(Ax[i], Ay[i], (Ax[j] - Ax[i]) / 2, (Ay[j] - Ay[i]) / 2, head_width=0.1, head_length=0.1, fc='black', ec='black', ls='-', zorder=-1, overhang=0., lw=1) # type: ignore
-
-    #for i in range(len(Ax)):
-    #    plt.text(Ax[i], Ay[i], f"A{i}", fontsize=8, ha='center', va='center', zorder=10, c='white')
-
-    B_NNN_idx = np.argwhere(B_NNN)
-    for j, i in B_NNN_idx:
-        plt.plot(Bx[[i, j]], By[[i, j]], c='black', ls='-', zorder=-2, lw=1)
-        plt.arrow(Bx[i], By[i], (Bx[j] - Bx[i]) / 2, (By[j] - By[i]) / 2, head_width=0.1, head_length=0.1, fc='black', ec='black', ls='-', zorder=-1, overhang=0., lw=1) # type: ignore
-
-    NN_idx = np.argwhere(NN)
-    for i, j in NN_idx:
-        plt.plot(X[[i, j]], Y[[i, j]], c='black', zorder=-1, ls='--')
-
-    plt.axis('equal')
-    plt.axis('off')
-    plt.savefig('./Hexaflake/Figures/Haldane_Diagram.svg', bbox_inches='tight', transparent=False)
-
-
-def gens_comparison_w1():
-    gs = [2, 3, 4]
-    data = {}
-
-    for g in gs:
-        with h5py.File(f"./Hexaflake/Data/site_elim_g{g}_(25_by_25).h5", 'r') as f:
-            data[g] = {k: v[:] for k, v in zip(f.keys(), f.values())}
-
-        with h5py.File(f"./Hexaflake/Data/site_elim_g{g}_(25_by_25)_w1.0.h5", 'r') as f:
-            data[(g, 'w1')] = {k: v[:] for k, v in zip(f.keys(), f.values())}
-
-        data[(g, 'w1')]['phi'] = data[g]['phi']
-        data[(g, 'w1')]['M'] = data[g]['M']
-
-        if g == 4:
-            good_values = np.argwhere(data[g]['phi'] >= np.pi / 2).flatten()
-            data[g]['phi'] = data[g]['phi'][good_values]
-            data[g]['M'] = data[g]['M'][good_values]
-            data[g]['bott_index'] = data[g]['bott_index'][good_values]
-
-    datas = [data[g] for g in gs] + [data[(g, 'w1')] for g in gs]
-    phis = [d['phi'] for d in datas]
-    Ms = [d['M'] for d in datas]
-    values = [d['bott_index'].flatten() if 'bott_index' in d else d['disorder'].flatten() for d in datas]
-    values = [np.round(val, 6) for val in values]
-    sums = [-np.nansum(val) for val in values]
-    amount_nonzero = [np.sum(val != 0) for val in values]
-    amount_minusone = [np.sum(val == -1) for val in values]
-    amount_zero = [np.sum(val == 0) for val in values]
-
-    nonzero_idxs = [np.argwhere(val != 0) for val in values]
-
-    print(phis[-1].shape)
-
-    half_phi = phis[-1][np.argwhere(phis[-1] >= np.pi / 2)]
-    half_M = Ms[-1][np.argwhere(phis[-1] >= np.pi / 2)]
-    disorder = values[-1]
-
-    idxs = np.argwhere(disorder < 0.0)[:]
-    print(len(idxs))
-    #plt.scatter(half_phi[idxs], half_M[idxs], c=values[-1][idxs], zorder=0)
-    ##plt.scatter(data[(4, 'w1')]['phi'], data[(4, 'w1')]['M'], c=values[-1], zorder=1)
-    #plt.show()
-    print(amount_minusone)
-    print(amount_nonzero)    
-    print(amount_zero)
-    print([len(val) for val in values])
-
-    #with h5py.File('./Hexaflake/Data/site_elim_g4_selected_points_for_w1.h5', 'w') as f:
-    #    f.create_dataset(name='phi', data=half_phi[idxs].flatten())
-    #    f.create_dataset(name='M', data=half_M[idxs].flatten())
-    #    f.create_dataset(name='bott_index', data=np.ones(idxs.shape).flatten())
-
 #------------------------------------------------------------
 #------------------------------------------------------------
 #------------------------------------------------------------
 def main(): 
-    compute_these_disorder_strengths = [12.5]
+    compute_these_disorder_strengths = [1.0, 5.0, 7.5, 10.0, 12.5]
     methods = ['renorm1']
     plot_these_disorder_strengths = [1.0, 5.0, 7.5, 10.0, 12.5]
     plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
@@ -761,71 +532,38 @@ def main():
     res = (25, 25)
     generation = 3
     compute_many_phase_diagrams(generation, compute_these_disorder_strengths, methods, res, 
-                                iterations=50, n_jobs=1, directory="./Hexaflake/Data/", doHalf=True)
-    make_large_figure(generation, res, plot_methods, 
-                    disorder_strengths = plot_these_disorder_strengths,
-                    directory="./Hexaflake/Data/",
-                    cmap="jet", 
-                    plotUndisordered=True, plotSineBoundary=False, plotFull=False,
-                    row_labels=titles,
-                    title="", 
-                    image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.png",
-                    )
+                                iterations=50, n_jobs=-2, directory="./Hexaflake/Data/", doHalf=True)
+    #make_large_figure(generation, res, plot_methods, 
+    #                disorder_strengths = plot_these_disorder_strengths,
+    #                directory="./Hexaflake/Data/",
+    #                cmap="jet", 
+    #                plotUndisordered=True, plotSineBoundary=False, plotFull=False,
+    #                row_labels=titles,
+    #                title="", 
+    #                image_filename=f"./Hexaflake/Figures/PhaseDiagram_{plot_methods[0]}_g{generation}.svg",
+    #                )
 
 
-def b_vs_i():
-    f = f'./Hexaflake/Data/site_elim_g4_w1.0_i50.h5'
-    with h5py.File(f, 'r') as file:
-        M = file['M'][:] # type: ignore
-        phi = file['phi'][:] # type: ignore
-        disorder_alls = file['disorder_all'][:] # type: ignore
-    vals = np.nanmean(disorder_alls, axis=1) # type: ignore
-    phi_unique = np.sort(np.unique(phi)) # type: ignore
-    M_unique = np.sort(np.unique(M)) # type: ignore
 
-    grid = np.zeros((M_unique.size, phi_unique.size), dtype=float)
-    phi_idx = {v: i for i, v in enumerate(phi_unique)}
-    M_idx = {v: i for i, v in enumerate(M_unique)}
-    for p, m, v in zip(phi, M, vals): # type: ignore
-        grid[M_idx[m], phi_idx[p]] = v
-
-    grid = np.hstack([np.fliplr(grid), grid])
-
-    plt.imshow(
-        grid,
-        origin='lower',
-        aspect='auto',
-        cmap='jet',
-        extent=[0., np.pi, 0., np.unique(M).max()] # type: ignore
-    )
-    plt.xlabel('$\\phi$')
-    plt.ylabel('M')
-    plt.colorbar(label='Disorder')
-    plt.title("Site Elimination $g=4$ and $W=1.0$")
-    plt.show()
-
-    disorder_alls = np.round(disorder_alls, 3) # type: ignore
-
-    arr = []
-    for i in range(disorder_alls.shape[1]):
-        arr.append(np.nanmean(disorder_alls[:, :i], axis=1))
-
-    arr = np.array(arr).T[:, 0:]
-
-    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
-    for i in range(arr.shape[0]):
-        ax.plot(np.arange(len(arr[i, :])), arr[i, :], label=f"Point {i}", alpha=0.25)
-    ax.set_xlabel("Number of Iterations Averaged")
-    ax.set_ylabel("Average Disorder")
-
-    plt.show()
-
-
-if __name__ == "__main__":       
+if __name__ == "__main__":    
     main()
-    #with h5py.File("./Hexaflake/Data/renorm1_g3_(25_by_25)_w12.5.h5") as f:
-    #    d = (f["disorder"][()].reshape(25,25).T)
+    #file = compute_disorder('./Hexaflake/Data/site_elim_g2_(25_by_25).h5', 'site_elim', 2, 0.19, 10, doHalf=False)
+    #with h5py.File(file, 'r') as f:
+    #    print(f.keys())
+    #    disorder = f["disorder"][()]
+    #    phi = f["phi"][()]
+    #    m = f["M"][()]
     #
-    #print(np.round(d, 6))
-    #plt.imshow(d.reshape(25, 25), vmin=-1., vmax=0., cmap='jet')
+    #plt.scatter(phi, m, c=disorder)
     #plt.show()
+
+    #with h5py.File("./Hexaflake/Data/renorm2_g3_(25_by_25).h5") as f:
+    #    phi = f["phi"][()]
+    #    m = f["M"][()]
+    #    bott = f["bott_index"][()]
+    #    print(f.keys())
+    #
+    #
+    #plt.scatter(phi, m, c=bott)
+    #plt.show()
+    

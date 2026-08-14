@@ -638,6 +638,283 @@ def compute_hopping_arrays(delta_x_discrete, delta_y_discrete):
 
 
 
-# pre sparse hamiltonian construc
+def b_vs_i():
+    f = f'./Hexaflake/Data/site_elim_g4_w1.0_i50.h5'
+    with h5py.File(f, 'r') as file:
+        M = file['M'][:] # type: ignore
+        phi = file['phi'][:] # type: ignore
+        disorder_alls = file['disorder_all'][:] # type: ignore
+    vals = np.nanmean(disorder_alls, axis=1) # type: ignore
+    phi_unique = np.sort(np.unique(phi)) # type: ignore
+    M_unique = np.sort(np.unique(M)) # type: ignore
+
+    grid = np.zeros((M_unique.size, phi_unique.size), dtype=float)
+    phi_idx = {v: i for i, v in enumerate(phi_unique)}
+    M_idx = {v: i for i, v in enumerate(M_unique)}
+    for p, m, v in zip(phi, M, vals): # type: ignore
+        grid[M_idx[m], phi_idx[p]] = v
+
+    grid = np.hstack([np.fliplr(grid), grid])
+
+    plt.imshow(
+        grid,
+        origin='lower',
+        aspect='auto',
+        cmap='jet',
+        extent=[0., np.pi, 0., np.unique(M).max()] # type: ignore
+    )
+    plt.xlabel('$\\phi$')
+    plt.ylabel('M')
+    plt.colorbar(label='Disorder')
+    plt.title("Site Elimination $g=4$ and $W=1.0$")
+    plt.show()
+
+    disorder_alls = np.round(disorder_alls, 3) # type: ignore
+
+    arr = []
+    for i in range(disorder_alls.shape[1]):
+        arr.append(np.nanmean(disorder_alls[:, :i], axis=1))
+
+    arr = np.array(arr).T[:, 0:]
+
+    fig, ax = plt.subplots(1, 1, figsize=(10, 6))
+    for i in range(arr.shape[0]):
+        ax.plot(np.arange(len(arr[i, :])), arr[i, :], label=f"Point {i}", alpha=0.25)
+    ax.set_xlabel("Number of Iterations Averaged")
+    ax.set_ylabel("Average Disorder")
+
+    plt.show()
 
 
+def compare_generations():
+    generations = [2, 3, 4]
+    method = 'site_elim'	
+    resolution = (25, 25)
+    directory = "./Hexaflake/Data/"
+    files = [directory + f"{method}_g{gen}_({resolution[0]}_by_{resolution[1]}).h5" for gen in generations]
+
+    fig, axs = plt.subplots(1, len(generations), figsize=(4 * len(generations), 4), sharex=True, sharey=True)
+
+    file_data = [extract_data_from_h5_file(file) for file in files]
+    M_data = [data["M"] for data in file_data] # type: ignore
+    phi_data = [data["phi"] for data in file_data] # type: ignore
+    bi_data = [np.round(data["bott_index"].flatten(), 0) for data in file_data] # type: ignore
+
+    phi_unique = np.unique(np.concatenate(phi_data))
+    M_unique = np.unique(np.concatenate(M_data))
+
+
+    M, phi = np.meshgrid(M_unique, phi_unique, indexing='ij')
+
+    bis = []
+    for i in range(len(generations)):
+        bis.append(np.full_like(M, 0.))
+        for j in range(len(phi_data[i])):
+            phi_idx = np.where(phi_unique == phi_data[i][j])[0][0]
+            M_idx = np.where(M_unique == M_data[i][j])[0][0]
+            bis[i][M_idx, phi_idx] = bi_data[i][j]
+
+    cmap = 'viridis'
+    unique_values = np.array((-1, 0))
+    cmap = plt.get_cmap(cmap)
+    discrete_colors = cmap(np.linspace(0, 1, len(unique_values)))
+    cmap = ListedColormap(discrete_colors)
+    norm = BoundaryNorm(boundaries=np.append(unique_values, unique_values[-1] + 1), ncolors=len(unique_values))
+
+    scatters = []
+    for i in range(len(generations)):
+        scat = axs[i].scatter(phi.flatten(), M.flatten(), c=bis[i].flatten(), norm=norm, cmap=cmap, zorder=1)
+        scatters.append(scat)
+        axs[i].plot(np.linspace(0, np.pi, 101), np.sin(np.linspace(0, np.pi, 101))*3*np.sqrt(3), c='k', ls=(0, (5, 1)), alpha=1., zorder=2)
+    for ax in axs.flatten():
+        ax.set_xlabel("$\\phi / \\pi$", fontsize=16)
+        ax.set_xticks([0., np.pi / 2, np.pi])
+        ax.set_xticklabels(['0', '$\\frac{1}{2}$', '1'], fontsize=16)
+        ax.set_yticks([0., 3*np.sqrt(3)])
+        ax.set_yticklabels(['0', '$3 \\sqrt{3}$'], fontsize=16)
+    axs[0].set_ylabel("M", fontsize=16, rotation=0)
+
+    phi_flat, M_flat = phi.flatten(), M.flatten()
+    in_region_mask = M_flat < np.sin(phi_flat)*3*np.sqrt(3)
+    number_in_region = np.sum(in_region_mask)
+
+
+    percentages = [np.sum(-bid*100/number_in_region) for bid in bi_data]
+    for i in range(len(generations)):
+        axs[i].set_title(f"Generation {generations[i]}")
+    print(percentages)
+
+
+    cbar = fig.colorbar(scatters[0], ax=axs[-1])
+    cbar.set_ticks(unique_values+0.5) # type: ignore
+    cbar.set_ticklabels([str(val) for val in unique_values], fontsize=16)
+    cbar.set_label("Bott Index", fontsize=16)
+
+    plt.tight_layout()
+    plt.savefig('./Hexaflake/Figures/generation_comparison.svg', bbox_inches='tight', transparent=True)
+
+    fig2, axs2 = plt.subplots(1, 2, figsize=(8, 4), sharey=True)
+    inv_gen = 1 / np.array(generations)
+    inv_n = 1 / np.array([6*7**gen for gen in generations])
+
+    axs2[0].set_ylim([0, 100])
+    axs2[0].set_xlim([0, 1])
+
+    axs2[0].scatter(inv_gen, percentages)
+    axs2[1].scatter(inv_n, percentages)
+
+    axs2[0].set_xlabel("1 / Generation", fontsize=16)
+    axs2[1].set_xlabel("1 / Number of Sites", fontsize=16)
+    axs2[0].set_ylabel("Percentage of Topological Phase", fontsize=16)
+    axs2[0].set_title("Percentage vs. 1/Generation", fontsize=16)
+    axs2[1].set_title("Percentage vs. 1/Number of Sites", fontsize=16)
+
+    from scipy.optimize import curve_fit
+
+    def linear_func(x, a, b):
+        return a * x + b
+    popt_gen, _ = curve_fit(linear_func, inv_gen, percentages)
+    
+    t = np.linspace(0, 1, 101)
+    axs2[0].plot(t, linear_func(t, *popt_gen), c='r', ls='--', label=f"Fit: {popt_gen[1]:.1f} + {popt_gen[0]:.1f} / gen")
+    axs2[0].legend()
+
+    plt.tight_layout()
+    plt.savefig('./Hexaflake/Figures/generation_extrapolation.svg', bbox_inches='tight', transparent=True)
+
+
+def haldane_diagram():
+    angles = (np.linspace(0, 2*np.pi, 7)[:-1] + np.pi/6) % (2*np.pi)
+
+    x = np.cos(angles)
+    y = np.sin(angles)
+
+    x = np.concatenate([x, x - 1, x + 1])
+    y = np.concatenate([y, y - 1.5, y - 1.5])
+
+    x *= 2 / np.sqrt(3)
+    y *= 2
+    x -= np.min(x)
+    y -= np.min(y)
+
+    x = np.round(x).astype(int)
+    y = np.round(y).astype(int)
+
+    sort_idxs = np.lexsort((y, x))
+    x = x[sort_idxs]
+    y = y[sort_idxs]
+
+    lattice = np.full((int(y.max() - y.min() + 1), int(x.max() - x.min() + 1)), 0, dtype=int)
+    lattice[y, x] = np.arange(len(x)) + 1
+
+    Y, X = np.where(lattice > 0)[:]
+    dx = X[:, None] - X[None, :]
+    dy = Y[:, None] - Y[None, :]
+    NN = (dx == 1) & (dy == 1) | (dx == -1) & (dy == 1) | (dx == 0) & (dy == 2)
+
+    sublattices = np.zeros(lattice.shape, dtype=int)
+    sublattices[::3, :] = lattice[::3, :]
+    sublattices[1::3, :] = -lattice[1::3, :]
+
+    Ay, Ax = np.where(sublattices > 0)
+    By, Bx = np.where(sublattices < 0)
+
+    Adx = Ax[:, None] - Ax[None, :]
+    Ady = Ay[:, None] - Ay[None, :]
+    Bdx = Bx[:, None] - Bx[None, :]
+    Bdy = By[:, None] - By[None, :]
+
+    B_NNN = ((Bdx == 1) & (Bdy == -3)) | ((Bdx == -2) & (Bdy == 0)) | ((Bdx == 1) & (Bdy == 3))
+    A_NNN = ((Adx == 2) & (Ady == 0)) | ((Adx == -1) & (Ady == -3)) | ((Adx == -1) & (Ady == 3))
+
+    # Rescale back to original coordinates for plotting
+    Ax = Ax.astype(float) * np.sqrt(3) / 2
+    Bx = Bx.astype(float) * np.sqrt(3) / 2
+    X = X.astype(float) * np.sqrt(3) / 2
+    Ay = Ay.astype(float) / 2
+    By = By.astype(float) / 2
+    Y = Y.astype(float) / 2
+
+    plt.scatter(Ax, Ay, c='red', zorder=0, s=100)
+    plt.scatter(Bx, By, c='blue', zorder=0, s=100)
+
+    # Hard coded removing hopping to make finite-size lattice look nicer.
+    A_NNN[2, 5] = False
+    A_NNN[6, 4] = False
+    A_NNN[1, 0] = False
+    A_NNN_idx = np.argwhere(A_NNN)
+
+
+    for j, i in A_NNN_idx:
+        plt.plot(Ax[[i, j]], Ay[[i, j]], c='black', ls='-', zorder=-2, lw=1)
+        plt.arrow(Ax[i], Ay[i], (Ax[j] - Ax[i]) / 2, (Ay[j] - Ay[i]) / 2, head_width=0.1, head_length=0.1, fc='black', ec='black', ls='-', zorder=-1, overhang=0., lw=1) # type: ignore
+
+    #for i in range(len(Ax)):
+    #    plt.text(Ax[i], Ay[i], f"A{i}", fontsize=8, ha='center', va='center', zorder=10, c='white')
+
+    B_NNN_idx = np.argwhere(B_NNN)
+    for j, i in B_NNN_idx:
+        plt.plot(Bx[[i, j]], By[[i, j]], c='black', ls='-', zorder=-2, lw=1)
+        plt.arrow(Bx[i], By[i], (Bx[j] - Bx[i]) / 2, (By[j] - By[i]) / 2, head_width=0.1, head_length=0.1, fc='black', ec='black', ls='-', zorder=-1, overhang=0., lw=1) # type: ignore
+
+    NN_idx = np.argwhere(NN)
+    for i, j in NN_idx:
+        plt.plot(X[[i, j]], Y[[i, j]], c='black', zorder=-1, ls='--')
+
+    plt.axis('equal')
+    plt.axis('off')
+    plt.savefig('./Hexaflake/Figures/Haldane_Diagram.svg', bbox_inches='tight', transparent=False)
+
+
+def gens_comparison_w1():
+    gs = [2, 3, 4]
+    data = {}
+
+    for g in gs:
+        with h5py.File(f"./Hexaflake/Data/site_elim_g{g}_(25_by_25).h5", 'r') as f:
+            data[g] = {k: v[:] for k, v in zip(f.keys(), f.values())}
+
+        with h5py.File(f"./Hexaflake/Data/site_elim_g{g}_(25_by_25)_w1.0.h5", 'r') as f:
+            data[(g, 'w1')] = {k: v[:] for k, v in zip(f.keys(), f.values())}
+
+        data[(g, 'w1')]['phi'] = data[g]['phi']
+        data[(g, 'w1')]['M'] = data[g]['M']
+
+        if g == 4:
+            good_values = np.argwhere(data[g]['phi'] >= np.pi / 2).flatten()
+            data[g]['phi'] = data[g]['phi'][good_values]
+            data[g]['M'] = data[g]['M'][good_values]
+            data[g]['bott_index'] = data[g]['bott_index'][good_values]
+
+    datas = [data[g] for g in gs] + [data[(g, 'w1')] for g in gs]
+    phis = [d['phi'] for d in datas]
+    Ms = [d['M'] for d in datas]
+    values = [d['bott_index'].flatten() if 'bott_index' in d else d['disorder'].flatten() for d in datas]
+    values = [np.round(val, 6) for val in values]
+    sums = [-np.nansum(val) for val in values]
+    amount_nonzero = [np.sum(val != 0) for val in values]
+    amount_minusone = [np.sum(val == -1) for val in values]
+    amount_zero = [np.sum(val == 0) for val in values]
+
+    nonzero_idxs = [np.argwhere(val != 0) for val in values]
+
+    print(phis[-1].shape)
+
+    half_phi = phis[-1][np.argwhere(phis[-1] >= np.pi / 2)]
+    half_M = Ms[-1][np.argwhere(phis[-1] >= np.pi / 2)]
+    disorder = values[-1]
+
+    idxs = np.argwhere(disorder < 0.0)[:]
+    print(len(idxs))
+    #plt.scatter(half_phi[idxs], half_M[idxs], c=values[-1][idxs], zorder=0)
+    ##plt.scatter(data[(4, 'w1')]['phi'], data[(4, 'w1')]['M'], c=values[-1], zorder=1)
+    #plt.show()
+    print(amount_minusone)
+    print(amount_nonzero)    
+    print(amount_zero)
+    print([len(val) for val in values])
+
+    #with h5py.File('./Hexaflake/Data/site_elim_g4_selected_points_for_w1.h5', 'w') as f:
+    #    f.create_dataset(name='phi', data=half_phi[idxs].flatten())
+    #    f.create_dataset(name='M', data=half_M[idxs].flatten())
+    #    f.create_dataset(name='bott_index', data=np.ones(idxs.shape).flatten())
