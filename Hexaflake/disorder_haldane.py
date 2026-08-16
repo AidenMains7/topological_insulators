@@ -131,6 +131,13 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
     chunk_files = []
     for chunk_idx, chunk in enumerate(job_chunks):
         chunk_filename = out_filename.replace('.h5', f'_temp_chunk_{chunk_idx}.h5')
+        if os.path.exists(chunk_filename) and not fileOverwrite:
+            print(f"Chunk already computed for W = {strength}, skipping {chunk_filename}")
+            chunk_files.append(chunk_filename)
+            continue
+        if os.path.exists(chunk_filename) and fileOverwrite:
+            os.remove(chunk_filename)
+
         if show_progress:
             print(f"Computing job chunk {chunk_idx + 1}/{len(job_chunks)} for W = {strength}")
             with tqdm_joblib(tqdm(total=len(chunk), desc=f"Job chunk {chunk_idx + 1}")) as progress_bar:
@@ -191,15 +198,182 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
         final_Ms = final_Ms[sort_idx]
         final_botts_all = final_botts_all[sort_idx]
 
-    final_botts_avg = np.nanmean(final_botts_all, axis=1)
+    def _safe_row_mean(row):
+        finite = np.isfinite(row)
+        if not np.any(finite):
+            return 0.0
+        return float(np.mean(row[finite]))
+
+    def _disorder_key(phi, M, precision=12):
+        return (round(float(phi), precision), round(float(M), precision))
+
+    def _reindex_disorder_data(target_phi_vals, target_M_vals, source_phi_vals, source_M_vals, source_botts_all, fill_value=0.0):
+        target_phi_vals = np.asarray(target_phi_vals).ravel()
+        target_M_vals = np.asarray(target_M_vals).ravel()
+        source_phi_vals = np.asarray(source_phi_vals).ravel()
+        source_M_vals = np.asarray(source_M_vals).ravel()
+        source_botts_all = np.asarray(source_botts_all)
+
+        if source_botts_all.ndim == 1:
+            source_botts_all = source_botts_all[:, None]
+
+        iterations_local = source_botts_all.shape[1] if source_botts_all.ndim > 1 else 1
+        full_botts_all = np.full((target_phi_vals.size, iterations_local), fill_value, dtype=float)
+        full_botts_avg = np.full(target_phi_vals.size, fill_value, dtype=float)
+
+        source_lookup = {
+            _disorder_key(phi, M): idx
+            for idx, (phi, M) in enumerate(zip(source_phi_vals, source_M_vals))
+        }
+
+        for idx, (phi, M) in enumerate(zip(target_phi_vals, target_M_vals)):
+            source_idx = source_lookup.get(_disorder_key(phi, M))
+            if source_idx is None:
+                continue
+
+            row = np.asarray(source_botts_all[source_idx], dtype=float).ravel()
+            if row.size < iterations_local:
+                padded_row = np.full(iterations_local, fill_value, dtype=float)
+                padded_row[:row.size] = row
+                row = padded_row
+            elif row.size > iterations_local:
+                row = row[:iterations_local]
+
+            full_botts_all[idx] = row
+            full_botts_avg[idx] = _safe_row_mean(row)
+
+        return full_botts_all, full_botts_avg
+
+    full_phis, full_Ms = np.asarray(phi_vals).ravel(), np.asarray(M_vals).ravel()
+    full_botts_all, final_botts_avg = _reindex_disorder_data(
+        full_phis,
+        full_Ms,
+        final_phis,
+        final_Ms,
+        final_botts_all,
+        fill_value=0.0,
+    )
 
     with h5py.File(out_filename, 'w') as f:
-        f.create_dataset(name='phi', data=final_phis)
-        f.create_dataset(name='M', data=final_Ms)
+        f.create_dataset(name='phi', data=full_phis)
+        f.create_dataset(name='M', data=full_Ms)
         f.create_dataset(name='disorder_all', data=final_botts_all)
         f.create_dataset(name='disorder', data=final_botts_avg)
 
     return out_filename
+
+
+def repair_disorder_file(disorder_filename, clean_filename=None, fileOverwrite=True, fill_value=0.0):
+    """Rewrite a disorder file so phi/M match the clean input grid.
+
+    Any grid points that are missing from the disorder file are filled with
+    `fill_value` in both `disorder` and `disorder_all`.
+    """
+    if clean_filename is None:
+        disorder_basename = os.path.basename(disorder_filename)
+        if '_w' in disorder_basename:
+            clean_filename = os.path.join(
+                os.path.dirname(disorder_filename),
+                disorder_basename.split('_w', 1)[0] + '.h5',
+            )
+        else:
+            raise ValueError("Could not infer the matching clean filename.")
+
+    if not os.path.exists(disorder_filename):
+        raise FileNotFoundError(disorder_filename)
+    if not os.path.exists(clean_filename):
+        raise FileNotFoundError(clean_filename)
+
+    with h5py.File(clean_filename, 'r') as f:
+        clean_phi = f['phi'][:]  # type: ignore
+        clean_M = f['M'][:]  # type: ignore
+
+    with h5py.File(disorder_filename, 'r') as f:
+        source_phi = f['phi'][:] if 'phi' in f else np.array([])  # type: ignore
+        source_M = f['M'][:] if 'M' in f else np.array([])  # type: ignore
+        if 'disorder_all' in f:
+            source_disorder_all = f['disorder_all'][:]  # type: ignore
+        elif 'disorder' in f:
+            source_disorder_all = f['disorder'][:]  # type: ignore
+        else:
+            source_disorder_all = np.array([])
+
+    def _safe_row_mean(row):
+        finite = np.isfinite(row)
+        if not np.any(finite):
+            return fill_value
+        return float(np.mean(row[finite]))
+
+    def _disorder_key(phi, M, precision=12):
+        return (round(float(phi), precision), round(float(M), precision))
+
+    def _reindex_disorder_data(target_phi_vals, target_M_vals, source_phi_vals, source_M_vals, source_botts_all):
+        target_phi_vals = np.asarray(target_phi_vals).ravel()
+        target_M_vals = np.asarray(target_M_vals).ravel()
+        source_phi_vals = np.asarray(source_phi_vals).ravel()
+        source_M_vals = np.asarray(source_M_vals).ravel()
+        source_botts_all = np.asarray(source_botts_all)
+
+        if source_botts_all.ndim == 1:
+            source_botts_all = source_botts_all[:, None]
+
+        iterations_local = source_botts_all.shape[1] if source_botts_all.ndim > 1 else 1
+        full_botts_all = np.full((target_phi_vals.size, iterations_local), fill_value, dtype=float)
+        full_botts_avg = np.full(target_phi_vals.size, fill_value, dtype=float)
+
+        source_lookup = {
+            _disorder_key(phi, M): idx
+            for idx, (phi, M) in enumerate(zip(source_phi_vals, source_M_vals))
+        }
+
+        for idx, (phi, M) in enumerate(zip(target_phi_vals, target_M_vals)):
+            source_idx = source_lookup.get(_disorder_key(phi, M))
+            if source_idx is None:
+                continue
+
+            row = np.asarray(source_botts_all[source_idx], dtype=float).ravel()
+            if row.size < iterations_local:
+                padded_row = np.full(iterations_local, fill_value, dtype=float)
+                padded_row[:row.size] = row
+                row = padded_row
+            elif row.size > iterations_local:
+                row = row[:iterations_local]
+
+            full_botts_all[idx] = row
+            full_botts_avg[idx] = _safe_row_mean(row)
+
+        return full_botts_all, full_botts_avg
+
+    full_botts_all, full_disorder = _reindex_disorder_data(
+        clean_phi,
+        clean_M,
+        source_phi,
+        source_M,
+        source_disorder_all,
+    )
+
+    if (not fileOverwrite) and os.path.exists(disorder_filename):
+        return disorder_filename
+
+    with h5py.File(disorder_filename, 'w') as f:
+        f.create_dataset(name='phi', data=np.asarray(clean_phi).ravel())
+        f.create_dataset(name='M', data=np.asarray(clean_M).ravel())
+        f.create_dataset(name='disorder_all', data=full_botts_all)
+        f.create_dataset(name='disorder', data=full_disorder)
+
+    return disorder_filename
+
+
+def repair_disorder_files(directory='.', recursive=True, fileOverwrite=True):
+    """Repair all disorder files in a directory tree."""
+    pattern = os.path.join(directory, '**', '*_w*.h5') if recursive else os.path.join(directory, '*_w*.h5')
+    repaired_files = []
+    for disorder_file in glob.glob(pattern, recursive=recursive):
+        try:
+            repaired_files.append(repair_disorder_file(disorder_file, fileOverwrite=fileOverwrite))
+        except Exception as e:
+            print(f"Error repairing {disorder_file}: {e}")
+    return repaired_files
 
 
 # endregion
@@ -217,21 +391,27 @@ def plot_phase_diagram(fig, ax,
                        plotColorbar=True,
                        plotFull:bool = False):
 
+
     X_range = [np.min(X_values), np.max(X_values)]
     Y_range = [np.min(Y_values), np.max(Y_values)]
     extent = [X_range[0], X_range[1], Y_range[0], Y_range[1]]
     extent = [0., np.pi, 0., 5.5]
 
-    if np.ndim(Z_values) != 2 or Z_values.shape != (len(np.unique(Y_values)), len(np.unique(X_values))):
-        l = np.sqrt(Z_values.size)
-        if np.isclose(int(l) - l, 0.):
-            Z_values = Z_values.reshape(int(l), int(l)).T
-        else: 
-            Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values))).T
+    try:
+        if np.ndim(Z_values) != 2 or Z_values.shape != (len(np.unique(Y_values)), len(np.unique(X_values))):
+            l = np.sqrt(Z_values.size)
+            if np.isclose(int(l) - l, 0.):
+                Z_values = Z_values.reshape(int(l), int(l)).T
+            else: 
+                Z_values = Z_values.reshape(len(np.unique(Y_values)), len(np.unique(X_values))).T
+    except:
+        pass
 
-    im = ax.imshow(Z_values, extent=extent, 
-                   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
-                   rasterized=True, norm=norm)
+    #im = ax.imshow(Z_values, extent=extent, 
+    #               origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+    #               rasterized=True, norm=norm)
+    im = ax.scatter(X_values, Y_values, c=Z_values, cmap=cmap, rasterized=True, norm=norm)
+    
     if plotFull:
         im2 = ax.imshow(np.flipud(Z_values), extent=[X_range[0], X_range[1], -Y_range[1], Y_range[0]], 
                     origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
@@ -413,7 +593,7 @@ def make_large_figure(generation:int, dimensions:tuple, methods:list, disorder_s
     tick_dict = {'X_ticks': X_ticks, 'X_tick_labels': X_tick_labels, 'Y_ticks': Y_ticks, 'Y_tick_labels': Y_tick_labels}
 
     global_min, global_max = global_bounds(clean_bott_data+disorder_bott_data)
-    if plotFull:
+    if plotFull: 
         norm = plt.Normalize(vmin=min(global_min, -1.0), vmax=max(global_max, 1.0)) # type: ignore
     else:
         norm = plt.Normalize(vmin=-1.0, vmax=0.0) # type: ignore
@@ -561,9 +741,9 @@ def main(generation, iterations, compute_methods, compute_these_disorder_strengt
     plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
     titles = ["Pristine", "Renormalization 1", "Renormalization 2", "Site Elimination"]
     res = (25, 25)
-    if do_compute:
-        compute_many_phase_diagrams(generation, compute_these_disorder_strengths, compute_methods, res, 
-                                    iterations=iterations, n_jobs=-2, directory="./Hexaflake/Data/New/", doHalf=True)
+    #if do_compute:
+    #    compute_many_phase_diagrams(generation, compute_these_disorder_strengths, compute_methods, res, 
+    #                                iterations=iterations, n_jobs=-2, directory="./Hexaflake/Data/New/", doHalf=True)
     if do_plot:
         make_large_figure(generation, res, plot_methods, 
                         disorder_strengths = compute_these_disorder_strengths,
@@ -577,25 +757,25 @@ def main(generation, iterations, compute_methods, compute_these_disorder_strengt
 
 
 if __name__ == "__main__":    
-    main(3, 25, ["hexagon"], [7.5, 10.0, 12.5])
+    #main(3, 25, ["hexagon"], [7.5, 10.0, 12.5])
     main(3, 50, ["renorm1"], [1.0, 5.0, 7.5, 10.0, 12.5])
 
     def plot_dirty_file_contents(fname):
         try:
             with h5py.File(fname, 'r') as f:
-                p = f["phi"][()]
-                m = f["M"][()]
-                d = f["disorder"][()]
+                p = f["phi"][()] # type: ignore
+                m = f["M"][()] # type: ignore
+                d = f["disorder"][()] # type: ignore
         except KeyError:
             with h5py.File(fname, 'r') as f:
-                d = f["disorder"][()].flatten()
+                d = f["disorder"][()].flatten() # type: ignore
             p, m = None, None
         return p, m, d
 
     def plot_clean_file_contents(fname):
         with h5py.File(fname, 'r') as f:
-            phi = f["phi"][()]
-            m = f["M"][()]
-            bott = f["bott_index"][()]
-        plt.scatter(phi, m, c=bott)
+            phi = f["phi"][()] # type: ignore
+            m = f["M"][()] # type: ignore
+            bott = f["bott_index"][()] # type: ignore
+        plt.scatter(phi, m, c=bott) # type: ignore
         plt.show()
