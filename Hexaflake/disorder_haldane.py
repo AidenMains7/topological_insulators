@@ -181,7 +181,76 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
     final_Ms = np.concatenate(all_Ms)
     final_botts_all = np.concatenate(all_botts_all, axis=0)
 
-    if doHalf: 
+    def _safe_row_mean(row):
+        finite = np.isfinite(row)
+        if not np.any(finite):
+            return 0.0
+        return float(np.mean(row[finite]))
+
+    def _disorder_key(phi, M, precision=12):
+        return (round(float(phi), precision), round(float(M), precision))
+
+    def _build_disorder_rows(source_phi_vals, source_M_vals, source_botts_all, iterations_local, fill_value=0.0):
+        source_phi_vals = np.asarray(source_phi_vals).ravel()
+        source_M_vals = np.asarray(source_M_vals).ravel()
+        source_botts_all = np.asarray(source_botts_all, dtype=float)
+
+        if source_botts_all.ndim == 1:
+            source_botts_all = source_botts_all[:, None]
+
+        grouped_rows = {}
+        for idx, (phi, M) in enumerate(zip(source_phi_vals, source_M_vals)):
+            key = _disorder_key(phi, M)
+            row = np.asarray(source_botts_all[idx], dtype=float).ravel()
+            if key not in grouped_rows:
+                grouped_rows[key] = np.full(iterations_local, fill_value, dtype=float)
+            if row.size == 0:
+                continue
+
+            finite_indices = np.flatnonzero(np.isfinite(row))
+            if finite_indices.size == 0:
+                continue
+
+            disorder_index = int(finite_indices[0])
+            if disorder_index < iterations_local:
+                grouped_rows[key][disorder_index] = float(row[disorder_index])
+
+        return grouped_rows
+
+    def _reindex_disorder_data(target_phi_vals, target_M_vals, source_phi_vals, source_M_vals, source_botts_all, fill_value=0.0):
+        target_phi_vals = np.asarray(target_phi_vals).ravel()
+        target_M_vals = np.asarray(target_M_vals).ravel()
+        source_phi_vals = np.asarray(source_phi_vals).ravel()
+        source_M_vals = np.asarray(source_M_vals).ravel()
+        source_botts_all = np.asarray(source_botts_all)
+
+        if source_botts_all.ndim == 1:
+            source_botts_all = source_botts_all[:, None]
+
+        iterations_local = source_botts_all.shape[1] if source_botts_all.ndim > 1 else 1
+        full_botts_all = np.full((target_phi_vals.size, iterations_local), fill_value, dtype=float)
+        full_botts_avg = np.full(target_phi_vals.size, fill_value, dtype=float)
+
+        source_lookup = _build_disorder_rows(
+            source_phi_vals,
+            source_M_vals,
+            source_botts_all,
+            iterations_local,
+            fill_value=fill_value,
+        )
+
+        for idx, (phi, M) in enumerate(zip(target_phi_vals, target_M_vals)):
+            row = source_lookup.get(_disorder_key(phi, M))
+            if row is None:
+                continue
+
+            full_botts_all[idx] = row
+            full_botts_avg[idx] = _safe_row_mean(row)
+
+        return full_botts_all, full_botts_avg
+
+    full_phis, full_Ms = np.asarray(phi_vals).ravel(), np.asarray(M_vals).ravel()
+    if doHalf:
         mirrored_phis = np.pi - final_phis
         mirrored_Ms = final_Ms.copy()
         mirrored_botts_all = final_botts_all.copy()
@@ -198,53 +267,6 @@ def compute_disorder(in_filename, method, generation, strength, iterations=100, 
         final_Ms = final_Ms[sort_idx]
         final_botts_all = final_botts_all[sort_idx]
 
-    def _safe_row_mean(row):
-        finite = np.isfinite(row)
-        if not np.any(finite):
-            return 0.0
-        return float(np.mean(row[finite]))
-
-    def _disorder_key(phi, M, precision=12):
-        return (round(float(phi), precision), round(float(M), precision))
-
-    def _reindex_disorder_data(target_phi_vals, target_M_vals, source_phi_vals, source_M_vals, source_botts_all, fill_value=0.0):
-        target_phi_vals = np.asarray(target_phi_vals).ravel()
-        target_M_vals = np.asarray(target_M_vals).ravel()
-        source_phi_vals = np.asarray(source_phi_vals).ravel()
-        source_M_vals = np.asarray(source_M_vals).ravel()
-        source_botts_all = np.asarray(source_botts_all)
-
-        if source_botts_all.ndim == 1:
-            source_botts_all = source_botts_all[:, None]
-
-        iterations_local = source_botts_all.shape[1] if source_botts_all.ndim > 1 else 1
-        full_botts_all = np.full((target_phi_vals.size, iterations_local), fill_value, dtype=float)
-        full_botts_avg = np.full(target_phi_vals.size, fill_value, dtype=float)
-
-        source_lookup = {
-            _disorder_key(phi, M): idx
-            for idx, (phi, M) in enumerate(zip(source_phi_vals, source_M_vals))
-        }
-
-        for idx, (phi, M) in enumerate(zip(target_phi_vals, target_M_vals)):
-            source_idx = source_lookup.get(_disorder_key(phi, M))
-            if source_idx is None:
-                continue
-
-            row = np.asarray(source_botts_all[source_idx], dtype=float).ravel()
-            if row.size < iterations_local:
-                padded_row = np.full(iterations_local, fill_value, dtype=float)
-                padded_row[:row.size] = row
-                row = padded_row
-            elif row.size > iterations_local:
-                row = row[:iterations_local]
-
-            full_botts_all[idx] = row
-            full_botts_avg[idx] = _safe_row_mean(row)
-
-        return full_botts_all, full_botts_avg
-
-    full_phis, full_Ms = np.asarray(phi_vals).ravel(), np.asarray(M_vals).ravel()
     full_botts_all, final_botts_avg = _reindex_disorder_data(
         full_phis,
         full_Ms,
@@ -307,6 +329,29 @@ def repair_disorder_file(disorder_filename, clean_filename=None, fileOverwrite=T
     def _disorder_key(phi, M, precision=12):
         return (round(float(phi), precision), round(float(M), precision))
 
+    def _build_disorder_rows(source_phi_vals, source_M_vals, source_botts_all, iterations_local, fill_value=0.0):
+        source_phi_vals = np.asarray(source_phi_vals).ravel()
+        source_M_vals = np.asarray(source_M_vals).ravel()
+        source_botts_all = np.asarray(source_botts_all, dtype=float)
+
+        if source_botts_all.ndim == 1:
+            source_botts_all = source_botts_all[:, None]
+
+        grouped_rows = {}
+        for idx, (phi, M) in enumerate(zip(source_phi_vals, source_M_vals)):
+            key = _disorder_key(phi, M)
+            row = np.asarray(source_botts_all[idx], dtype=float).ravel()
+            if key not in grouped_rows:
+                grouped_rows[key] = np.full(iterations_local, fill_value, dtype=float)
+            finite_indices = np.flatnonzero(np.isfinite(row))
+            if finite_indices.size == 0:
+                continue
+            disorder_index = int(finite_indices[0])
+            if disorder_index < iterations_local:
+                grouped_rows[key][disorder_index] = float(row[disorder_index])
+
+        return grouped_rows
+
     def _reindex_disorder_data(target_phi_vals, target_M_vals, source_phi_vals, source_M_vals, source_botts_all):
         target_phi_vals = np.asarray(target_phi_vals).ravel()
         target_M_vals = np.asarray(target_M_vals).ravel()
@@ -321,23 +366,18 @@ def repair_disorder_file(disorder_filename, clean_filename=None, fileOverwrite=T
         full_botts_all = np.full((target_phi_vals.size, iterations_local), fill_value, dtype=float)
         full_botts_avg = np.full(target_phi_vals.size, fill_value, dtype=float)
 
-        source_lookup = {
-            _disorder_key(phi, M): idx
-            for idx, (phi, M) in enumerate(zip(source_phi_vals, source_M_vals))
-        }
+        source_lookup = _build_disorder_rows(
+            source_phi_vals,
+            source_M_vals,
+            source_botts_all,
+            iterations_local,
+            fill_value=fill_value,
+        )
 
         for idx, (phi, M) in enumerate(zip(target_phi_vals, target_M_vals)):
-            source_idx = source_lookup.get(_disorder_key(phi, M))
-            if source_idx is None:
+            row = source_lookup.get(_disorder_key(phi, M))
+            if row is None:
                 continue
-
-            row = np.asarray(source_botts_all[source_idx], dtype=float).ravel()
-            if row.size < iterations_local:
-                padded_row = np.full(iterations_local, fill_value, dtype=float)
-                padded_row[:row.size] = row
-                row = padded_row
-            elif row.size > iterations_local:
-                row = row[:iterations_local]
 
             full_botts_all[idx] = row
             full_botts_avg[idx] = _safe_row_mean(row)
@@ -407,10 +447,10 @@ def plot_phase_diagram(fig, ax,
     except:
         pass
 
-    #im = ax.imshow(Z_values, extent=extent, 
-    #               origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
-    #               rasterized=True, norm=norm)
-    im = ax.scatter(X_values, Y_values, c=Z_values, cmap=cmap, rasterized=True, norm=norm)
+    im = ax.imshow(Z_values, extent=extent, 
+                   origin='lower', aspect='auto', cmap=cmap, interpolation='none', 
+                   rasterized=True, norm=norm)
+    #im = ax.scatter(X_values, Y_values, c=Z_values, cmap=cmap, rasterized=True, norm=norm)
     
     if plotFull:
         im2 = ax.imshow(np.flipud(Z_values), extent=[X_range[0], X_range[1], -Y_range[1], Y_range[0]], 
@@ -741,9 +781,9 @@ def main(generation, iterations, compute_methods, compute_these_disorder_strengt
     plot_methods = ['hexagon', 'renorm1', 'renorm2', 'site_elim']
     titles = ["Pristine", "Renormalization 1", "Renormalization 2", "Site Elimination"]
     res = (25, 25)
-    #if do_compute:
-    #    compute_many_phase_diagrams(generation, compute_these_disorder_strengths, compute_methods, res, 
-    #                                iterations=iterations, n_jobs=-2, directory="./Hexaflake/Data/New/", doHalf=True)
+    if do_compute:
+        compute_many_phase_diagrams(generation, compute_these_disorder_strengths, compute_methods, res, 
+                                    iterations=iterations, n_jobs=-2, directory="./Hexaflake/Data/New/", doHalf=True)
     if do_plot:
         make_large_figure(generation, res, plot_methods, 
                         disorder_strengths = compute_these_disorder_strengths,
@@ -757,25 +797,61 @@ def main(generation, iterations, compute_methods, compute_these_disorder_strengt
 
 
 if __name__ == "__main__":    
+    #main(3, 25, [], [1., 5., 7.5, 10., 12.5], False)
+    #main(3, 50, ["renorm1"], [1.0])
     #main(3, 25, ["hexagon"], [7.5, 10.0, 12.5])
-    main(3, 50, ["renorm1"], [1.0, 5.0, 7.5, 10.0, 12.5])
+#
+    #def plot_dirty_file_contents(fname):
+    #    try:
+    #        with h5py.File(fname, 'r') as f:
+    #            p = f["phi"][()] # type: ignore
+    #            m = f["M"][()] # type: ignore
+    #            d = f["disorder"][()] # type: ignore
+    #    except KeyError:
+    #        with h5py.File(fname, 'r') as f:
+    #            d = f["disorder"][()].flatten() # type: ignore
+    #        p, m = None, None
+    #    return p, m, d
+#
+    #def plot_clean_file_contents(fname):
+    #    with h5py.File(fname, 'r') as f:
+    #        phi = f["phi"][()] # type: ignore
+    #        m = f["M"][()] # type: ignore
+    #        bott = f["bott_index"][()] # type: ignore
+    #    plt.scatter(phi, m, c=bott) # type: ignore
+    #    plt.show()
 
-    def plot_dirty_file_contents(fname):
-        try:
-            with h5py.File(fname, 'r') as f:
-                p = f["phi"][()] # type: ignore
-                m = f["M"][()] # type: ignore
-                d = f["disorder"][()] # type: ignore
-        except KeyError:
-            with h5py.File(fname, 'r') as f:
-                d = f["disorder"][()].flatten() # type: ignore
-            p, m = None, None
-        return p, m, d
+    #for w in [7.5, 10.0, 12.5]:
+    #    repair_disorder_file(f'./Hexaflake/Data/Generation 3/hexagon_g3_(25_by_25)_w{w}.h5')
 
-    def plot_clean_file_contents(fname):
-        with h5py.File(fname, 'r') as f:
+    #with h5py.File('./Hexaflake/Data/Generation 2/renorm1_g2_(25_by_25)_w1.1.h5', 'r') as f:
+    #    p = f['phi'][()]
+    #    m = f['M'][()]
+    #    d = f["disorder"][()]
+    #    dall = f["disorder_all"][()]
+    #print(d.shape)
+    #plt.imshow(dall)
+    #plt.show()
+
+    for w in [7.5, 10.0, 12.5]:
+        file1 = f"./Hexaflake/Data/Generation 3/hexagon_g3_(25_by_25)_w{w}.h5"
+        file2 = file1.replace(".h5", "_i25.h5")
+
+        with h5py.File(file1, 'r') as f:
             phi = f["phi"][()] # type: ignore
-            m = f["M"][()] # type: ignore
-            bott = f["bott_index"][()] # type: ignore
-        plt.scatter(phi, m, c=bott) # type: ignore
-        plt.show()
+            M = f["M"][()] # type: ignore
+            d1 = f["disorder"][()] # type: ignore
+            d_all = f["disorder_all"][()] # type: ignore
+        with h5py.File(file2, 'r') as f:
+            compute_idxs = f["computed_idxs"][()] # type: ignore
+            d2 = f["disorder"][()].flatten() # type: ignore
+
+        with h5py.File(file1.replace(".h5", "_i50.h5"), "w") as f:
+            f.create_dataset(name="phi", data=phi)
+            f.create_dataset(name="M", data=M)
+            f.create_dataset(name="disorder", data=(d1 + d2)/2)
+            f.create_dataset(name="disorder_all", data=d_all)
+
+        
+
+        
