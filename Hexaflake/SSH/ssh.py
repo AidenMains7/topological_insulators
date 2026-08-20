@@ -29,37 +29,36 @@ def compute_eigvals(H):
     return eigvals, eigvectors
 
 
-def compute_topological_marker(L, dt, t):
+def compute_topological_marker(hamiltonian):
     # C_1D = N_D W [QxP + PxQ]
 
-    H = compute_hamiltonian(L, dt, t)
-    eigvals, eigvectors = compute_eigvals(H)
+    eigenvalues, eigenvectors = compute_eigvals(hamiltonian)
 
-    n = len(eigvals)
+    n = len(eigenvalues)
     empty_idxs =  np.arange(n)[:n // 2]
     filled_idxs = np.arange(n)[n // 2:]
 
-    P = np.zeros(H.shape, dtype=H.dtype)
-    Q = np.zeros(H.shape, dtype=H.dtype)
+    P = np.zeros(eigenvectors.shape, dtype=eigenvectors.dtype)
+    Q = np.zeros(eigenvectors.shape, dtype=eigenvectors.dtype)
 
     for i in filled_idxs:
-        vec = eigvectors[:, i]
+        vec = eigenvectors[:, i]
         P += np.outer(vec, vec.conj())
 
     for i in empty_idxs:
-        vec = eigvectors[:, i]
+        vec = eigenvectors[:, i]
         Q += np.outer(vec, vec.conj())
 
     pauli_z = np.array([[1.0 + 0.0j, 0.0 + 0.0j], [0.0 + 0.0j, -1.0 + 0.0j]])
-    W = np.kron(np.eye(L), pauli_z)
+    W = np.kron(np.eye(eigenvectors.shape[0] // 2), pauli_z)
 
-    X = np.diag(np.repeat(np.arange(H.shape[0] // 2, dtype=H.dtype), 2))
+    X = np.diag(np.repeat(np.arange(eigenvectors.shape[0] // 2, dtype=eigenvectors.dtype), 2))
 
     N_D = 1.
     alpha = Q @ X @ P
     C = (N_D * W @ (alpha + alpha.conj().T)).real
 
-    return C, eigvals, eigvectors
+    return C, eigenvalues, eigenvectors
 
 
 def make_figure_layout():
@@ -93,5 +92,3 @@ if __name__ == "__main__":
     axs[0].set_xticks(np.arange(0, L+1, 5))
     axs[0].set_ylabel("$C(\\mathbf {r})$", fontsize=16)
     axs[0].set_xlabel("$\\mathbf {r}$", fontsize=16)
-
-    plt.savefig('./Hexaflake/fig4a.png')

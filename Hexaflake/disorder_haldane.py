@@ -797,7 +797,7 @@ def main(generation, iterations, compute_methods, compute_these_disorder_strengt
 
 
 if __name__ == "__main__":    
-    #main(3, 25, [], [1., 5., 7.5, 10., 12.5], False)
+    main(3, 50, [], [1., 5., 7.5, 10., 12.5], False)
     #main(3, 50, ["renorm1"], [1.0])
     #main(3, 25, ["hexagon"], [7.5, 10.0, 12.5])
 #
@@ -832,26 +832,4 @@ if __name__ == "__main__":
     #print(d.shape)
     #plt.imshow(dall)
     #plt.show()
-
-    for w in [7.5, 10.0, 12.5]:
-        file1 = f"./Hexaflake/Data/Generation 3/hexagon_g3_(25_by_25)_w{w}.h5"
-        file2 = file1.replace(".h5", "_i25.h5")
-
-        with h5py.File(file1, 'r') as f:
-            phi = f["phi"][()] # type: ignore
-            M = f["M"][()] # type: ignore
-            d1 = f["disorder"][()] # type: ignore
-            d_all = f["disorder_all"][()] # type: ignore
-        with h5py.File(file2, 'r') as f:
-            compute_idxs = f["computed_idxs"][()] # type: ignore
-            d2 = f["disorder"][()].flatten() # type: ignore
-
-        with h5py.File(file1.replace(".h5", "_i50.h5"), "w") as f:
-            f.create_dataset(name="phi", data=phi)
-            f.create_dataset(name="M", data=M)
-            f.create_dataset(name="disorder", data=(d1 + d2)/2)
-            f.create_dataset(name="disorder_all", data=d_all)
-
-        
-
         
