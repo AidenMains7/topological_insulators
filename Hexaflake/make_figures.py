@@ -3,7 +3,7 @@ from matplotlib import pyplot as plt
 import h5py
 from typing import cast
 from scipy.optimize import curve_fit
-
+from HaldaneModel import compute_geometric_data, compute_hamiltonian
 
 def get_numbers(phi, M, bis, disorder, tol=1e-6, plot_disorder=False):
     bis = np.round(bis.flatten(), int(-np.log10(tol)))
@@ -88,6 +88,7 @@ def get_values_from_file(generation: int):
 
     return get_numbers(*unique.T), unique
 
+
 def compare_generations(generations = np.array([2, 3, 4])):
     """
     We assume that the data files for all generations lies on the same grid of phi and M values. 
@@ -115,11 +116,21 @@ def compare_generations(generations = np.array([2, 3, 4])):
     print("Ratio of Ratios (Pristine / Disorder):", ratio_ratios)
 
     n_sites = 6 * (7 ** np.array(generations))
-    plt.scatter(1 / n_sites, pristine_ratios, label="Pristine Ratios", color='blue')
-    plt.scatter(1 / n_sites, disorder_ratios, label="Disorder Ratios", color='red')
+    x = 1/n_sites * 1e3
+    plt.scatter(x, pristine_ratios, label="Pristine Ratios", color='blue')
+    plt.scatter(x, disorder_ratios, label="Disorder Ratios", color='red')
+    plt.ylim(0.0, 1.0)
+    plt.xticks([0., 1.2, 2.4, 3.6])
+    plt.xlim(0., 3.6)
+    plt.yticks([0., 0.25, 0.5, 0.75, 1.])
     plt.xlabel("1/N")
     plt.ylabel("Ratios")
-    plt.xscale('log')
+
+    ax = plt.gca()
+    for spine in ax.spines.values():
+        spine.set_linewidth(2.)
+    ax.tick_params(width=2.)
+    #plt.xscale('log')
     plt.legend()
     plt.savefig('./Hexaflake/Figures/percentage_comparison.svg')
     plt.close()
@@ -163,7 +174,7 @@ def compare_generations(generations = np.array([2, 3, 4])):
             arr[np.isnan(arr)] = 0.0
             #plot = axs[i, j].scatter(phi, M, c=arr, vmin=vmin, vmax=vmax)
             Z = arr.reshape(25, 25).T
-            plot = axs[i, j].imshow(Z, vmin=vmin, vmax=vmax, cmap='viridis', origin='lower', aspect='auto',
+            plot = axs[i, j].imshow(Z, vmin=vmin, vmax=vmax, cmap='Greys_r', origin='lower', aspect='auto',
                                     extent=(0., np.pi, 0., 3 * np.sqrt(3)))
 
             axs[i, j].set_xticks([0., np.pi/2, np.pi])
@@ -180,9 +191,20 @@ def compare_generations(generations = np.array([2, 3, 4])):
                 fontsize=24
             )
 
+            for spine in axs[i, j].spines.values():
+                spine.set_linewidth(3.0)
+
+            axs[i, j].tick_params(width=3.0, length=5.0)
+
     cbar = fig.colorbar(plot, ax=axs, location='right')
+    cbar.set_ticks([-1., -0.5, 0.])
+    cbar.ax.tick_params(length=5.0, width=3.0)
+    for spine in cbar.ax.spines.values():
+        spine.set_linewidth(3.)
+
+    
     plt.savefig("./Hexaflake/Figures/generation_comparison.svg")
-    plt.close()    
+    plt.show()    
 
     plt.imshow((disorders[:, -1].reshape(25, 25).T), vmin=-1., vmax=0., cmap='jet',
                 origin = 'lower', aspect='auto', extent=(0, np.pi, 0, 3 * np.sqrt(3)))
@@ -192,7 +214,8 @@ def compare_generations(generations = np.array([2, 3, 4])):
     plt.xticks([0, np.pi/2, np.pi])
     plt.yticks([0, 3 * np.sqrt(3)])
     plt.savefig("./Hexaflake/Figures/g4_w1.svg")
-    plt.show()
+    plt.close()
+
 
 def f_asymptotic_exp(x: np.ndarray, a: float, b: float):
     """Returns `f(x) = a - (a + 1) * np.exp(-b * x)`, which is an asymptotic exponential function that approaches `a` as `x` increases."""
@@ -249,7 +272,74 @@ def plot_iterations():
     plt.show()
 
 
+def make_haldane_ldos(generation):
+
+    fig, axs = plt.subplots(2, 2, sharex=True, sharey=True, layout='constrained')
+
+    # (a) two closest to zero energy modes on honeycomb w OBC
+    # (b) two closest to zero energy modes on corresponding hexaflake (renorm) w OBC
+    # (c) two closest to zero energy modes on hexaflake (site elim) w OBC
+    # (d) two closest to zero energy modes on hexaflake (site elim) w PBC
+
+    g_data_obc = compute_geometric_data(generation, False)
+    g_data_pbc = compute_geometric_data(generation, True)
+
+    H_a = compute_hamiltonian("hexagon", 3 * np.sqrt(3) / 2, np.pi / 2, 1., 1., g_data_obc)
+    H_b = compute_hamiltonian("renorm1", 3 * np.sqrt(3) / 2, np.pi / 2, 1., 1., g_data_obc)
+    H_c = compute_hamiltonian("site_elim", 3 * np.sqrt(3) / 2, np.pi / 2, 1., 1., g_data_obc)
+    H_d = compute_hamiltonian("site_elim", 3 * np.sqrt(3) / 2, np.pi / 2, 1., 1., g_data_pbc)
+
+    def get_closest_to_zero_eigvectors(H, n=2):
+        eigvals, eigvecs = np.linalg.eigh(H)
+        idxs = np.argsort(np.abs(eigvals))
+        evs = eigvecs[:, idxs[:n]]
+        ldos = np.sum(np.abs(evs) ** 2, axis=1)
+        return eigvals[idxs[:n]], ldos
+
+    eigvals_a, eigvecs_a = get_closest_to_zero_eigvectors(H_a)
+    eigvals_b, eigvecs_b = get_closest_to_zero_eigvectors(H_b)
+    eigvals_c, eigvecs_c = get_closest_to_zero_eigvectors(H_c)
+    eigvals_d, eigvecs_d = get_closest_to_zero_eigvectors(H_d)
+
+    eigvals = [eigvals_a, eigvals_b, eigvals_c, eigvals_d]
+    for lab, eigvals in zip(["(a)", "(b)", "(c)", "(d)"], eigvals):
+        print(f"{lab} Eigenvalues closest to zero: {eigvals}")
+
+    x, y = g_data_obc["x"], g_data_obc["y"]
+    x -= np.min(x)
+    y -= np.min(y)
+    hexaflake_mask = g_data_obc["hexaflake"]
+
+    ldoses = [eigvecs_a, eigvecs_b, eigvecs_c, eigvecs_d]
+    ldoses = [ld - np.min(ld) for ld in ldoses]
+    ldoses = [ld / np.max(ld) for ld in ldoses]
+
+    xticks = [0, np.max(x)]
+    yticks = [0, np.max(y)]
+
+    for i, (ax, ldos) in enumerate(zip(axs.flatten(), ldoses)):
+        if i == 0:
+            #plot = ax.scatter(x, y, c=ldos, cmap='inferno', s=50, vmin=0., vmax=1.)
+            plot = ax.scatter(x, y, c=ldos, cmap='Greys', vmin=0., vmax=1., s=2.25)
+        else:
+            plot = ax.scatter(x[hexaflake_mask], y[hexaflake_mask], c=ldos, cmap='Greys', vmin=0., vmax=1., s=2.25)
+        ax.set_aspect('equal')
+        ax.set_xticks(xticks)
+        ax.set_yticks(yticks)
+        ax.set_xticklabels([str(int(t + 1)) for t in xticks])
+        ax.set_yticklabels([str(int(t + 1)) for t in yticks])
+        cbar = plt.colorbar(plot, ax=ax)
+        
+    for ax in fig.axes:
+        ax.tick_params(width=1.5)
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.5)
+
+    plt.savefig("./Figures/haldane_ldos.svg", bbox_inches='tight', transparent=False)
+    #plt.show()
 
 if __name__ == "__main__":
     compare_generations(generations=np.array([2, 3, 4]))
     #plot_iterations()
+
+    #make_haldane_ldos(3)

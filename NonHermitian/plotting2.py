@@ -20,6 +20,8 @@ from nonhermitian_defects import DefectLattice, compute_eigenvectors_eigenvalues
 
 # region Saving and Reading Data
 def save_ipr_data(Ls:list[int], eig_dicts:list[dict], fname:str, directory:str = "./NonHermitian/Data/"):
+    if not os.path.exists(directory):
+        os.makedirs(directory)
     with h5py.File(directory + fname, "w") as f:
         f.create_dataset(name="Ls", data=Ls)
         for L, ed in zip(Ls, eig_dicts):
@@ -69,8 +71,8 @@ def get_selected_modes(eig_dict, n_idxs, Lattice:DefectLattice):
   
 
 def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:str = "./NonHermitian/Data/", **kwargs):
-    file1 = directory + f"{method}_ipr_data_h{hdir}=0.5.h5"
-    file2 = directory + f"{method}_ipr_data_h{hdir}=1.5.h5"
+    file1 = f"{method}_ipr_data_h{hdir}=0.5.h5"
+    file2 = f"{method}_ipr_data_h{hdir}=1.5.h5"
 
     if method in ["substitution", "interstitial"]:
         n_defects = 1
@@ -89,8 +91,8 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
     
     if all([os.path.exists(file) for file in [file1, file2]]):
         print(f"IPR data files already exist for method {method} and hdir {hdir}.")
-        new_Ls1, data1 = read_ipr_data(file1, "")
-        new_Ls2, data2 = read_ipr_data(file2, "")
+        new_Ls1, data1 = read_ipr_data(file1, directory)
+        new_Ls2, data2 = read_ipr_data(file2, directory)
         assert new_Ls1 == new_Ls2, "Mismatch in Ls between the two IPR data files."
         data1 = [get_selected_modes(ed, n_idxs, l) for ed, l in zip(data1, lattices)]
         data2 = [get_selected_modes(ed, n_idxs, l) for ed, l in zip(data2, lattices)]
@@ -110,8 +112,8 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
     print("Computed eigenvectors and eigenvalues for (v1, v2).")
     ed2s = [compute_eigenvectors_eigenvalues(Lattice, -1.0, v2, v1, n_idxs) for Lattice in lattices]
     print("Computed eigenvectors and eigenvalues for (v2, v1).")
-    save_ipr_data(Ls, ed1s, file1, "")
-    save_ipr_data(Ls, ed2s, file2, "")
+    save_ipr_data(Ls, ed1s, file1, "./NonHermitian/Data/")
+    save_ipr_data(Ls, ed2s, file2, "./NonHermitian/Data/")
     return Ls, ed1s, ed2s, lattices[-1]
 
 # endregion

@@ -14,6 +14,9 @@ from itertools import product
 from cProfile import Profile
 import pstats
 import functools
+import h5py
+from tqdm_joblib import tqdm_joblib, tqdm
+from joblib import Parallel, delayed
 
 
 def profile(func):
@@ -35,7 +38,7 @@ class DefectLattice:
     def __init__(self, Lx:int, Ly:int, defect_type:str, pbc:bool, defect_radius:int=1,
                  schottky_separation:int=0, schottky_n_pairs:int=1, 
                  frenkel_x_disp:float = -1.5, frenkel_y_disp:float = -0.5,
-                 break_c4:bool = False): 
+                 break_c4:bool = False, dislocation_direction:str = 'x', core_separation:int = 1): 
         assert Lx % 2 == 0
         assert Ly % 2 == 0
         self._defect_type = defect_type
@@ -57,6 +60,10 @@ class DefectLattice:
                 self._lattice, self._defect_indices = self.generate_frenkel_pair_lattice(Lx, Ly, frenkel_x_disp, frenkel_y_disp)
                 self._fp_xdisp = frenkel_x_disp
                 self._fp_ydisp = frenkel_y_disp
+            case 'dislocation':
+                self._lattice, self._defect_indices = self.generate_dislocation_lattice(Lx, Ly, dislocation_direction, core_separation)
+                self._dislocation_direction = dislocation_direction
+                self._core_separation = core_separation
             case _:
                 raise ValueError('Defect type not properly provided')
 
@@ -99,6 +106,8 @@ class DefectLattice:
     def Lx(self): return self._Lx
     @property
     def Ly(self): return self._Ly
+    @property
+    def dislocation_direction(self): return self._dislocation_direction
     # endregion
 
 
@@ -245,12 +254,40 @@ class DefectLattice:
         return large_lattice, defect_indices
 
 
+    def generate_dislocation_lattice(self, Lx:int, Ly:int, direction:str, core_separation:int):
+        assert direction in "xy"
+        
+        lattice, _ = self.generate_square_lattice(Lx, Ly)
+        Y, X = np.where(lattice >= 0)
+        x_center = Lx // 2
+        y_center = Ly // 2
+
+        if direction == "x":
+            x1 = x_center - core_separation // 2
+            x2 = x_center + core_separation // 2
+            mask1 = (X < x1) & (Y == y_center)
+            mask2 = (X > x2) & (Y == y_center)
+        else:
+            y1 = y_center - core_separation // 2
+            y2 = y_center + core_separation // 2
+            mask1 = (X == x_center) & (Y < y1)
+            mask2 = (X == x_center) & (Y > y2)
+
+        mask = mask1 | mask2
+
+        defect_indices = list(-1 - np.arange(np.sum(mask)))
+        lattice[Y[mask], X[mask]] = defect_indices
+
+        return lattice, defect_indices
+
+
     def compute_distances(self):
         X = self.X
         Y = self.Y
 
         dx = X - X[:, None]
         dy = Y - Y[:, None]
+
         if self.pbc:
             multipliers = tuple(product([-1, 0, 1], repeat=2))
             shifts = [(i * self.Lx, j * self.Ly) for i, j in multipliers]
@@ -276,6 +313,34 @@ class DefectLattice:
 
         xp_mask = np.isclose(dx, 1.0) & np.isclose(dy, 0.0)
         yp_mask = np.isclose(dx, 0.0) & np.isclose(dy, 1.0)
+
+        if self.defect_type == "dislocation":
+            dp_x, dp_y = self.defect_positions
+            v = [0, 1] if self.dislocation_direction == 'x' else [1, 0]
+
+            side1_x, side1_y = dp_x + v[0], dp_y + v[1]
+            side2_x, side2_y = dp_x - v[0], dp_y - v[1]
+
+            side1_mask = np.full(self.X.shape, False)
+            side2_mask = np.full(self.X.shape, False)
+
+            for x, y in zip(side1_x, side1_y):
+                arr = (self.X == x) & (self.Y == y)
+                if any(arr):
+                    side1_mask[arr] = True
+            for x, y in zip(side2_x, side2_y):
+                arr = (self.X == x) & (self.Y == y)
+                if any(arr):
+                    side2_mask[arr] = True
+
+            # Reconnect bonds across discliation
+            if self.dislocation_direction == 'x':
+                yp_mask[side2_mask, side1_mask] = True
+            else:
+                xp_mask[side2_mask, side1_mask] = True
+
+        self.xp_mask = xp_mask
+        self.yp_mask = yp_mask
 
         Cx =   dok_matrix(dx.shape, dtype=complex)
         Sx =   dok_matrix(dx.shape, dtype=complex)
@@ -496,7 +561,45 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    if 0:
+        Ls = np.arange(10, 50, 2)
+
+        iprs = []
+        def _compute_iprs(L):
+            Lattice = DefectLattice(L, L, "vacancy", True)
+            eig_dict = compute_eigenvectors_eigenvalues(Lattice, -1.0, np.array([0., 0., 1.5]))
+            return np.max(eig_dict["left_ipr"])
+
+        with tqdm_joblib(tqdm(total=len(Ls), desc=f"")) as progress_bar:
+            data = Parallel(n_jobs=6)(delayed(_compute_iprs)(params) for params in Ls)
+
+        with h5py.File("./NonHermitian/Data/l_vs_ipr_max.h5", "w") as f:
+            f.create_dataset(name="Ls", data=Ls)
+            f.create_dataset(name="iprs", data=data)
+
+
+    if 1:
+        with h5py.File("./NonHermitian/Data/l_vs_ipr_max.h5", "r") as f:
+            Ls = np.array(f["Ls"][()])
+            ipr_maxes = np.array(f["iprs"][()])
+
+
+        def _fit_func(x, a, b):
+            return a * x + b
 
 
 
+        x = np.pow(1/Ls, 2)
+        y = ipr_maxes
+        from scipy.optimize import curve_fit
+        popt, _ = curve_fit(_fit_func, x, y, p0=[1., 0.005])
+        plt.scatter(x, y)
+        t = np.linspace(0, np.max(x)*1.1, 101)
+        plt.plot(t, _fit_func(t, *popt), 'k--', zorder=-1, label=f"Fit y={popt[0]:.2f}x+{popt[1]:.2e}")
+        plt.xlabel("$1/L^2$", fontsize=16)
+        plt.ylabel("IPR Max", fontsize=16)
+        plt.legend()
+
+        plt.xlim((0., np.max(x)*1.1))
+        plt.ylim((0., np.max(y)*1.1))
+        plt.show()

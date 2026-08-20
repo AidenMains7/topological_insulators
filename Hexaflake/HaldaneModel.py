@@ -248,7 +248,7 @@ def compute_hamiltonian(method, M, phi, t1, t2, geometric_data, disorder_strengt
         disorder_array = compute_disorder_array(disorder_strength, H.shape[0])
         H += disorder_array
 
-    if method == 'renorm':
+    if 'renorm' in method:
         H_aa = H[np.ix_(hexaflake, hexaflake)]
         H_bb = H[np.ix_(~hexaflake, ~hexaflake)]
         H_ab = H[np.ix_(hexaflake, ~hexaflake)]
@@ -359,7 +359,7 @@ def compute_bott_from_hamiltonian(H, method, geometry_data):
         H = H.toarray()
     eigenvalues, eigenvectors = spla.eigh(H, overwrite_a=True)
 
-    if method in ['site_elim', 'renorm']:
+    if method in ['site_elim', 'renorm1', 'renorm2']:
         hexaflake = geometry_data['hexaflake']
         x, y = x[hexaflake], y[hexaflake]
     return compute_bott_index({'x':x, 'y':y, 'eigenvalues':eigenvalues, 'eigenvectors':eigenvectors, 'S':geometry_data['x'].size})
