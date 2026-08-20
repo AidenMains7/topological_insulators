@@ -486,7 +486,7 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
         "average_ipr": ipr,
         "left_eigenvectors": left_eigenvectors,
         "right_eigenvectors": right_eigenvectors
-        }
+    }
     return data_dictionary
 
 
