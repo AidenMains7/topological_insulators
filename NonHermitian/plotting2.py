@@ -14,6 +14,7 @@ from matplotlib.colors import Normalize, LogNorm
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.gridspec as gridspec
+from matplotlib import rcParams
 
 from nonhermitian_defects import DefectLattice, compute_eigenvectors_eigenvalues, get_close_to_zero_idxs
 
@@ -46,14 +47,26 @@ def read_ipr_data(fname:str, directory:str = "./NonHermitian/Data/") -> tuple[li
     return Ls, [v for v in data.values()]
 
 
-def get_selected_modes(eig_dict, n_idxs):
+def get_selected_modes(eig_dict, n_idxs, Lattice:DefectLattice):
+    def _ensure_eigenvector_shape_for_schottky(eigenvector):
+        mask = np.full(eigenvector.shape[0] + len(Lattice.defect_indices), True) 
+        for i, idx in enumerate(Lattice.defect_indices):    
+            mask[2 * idx + i % 2] = False
+        resized_eigenvector = np.zeros(mask.shape, dtype=eigenvector.dtype)
+        resized_eigenvector[mask] = eigenvector
+        return resized_eigenvector
+    
     left_eigenvectors = eig_dict["left_eigenvectors"]
     idxs = get_close_to_zero_idxs(left_eigenvectors, n_idxs)
     selected = left_eigenvectors[:, idxs]
     ldos = np.sum(np.abs(selected) ** 2, axis = 1)
+
+    if Lattice.defect_type == "schottky":
+        ldos = _ensure_eigenvector_shape_for_schottky(ldos)
     selected_left_eigenvectors = ldos[::2] + ldos[1::2]
     eig_dict["selected_left_eigenvectors"] = selected_left_eigenvectors
     eig_dict["selected_idxs"] = idxs
+
     return eig_dict
   
 
@@ -73,18 +86,17 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
     schottky_separations = [L // 4 + (L // 4 + 1) % 2 for L in Ls]
     fpxs = fpys = [-s -0.5 for s in schottky_separations]
 
-    if all([os.path.exists(directory + file) for file in [file1, file2]]):
+    lattices = [DefectLattice(L, L, method, True, schottky_separation=s, frenkel_x_disp=fpx, frenkel_y_disp=fpy, **kwargs) 
+                for L, s, fpx, fpy in zip(Ls, schottky_separations, fpxs, fpys)]
+    
+    if all([os.path.exists(file) for file in [file1, file2]]):
         print(f"IPR data files already exist for method {method} and hdir {hdir}.")
         new_Ls1, data1 = read_ipr_data(file1, directory)
         new_Ls2, data2 = read_ipr_data(file2, directory)
         assert new_Ls1 == new_Ls2, "Mismatch in Ls between the two IPR data files."
-        data1 = [get_selected_modes(ed, n_idxs) for ed in data1]
-        data2 = [get_selected_modes(ed, n_idxs) for ed in data2]
-        return Ls, data1, data2, DefectLattice(Ls[-1], Ls[-1], method, True, 
-                                               schottky_separation = schottky_separations[-1],
-                                               frenkel_x_disp = fpxs[-1], frenkel_y_disp = fpys[-1],
-                                               **kwargs)
-
+        data1 = [get_selected_modes(ed, n_idxs, l) for ed, l in zip(data1, lattices)]
+        data2 = [get_selected_modes(ed, n_idxs, l) for ed, l in zip(data2, lattices)]
+        return Ls, data1, data2, lattices[-1]
     hdir_map = {"x":0, "y":1, "z":2}
     v1, v2 = [0.0] * 3, [0.0] * 3
     v1[hdir_map[hdir]] = 0.5
@@ -92,8 +104,7 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
 
     if method == "schottky": print(schottky_separations)
     if method == "frenkel_pair": print(fpxs)
-    lattices = [DefectLattice(L, L, method, True, schottky_separation=s, frenkel_x_disp=fpx, frenkel_y_disp=fpy, **kwargs) 
-                for L, s, fpx, fpy in zip(Ls, schottky_separations, fpxs, fpys)]
+
 
     v1, v2 = np.array(v1), np.array(v2)
     print(f"Starting computation for {method} h{hdir}")
@@ -123,10 +134,11 @@ def find_ldos_view_area(Lattice, ldos_array):
 
     x_center = int(np.mean(X_d))
     y_center = int(np.mean(Y_d))
-    radius = (max(np.max(X_d - x_center), np.max(Y_d - y_center)) + 3)
+    radius = (max(np.max(X_d - x_center), np.max(Y_d - y_center)) + 10)
     extent = (x_center - radius, x_center + radius, y_center - radius, y_center + radius)
 
     ldos_mask = ldos_array >  np.mean(ldos_array) + 2 * np.std(ldos_array)
+    ldos_mask = [False, False]
     if np.any(ldos_mask):
         X_masked = X[ldos_mask]
         Y_masked = Y[ldos_mask]
@@ -153,16 +165,29 @@ def format_colorbar(cbar:Colorbar):
     formatter.set_powerlimits((0,  0))
     cbar.formatter = formatter
     cbar.update_ticks()
+    cbar.outline.set_linewidth(1.5)
 
 
 def plot_ldos(Lattice:DefectLattice, ax:Axes, color_array:np.ndarray, cbar_ax:None|Axes=None, cmap="Greys",
               extent:tuple=(), scatter_size = 100):
 
+    if extent == ():
+        extent = (0, Lattice.Lx - 1, 0, Lattice.Ly - 1)
+    xticks = [extent[0] + 1, extent[1] - 1]
+    yticks = [extent[2] + 1 , extent[3] - 1]
+    ax.set_xlim(extent[0], extent[1])
+    ax.set_ylim(extent[2], extent[3])
+
     X, Y = Lattice.X, Lattice.Y
     X_d, Y_d = np.array(Lattice.defect_positions)
 
-    plot = ax.scatter(X, Y, c=color_array, cmap=cmap, s=scatter_size, vmin=0., vmax=1., zorder=1)
-    ax.scatter(X_d, Y_d, zorder=2, lw=1, s=scatter_size, edgecolor='r', facecolor='none')
+    mask = (X >= extent[0]) & (X <= extent[1]) & (Y >= extent[2]) & (Y <= extent[3])
+
+    plot = ax.scatter(X, Y, c=color_array, cmap=cmap, s=scatter_size, zorder=1, rasterized=True)
+    if Lattice.defect_type == "vacancy":
+        ax.scatter(X_d, Y_d, zorder=2, lw=1, s=scatter_size, edgecolor='r', facecolor='none', rasterized=True)
+    elif Lattice.defect_type == "frenkel_pair":
+        pass
 
     if cbar_ax != None:
         cax_box = cbar_ax.get_position()
@@ -179,15 +204,6 @@ def plot_ldos(Lattice:DefectLattice, ax:Axes, color_array:np.ndarray, cbar_ax:No
         ticks = (vmin, vmax)
         cbar.set_ticks(ticks)
         #cbar.set_ticklabels(tuple([str(round(t, 1)) for t in ticks]))
-
-    if extent == ():
-        xticks = [0, Lattice.Lx - 1]
-        yticks = [0, Lattice.Ly - 1]
-    else:
-        xticks = [extent[0], extent[1]]
-        yticks = [extent[2], extent[3]]
-        ax.set_xlim(extent[0], extent[1])
-        ax.set_ylim(extent[2], extent[3])
 
     xtick_labels = [f"${int(t+1)}$" for t in xticks]
     ytick_labels = [f"${int(t+1)}$" for t in yticks]
@@ -224,10 +240,10 @@ def plot_spectrum(ax:Axes, eigenvalues:np.ndarray, color_array:np.ndarray|None =
         mask[selected_idxs] = True
     mask = mask[sort_idxs]
 
-    plot = ax.scatter(x[~mask], y[~mask], c=color_array[~mask], cmap=cmap, zorder=1, s=scatter_size)
+    plot = ax.scatter(x[~mask], y[~mask], c=color_array[~mask], cmap=cmap, zorder=1, s=scatter_size, rasterized=True)
 
     vmin, vmax = plot.get_clim()
-    ax.scatter(x[mask], y[mask], c=color_array[mask], zorder=2, marker="*", vmin=vmin, vmax=vmax, s=2 * scatter_size, cmap=cmap)
+    ax.scatter(x[mask], y[mask], c=color_array[mask], zorder=2, marker="*", vmin=vmin, vmax=vmax, s=2 * scatter_size, cmap=cmap, rasterized=True)
 
     xticks = np.linspace(np.min(x), np.max(x), 3)
     yticks = np.linspace(np.min(y), np.max(y), 3)
@@ -242,13 +258,12 @@ def plot_spectrum(ax:Axes, eigenvalues:np.ndarray, color_array:np.ndarray|None =
     if not isinstance(cbar_ax, np.ndarray):
         cbar = plt.colorbar(plot, cbar_ax)
         format_colorbar(cbar)
-
         ticks = (vmin, (vmin + vmax) / 2, vmax)
         cbar.set_ticks(ticks)
         #cbar.set_ticklabels(tuple([str(round(t, 1)) for t in ticks]))
 
 
-def plot_ipr(ax:Axes, eigenvalues:tuple, iprs:tuple, Ls:"list|tuple", selected_idxs:"np.ndarray|None" = None):
+def plot_ipr(ax:Axes, eigenvalues:tuple, iprs:tuple, Ls:"list|tuple", selected_idxs:"np.ndarray|None" = None, scatter_size:int = 75):
 
     L_sort_idxs = np.argsort(Ls)
     Ls = [Ls[i] for i in L_sort_idxs]
@@ -271,12 +286,12 @@ def plot_ipr(ax:Axes, eigenvalues:tuple, iprs:tuple, Ls:"list|tuple", selected_i
     mask = np.full(xs[-1].size, False)
     if isinstance(selected_idxs, np.ndarray): 
         mask[selected_idxs] = True
-        ax.scatter(xs[-1][mask], iprs[-1][mask], c=colors[-1], marker="*", zorder=100, s = 100)
-    ax.scatter(xs[-1][~mask], iprs[-1][~mask], s=100, c=colors[-1], alpha=0.5, label=f"$L={Ls[-1]}$", zorder=99)
+        ax.scatter(xs[-1][mask], iprs[-1][mask], c=colors[-1], marker="*", zorder=100, s = scatter_size, rasterized=True)
+    ax.scatter(xs[-1][~mask], iprs[-1][~mask], s = 1.5*scatter_size, c=colors[-1], alpha=0.25, label=f"$L={Ls[-1]}$", zorder=99, rasterized=True)
 
 
     for i in range(len(iprs) - 1):
-        ax.scatter(xs[i], iprs[i], s=100, c=colors[i], alpha=0.5, label=f"$L={Ls[i]}$", zorder=i)
+        ax.scatter(xs[i], iprs[i], s=scatter_size, c=colors[i], alpha=0.25, label=f"$L={Ls[i]}$", zorder=i, rasterized=True)
 
     ax.legend()
 
@@ -298,7 +313,7 @@ def plot_ipr(ax:Axes, eigenvalues:tuple, iprs:tuple, Ls:"list|tuple", selected_i
 
 
 def figure_layout():
-    fig = plt.figure(figsize=(30,10))
+    fig = plt.figure(figsize=(20, 10))
 
     # Master Gridspec
     gs = gridspec.GridSpec(2, 3, figure=fig, width_ratios=[2., 1.5, 1.5], hspace=0.3)
@@ -326,7 +341,8 @@ def figure_layout():
 
         ax6 = fig.add_subplot(gs2[1, 1], label="f")
         ax7 = fig.add_subplot(gs2[1, 2], label="g")
-        ax67_cb = fig.add_subplot(gs2[0, 1:], label="67_cb")
+        ax6_cb = fig.add_subplot(gs2[0, 1], label="f_cb")
+        ax7_cb = fig.add_subplot(gs2[0, 2], label="g_cb")
     else:
         # Gridspec for LDOS of topological modes
         gs2 = gridspec.GridSpecFromSubplotSpec(2, 1, subplot_spec=gs[1, 1], height_ratios=[.1, 1])
@@ -339,35 +355,26 @@ def figure_layout():
         ax7 = fig.add_subplot(gs3[1, 1], label="g")
         ax_6_7_cb = fig.add_subplot(gs3[0, :], label="67_cb")
 
-    ax3_cb_box = ax3_cb.get_position()
-    ax3_box = ax3.get_position()
-    ax3_cb.set_position((ax3_cb_box.x0, ax3_cb_box.y0, ax3_cb_box.width, ax3_box.height))
-    ax4_cb_box = ax4_cb.get_position()
-    ax4_box = ax4.get_position()
-    ax4_cb.set_position((ax4_cb_box.x0, ax4_cb_box.y0, ax4_cb_box.width, ax4_box.height))
 
-
+    print(fig.axes)
     for ax in fig.axes:
-        ax.set_xticklabels([])
-        ax.set_yticklabels([])
         ax.tick_params(width=1.5)
-        for k in ax.spines.keys():
-            ax.spines[k].set_linewidth(1.5)
-
+        for spine in ax.spines.values():
+            spine.set_linewidth(1.5)
+        ax.tick_params(length=5.0)
     return fig
 
 # endregion
 
 def main(method:str, Ls:list, n:int, hdir:str, **kwargs):
     fig = figure_layout()
-    ax_a, ax_b, ax_c, ax_c_cb, ax_d, ax_d_cb, ax_e, ax_e_cb, ax_f, ax_g, ax_fg_cb = fig.axes
+    ax_a, ax_b, ax_c, ax_c_cb, ax_d, ax_d_cb, ax_e, ax_e_cb, ax_f, ax_g, ax_f_cb, ax_g_cb = fig.axes
 
     if isinstance(Ls, int):
         Ls = (Ls)
 
     # Compute / read the data
     Ls, ed1s, ed2s, LargestLattice = compute_ipr_data(method, Ls, n, hdir, **kwargs)
-
 
     # Plot the IPRs
     for i, (eds, ipr_ax) in enumerate(zip([ed1s, ed2s], [ax_a, ax_b])):
@@ -389,29 +396,39 @@ def main(method:str, Ls:list, n:int, hdir:str, **kwargs):
         eigenvalues = eds[-1]["eigenvalues"]
         ipr = eds[-1]["left_ipr"]
         idxs = eds[-1]["selected_idxs"]
-        plot_spectrum(spectrum_ax, eigenvalues, ipr, cb_ax, idxs if i == 0 else None)
+        plot_spectrum(spectrum_ax, eigenvalues, ipr, cb_ax, idxs if i == 0 else None, cmap='jet' if i == 0 else 'jet')
 
     # Plot the LDOS
     topo_ldos = ed1s[-1]["selected_left_eigenvectors"]
     L1 = ed1s[-1]["L"]
     L2 = ed2s[-1]["L"]
 
-    # Normalize the LDOS of the topological modes to the range (0, 1)
-    topo_ldos -= np.min(topo_ldos)
-    topo_ldos /= np.max(topo_ldos)
+    if False:
+        # Normalize the LDOS of the topological modes to the range (0, 1)
+        topo_ldos -= np.min(topo_ldos)
+        topo_ldos /= np.max(topo_ldos)
 
-    # Normalize the LDOS of the skin effect to the range (0, 1)
-    L1 -= np.min(L1)
-    L2 -= np.min(L2)
-    skin_max = max(np.max(L1), np.max(L2))
-    L1 /= skin_max
-    L2 /= skin_max
+        # Normalize the LDOS of the skin effect to the range (0, 1)
+        L1 -= np.min(L1)
+        L2 -= np.min(L2)
+        skin_max = max(np.max(L1), np.max(L2))
+        L1 /= skin_max
+        L2 /= skin_max
 
     # Plot the LDOS
-    plot_ldos(LargestLattice, ax_e, topo_ldos, ax_e_cb, extent=find_ldos_view_area(LargestLattice, topo_ldos), scatter_size=30)
-    plot_ldos(LargestLattice, ax_f, L1, ax_fg_cb, extent=find_ldos_view_area(LargestLattice, L1), scatter_size=30)
-    plot_ldos(LargestLattice, ax_g, L2, ax_fg_cb, extent=find_ldos_view_area(LargestLattice, L2), scatter_size=30)
+    if method == "frenkel_pair":
+        defect_pos = LargestLattice.defect_positions
+        extent = ()
+    elif method in ["vacancy", "substitution"]:
+        r = 10
+        extent = (Ls[-1] // 2 - r, Ls[-1] // 2 + r, Ls[-1] // 2 - r, Ls[-1] // 2 + r)
+    elif method == "interstitial":
+        r = 5
+        extent = (Ls[-1] // 2 - r - 0.5, Ls[-1] // 2 + r, Ls[-1] // 2 - r - 0.5, Ls[-1] // 2 + r)
 
+    plot_ldos(LargestLattice, ax_e, topo_ldos, ax_e_cb, extent=extent, scatter_size=75)
+    plot_ldos(LargestLattice, ax_f, L1, ax_f_cb, extent=extent, scatter_size=75)
+    plot_ldos(LargestLattice, ax_g, L2, ax_g_cb, extent=extent, scatter_size=75)
 
     # Remove some labels and legends for clarity
     ax_b.set_ylabel("")
@@ -422,7 +439,13 @@ def main(method:str, Ls:list, n:int, hdir:str, **kwargs):
     for ax in [ax_e, ax_f, ax_g]:
         ax.set_aspect("equal")
 
+    plt.savefig(f"./NonHermitian/Plots/IPR/{method}_IPR_h{hdir}.svg", dpi=96)
+
 if __name__ == "__main__":
-    Ls = [10, 20, 30]
-    main("vacancy", Ls, 2, "x", defect_radius = 1, break_c4 = False, dislocation_direction='x', core_separation=5)
-    plt.savefig("./NonHermitian/Plots/IPR/cbar.svg")
+    Ls = [10, 20, 30, 40, 50]
+    #main("vacancy", Ls, 2, "z", defect_radius = 1, break_c4 = False)
+
+    for m in ["interstitial"]:
+        for hd, n in zip("xz", [4,2]):
+            main(m, Ls, n, hd)
+    
