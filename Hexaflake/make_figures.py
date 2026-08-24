@@ -1,8 +1,8 @@
 import numpy as np
 from matplotlib import pyplot as plt
+from matplotlib import gridspec
 import h5py
 from typing import cast
-from scipy.optimize import curve_fit
 from HaldaneModel import compute_geometric_data, compute_hamiltonian
 
 def get_numbers(phi, M, bis, disorder, tol=1e-6, plot_disorder=False):
@@ -60,86 +60,95 @@ def get_unique_coords_from_grids(arrays:list[np.ndarray], tol=1e-6) -> np.ndarra
 
 
 def get_values_from_file(generation: int):
-    if generation in [2, 3]:
-        with h5py.File(f"./Hexaflake/Data/site_elim_g{generation}_(25_by_25)_w1.0.h5", 'r') as f:
+    clean_filename = f"./Hexaflake/Data/Generation {generation}/site_elim_g{generation}_(25_by_25).h5"
+    disorder_filename = clean_filename.replace(".h5", "_w1.0.h5")
+    with h5py.File(clean_filename, "r") as f:
+        phi = cast(np.ndarray, f["phi"])[()]
+        M = cast(np.ndarray, f["M"])[()]
+        bott_index = np.round(cast(np.ndarray, f["bott_index"])[()].flatten(), 6)
+    with h5py.File(disorder_filename, "r") as f:
+        try:
             idxs = cast(np.ndarray, f["computed_idxs"])[()]
             disorder = np.round(cast(np.ndarray, f["disorder_flat"])[()], 6)
-
-        with h5py.File(f"./Hexaflake/Data/site_elim_g{generation}_(25_by_25).h5", 'r') as f:
-            phi = cast(np.ndarray, f["phi"])[()]
-            M = cast(np.ndarray, f["M"])[()]
-            bott_index = np.round(cast(np.ndarray, f["bott_index"])[()].flatten(), 6)
-        unique = np.column_stack((phi[idxs], M[idxs], bott_index[idxs], disorder[idxs]))
-
-    else:
-        with h5py.File(f"./Hexaflake/Data/site_elim_g{generation}_w1.0_i50.h5", 'r') as f:
+            unique = np.column_stack((phi[idxs], M[idxs], bott_index[idxs], disorder[idxs]))
+        except: 
             phi_disorder = cast(np.ndarray, f["phi"])[()].flatten()
             M_disorder = cast(np.ndarray, f["M"])[()].flatten()
             disorder = np.round(cast(np.ndarray, f["disorder"])[()].flatten(), 6)
-
-        with h5py.File(f"./Hexaflake/Data/site_elim_g{generation}_(25_by_25).h5", 'r') as f:
-            phi = cast(np.ndarray, f["phi"])[()].flatten()
-            M = cast(np.ndarray, f["M"])[()].flatten()
-            bott_index = np.round(cast(np.ndarray, f["bott_index"])[()].flatten(), 6)
-
-        arr1 = np.column_stack((phi, M, bott_index, np.full(phi.shape, np.nan)))
-        arr2 = np.column_stack((phi_disorder, M_disorder, np.full(phi_disorder.shape, np.nan), disorder))
-        unique = get_unique_coords_from_grids([arr1, arr2])
-
+            arr1 = np.column_stack((phi, M, bott_index, np.full(phi.shape, np.nan)))
+            arr2 = np.column_stack((phi_disorder, M_disorder, np.full(phi_disorder.shape, np.nan), disorder))
+            unique = get_unique_coords_from_grids([arr1, arr2])
     return get_numbers(*unique.T), unique
 
 
-def compare_generations(generations = np.array([2, 3, 4])):
+def plot_percentages(generations = np.array([2, 3, 4]), ax=None, verbose=False):
     """
     We assume that the data files for all generations lies on the same grid of phi and M values. 
     """
 
+    if ax == None:
+        fig, ax = plt.subplots(1, 1)
+
     numbers = []
     values = []
-
     for g in generations:
         ns, vals = get_values_from_file(g)
         numbers.append(ns)
         values.append(vals)
 
     numbers = np.array(numbers)
-    print(numbers.shape)
-    columns = ["n_in_topo", "n_in_topo_bott", "n_disorder_is_1"]
 
     n_in_top = numbers[0][0]
     pristine_ratios = numbers[:, 1] / n_in_top
     disorder_ratios = numbers[:, 2] / n_in_top
     ratio_ratios = pristine_ratios / disorder_ratios
 
-    print("Pristine Ratios (n_in_topo_bott / n_in_topo):", pristine_ratios)
-    print("Disorder Ratios (n_disorder_is_1 / n_in_topo):", disorder_ratios)
-    print("Ratio of Ratios (Pristine / Disorder):", ratio_ratios)
+    if verbose:
+        print("Pristine Ratios (n_in_topo_bott / n_in_topo):", pristine_ratios)
+        print("Disorder Ratios (n_disorder_is_1 / n_in_topo):", disorder_ratios)
+        print("Ratio of Ratios (Pristine / Disorder):", ratio_ratios)
 
     n_sites = 6 * (7 ** np.array(generations))
     x = 1/n_sites * 1e3
-    plt.scatter(x, pristine_ratios, label="Pristine Ratios", color='blue')
-    plt.scatter(x, disorder_ratios, label="Disorder Ratios", color='red')
-    plt.ylim(0.0, 1.0)
-    plt.xticks([0., 1.2, 2.4, 3.6])
-    plt.xlim(0., 3.6)
-    plt.yticks([0., 0.25, 0.5, 0.75, 1.])
-    plt.xlabel("1/N")
-    plt.ylabel("Ratios")
+    ax.scatter(x, pristine_ratios, label="W=0.0", color='blue', marker="*")
+    ax.scatter(x, disorder_ratios, label="W=1.0", color='red', marker="^")
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xticks([0., 1.2, 2.4, 3.6])
+    ax.set_xlim(-0.1, 3.7)
+    ax.set_yticks([0., 0.25, 0.5, 0.75, 1.])
+    ax.set_xlabel("1/N")
+    ax.set_ylabel("Ratios")
 
-    ax = plt.gca()
     for spine in ax.spines.values():
         spine.set_linewidth(2.)
     ax.tick_params(width=2.)
     #plt.xscale('log')
-    plt.legend()
-    plt.savefig('./Hexaflake/Figures/percentage_comparison.svg')
-    plt.close()
+    ax.legend()
+    return ax
 
+
+def plot_w1_comparison(axs:np.ndarray, cbar_ax, generations = np.array([2, 3, 4])):
+    axs = np.array(axs)
+    if axs.shape == (2, len(generations)):
+        pass
+    else:
+        try: 
+            axs = axs.reshape(2, len(generations))
+        except:
+            raise ValueError(f"axs shape must be (2, {len(generations)}). It is {axs.shape}.")
+
+    fig = axs[0, 0].figure
+
+    values = []
+    for g in generations:
+        ns, vals = get_values_from_file(g)
+        values.append(vals)
 
     new_values = []
     n_diff_vals = np.sum([v.shape[1] - 2 for v in values]) + 2
     counter = 0
     fill_value = np.nan
+
     for v in values:
         coords = v[:, :2]
 
@@ -156,15 +165,10 @@ def compare_generations(generations = np.array([2, 3, 4])):
         new_values.append(stack)
     
     unique = get_unique_coords_from_grids(new_values)
-
-    phi = unique[:, 0]
-    M = unique[:, 1]
     bis = unique[:, np.arange(2, unique.shape[1], 2)]
     disorders = unique[:, np.arange(3, unique.shape[1], 2)]
 
-    fig, axs = plt.subplots(2, 3, figsize=(15, 10), sharex=True, sharey=True, layout='constrained')
     vmin, vmax = -1.0, 0.0
-
     row_label = ['i', 'ii']
     col_label = 'abc'
 
@@ -196,25 +200,54 @@ def compare_generations(generations = np.array([2, 3, 4])):
 
             axs[i, j].tick_params(width=3.0, length=5.0)
 
-    cbar = fig.colorbar(plot, ax=axs, location='right')
+    cbar = fig.colorbar(plot, cax=cbar_ax)
     cbar.set_ticks([-1., -0.5, 0.])
     cbar.ax.tick_params(length=5.0, width=3.0)
     for spine in cbar.ax.spines.values():
         spine.set_linewidth(3.)
 
-    
-    plt.savefig("./Hexaflake/Figures/generation_comparison.svg")
-    plt.show()    
+    return axs   
 
-    plt.imshow((disorders[:, -1].reshape(25, 25).T), vmin=-1., vmax=0., cmap='jet',
-                origin = 'lower', aspect='auto', extent=(0, np.pi, 0, 3 * np.sqrt(3)))
-    plt.xlabel('$\\phi$')
-    plt.ylabel('$M$')
-    plt.colorbar()
-    plt.xticks([0, np.pi/2, np.pi])
-    plt.yticks([0, 3 * np.sqrt(3)])
-    plt.savefig("./Hexaflake/Figures/g4_w1.svg")
-    plt.close()
+
+def plot_full_w1_comp(generations = np.array([2, 3, 4])):
+
+    fig = plt.figure(figsize=(12, 8))
+
+    if 0:
+        gs = gridspec.GridSpec(2, 4, width_ratios=(1,1,1,.5), height_ratios=(1,1))
+        gs0 = gridspec.GridSpecFromSubplotSpec(2, 3, gs[:, :-1])
+        ax1 = fig.add_subplot(gs0[0, 0])
+        ax2 = fig.add_subplot(gs0[0, 1])
+        ax3 = fig.add_subplot(gs0[0, 2])
+        ax4 = fig.add_subplot(gs0[1, 0])
+        ax5 = fig.add_subplot(gs0[1, 1])
+        ax6 = fig.add_subplot(gs0[1, 2])
+        imshow_axs = np.array([ax1, ax2, ax3, ax4, ax5, ax6]).reshape(2, 3)
+        ax7 = fig.add_subplot(gs[:, -1])
+    else:
+        gs = gridspec.GridSpec(3, 4, width_ratios=(1, 1, 1, .1), height_ratios=(1, 1, .5), hspace=0.4, wspace=0.1)
+        gs0 = gridspec.GridSpecFromSubplotSpec(2, 3, gs[:-1, :-1], hspace=0.1, wspace=0.1)
+        ax1 = fig.add_subplot(gs0[0, 0])
+        ax2 = fig.add_subplot(gs0[0, 1])
+        ax3 = fig.add_subplot(gs0[0, 2])
+        ax4 = fig.add_subplot(gs0[1, 0])
+        ax5 = fig.add_subplot(gs0[1, 1])
+        ax6 = fig.add_subplot(gs0[1, 2])
+        imshow_axs = np.array([ax1, ax2, ax3, ax4, ax5, ax6]).reshape(2, 3)
+        cbar_ax = fig.add_subplot(gs[:-1, -1])
+
+        ax7 = fig.add_subplot(gs[2, :])
+
+    plot_percentages(generations=generations, ax=ax7)
+    plot_w1_comparison(axs=imshow_axs, cbar_ax=cbar_ax, generations=generations)
+
+    for ax in imshow_axs.flatten():
+        ax.set_aspect('auto')
+    for ax in imshow_axs[:, 1:].flatten():
+        ax.set_yticklabels([])
+    for ax in imshow_axs[0, :].flatten():
+        ax.set_xticklabels([])
+    plt.savefig("./Hexaflake/figures/generation_comparison.svg")
 
 
 def f_asymptotic_exp(x: np.ndarray, a: float, b: float):
@@ -338,8 +371,16 @@ def make_haldane_ldos(generation):
     plt.savefig("./Figures/haldane_ldos.svg", bbox_inches='tight', transparent=False)
     #plt.show()
 
-if __name__ == "__main__":
-    compare_generations(generations=np.array([2, 3, 4]))
-    #plot_iterations()
 
-    #make_haldane_ldos(3)
+if __name__ == "__main__":
+    #plot_full_w1_comp()
+
+    width_mm = 14.429 * 1.2
+    height_mm = 726.798 * 1.3
+
+    fig, ax = plt.subplots(1, 1, figsize=(lambda x, y: (x / 25.4, y / 25.4))(width_mm, height_mm))
+
+    plot = plt.scatter([0, 0], [0, 1], c=[0., -1.], vmin=0., vmax=1., cmap='jet')
+    cbar = fig.colorbar(plot, cax=ax)
+
+    plt.savefig('./Hexaflake/Figures/cbar.svg')

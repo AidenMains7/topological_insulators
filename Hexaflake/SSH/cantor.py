@@ -64,7 +64,7 @@ def compute_hamiltonian(lattice, method:str, M:float, M_ALT:float|None = None, B
         except Exception as e:
             print(f"Exception in computing the hamiltonian: {e}")
             return np.nan
-    elif method == "sub":
+    elif method in ["sub"]:
         return H
     else:
         raise ValueError
