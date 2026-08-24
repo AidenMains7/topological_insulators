@@ -80,8 +80,8 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
             n_defects += np.sum(4 * np.arange(kwargs["defect_radius"]))
         if "break_c4" in kwargs.keys():
             n_defects += 2
-        file1 = directory + f"{method}_ipr_data_h{hdir}=0.5_nd={n_defects}.h5"
-        file2 = directory + f"{method}_ipr_data_h{hdir}=1.5_nd={n_defects}.h5"
+        file1 = f"{method}_ipr_data_h{hdir}=0.5_nd={n_defects}.h5"
+        file2 = f"{method}_ipr_data_h{hdir}=1.5_nd={n_defects}.h5"
 
     schottky_separations = [L // 4 + (L // 4 + 1) % 2 for L in Ls]
     fpxs = fpys = [-s -0.5 for s in schottky_separations]
@@ -89,7 +89,7 @@ def compute_ipr_data(method:str, Ls:list[int], n_idxs:int, hdir:str, directory:s
     lattices = [DefectLattice(L, L, method, True, schottky_separation=s, frenkel_x_disp=fpx, frenkel_y_disp=fpy, **kwargs) 
                 for L, s, fpx, fpy in zip(Ls, schottky_separations, fpxs, fpys)]
     
-    if all([os.path.exists(file) for file in [file1, file2]]):
+    if all([os.path.exists(directory + file) for file in [file1, file2]]):
         print(f"IPR data files already exist for method {method} and hdir {hdir}.")
         new_Ls1, data1 = read_ipr_data(file1, directory)
         new_Ls2, data2 = read_ipr_data(file2, directory)
@@ -187,7 +187,7 @@ def plot_ldos(Lattice:DefectLattice, ax:Axes, color_array:np.ndarray, cbar_ax:No
     if Lattice.defect_type == "vacancy":
         ax.scatter(X_d, Y_d, zorder=2, lw=1, s=scatter_size, edgecolor='r', facecolor='none', rasterized=True)
     elif Lattice.defect_type == "frenkel_pair":
-        pass
+        ax.scatter(Lattice.Lx // 2, Lattice.Ly // 2, zorder=2, lw=1, s=scatter_size, edgecolor='r', facecolor='none', rasterized=True)
 
     if cbar_ax != None:
         cax_box = cbar_ax.get_position()
@@ -355,8 +355,6 @@ def figure_layout():
         ax7 = fig.add_subplot(gs3[1, 1], label="g")
         ax_6_7_cb = fig.add_subplot(gs3[0, :], label="67_cb")
 
-
-    print(fig.axes)
     for ax in fig.axes:
         ax.tick_params(width=1.5)
         for spine in ax.spines.values():
@@ -418,17 +416,26 @@ def main(method:str, Ls:list, n:int, hdir:str, **kwargs):
     # Plot the LDOS
     if method == "frenkel_pair":
         defect_pos = LargestLattice.defect_positions
-        extent = ()
-    elif method in ["vacancy", "substitution"]:
-        r = 10
-        extent = (Ls[-1] // 2 - r, Ls[-1] // 2 + r, Ls[-1] // 2 - r, Ls[-1] // 2 + r)
-    elif method == "interstitial":
         r = 5
-        extent = (Ls[-1] // 2 - r - 0.5, Ls[-1] // 2 + r, Ls[-1] // 2 - r - 0.5, Ls[-1] // 2 + r)
+        extent1 = (11.5 - r, 11.5 + r, 11.5 - r, 11.5 + r)
+        extent2 = (11.5 - r, Ls[-1] // 2 + r, 11.5 - r, Ls[-1] // 2 + r)
+    else:
+        if method in ["vacancy", "substitution"]:
+            r = 10
+            extent = (Ls[-1] // 2 - r, Ls[-1] // 2 + r, Ls[-1] // 2 - r, Ls[-1] // 2 + r)
+        elif method == "interstitial":
+            r = 5
+            extent = (Ls[-1] // 2 - r - 0.5, Ls[-1] // 2 + r, Ls[-1] // 2 - r - 0.5, Ls[-1] // 2 + r)
+        elif method == "schottky":
+            r = 11
+            extent = (Ls[-1] // 2 - r, Ls[-1] // 2 + r, Ls[-1] // 2 - r, Ls[-1] // 2 + r)
+        extent1 = extent2 = extent
 
-    plot_ldos(LargestLattice, ax_e, topo_ldos, ax_e_cb, extent=extent, scatter_size=75)
-    plot_ldos(LargestLattice, ax_f, L1, ax_f_cb, extent=extent, scatter_size=75)
-    plot_ldos(LargestLattice, ax_g, L2, ax_g_cb, extent=extent, scatter_size=75)
+
+    print(LargestLattice.defect_positions)
+    plot_ldos(LargestLattice, ax_e, topo_ldos, ax_e_cb, extent=extent1, scatter_size=50)
+    plot_ldos(LargestLattice, ax_f, L1, ax_f_cb, extent=extent2, scatter_size=50)
+    plot_ldos(LargestLattice, ax_g, L2, ax_g_cb, extent=extent2, scatter_size=50)
 
     # Remove some labels and legends for clarity
     ax_b.set_ylabel("")
@@ -445,7 +452,7 @@ if __name__ == "__main__":
     Ls = [10, 20, 30, 40, 50]
     #main("vacancy", Ls, 2, "z", defect_radius = 1, break_c4 = False)
 
-    for m in ["interstitial"]:
-        for hd, n in zip("xz", [4,2]):
+    for m in ["schottky"]:
+        for hd, n in zip("x", [2,2]):
             main(m, Ls, n, hd)
     
