@@ -60,7 +60,8 @@ def compute_hamiltonian(lattice, method:str, M:float, M_ALT:float|None = None, B
         return H_aa
     elif method == "renorm":
         try:
-            return H_aa - H_ab @ spla.solve(H_bb,H_ba,assume_a='her',check_finite=True, overwrite_a=True, overwrite_b=True)
+            X = spla.solve(H_bb, H_ba, assume_a='her', check_finite=True, overwrite_a=True, overwrite_b=True)
+            return H_aa - H_ab @ X
         except Exception as e:
             print(f"Exception in computing the hamiltonian: {e}")
             return np.nan
@@ -68,6 +69,13 @@ def compute_hamiltonian(lattice, method:str, M:float, M_ALT:float|None = None, B
         return H
     else:
         raise ValueError
+
+
+def compute_wrapper(n:int, b:int, method:str, M:float, M_ALT:float|None = None, B:float = 1.0, t:float = 1.0):
+    lattice = dl.build_lattice("cantor", n, block_scale=b)
+    H = compute_hamiltonian(lattice, method, M, M_ALT, B, t)
+    C, eigenvalues, eigenvectors = compute_topological_marker(H)
+    return C, eigenvalues, eigenvectors, lattice
 
 
 def compute_phase(h_method:str, n:int, b:int, M_values:np.ndarray):
@@ -129,22 +137,31 @@ def compute_phase_substitution(n:int, b:int, M_values:np.ndarray, M_ALT_values:n
     
 
 if __name__ == "__main__":
-    n = 4
-    b = 4
-    l = dl.build_lattice("cantor", n, block_scale=b)
-    L = l.size
-
-    Ms = np.linspace(-1.0, 5.0, 101)
-    #_, renorm_means = compute_phase("renorm", n, b, Ms)
-    _, site_elim_means = compute_phase("site_elim", n, b, Ms)
-    #plt.scatter(Ms, renorm_means, label='renorm')
-    plt.scatter(Ms, site_elim_means, label='site_elim')
-    plt.xlabel("M")
-    plt.ylabel('mean(C(r))')
-    plt.xticks([-1.0, 2.0, 5.0])
-    #plt.yticks([0., 1.0])
-    plt.legend()
+    C, eigenvalues, eigenvectors, lattice = compute_wrapper(3, 27, "sub", 1.0, M_ALT=1.)
+    t = np.arange(C.shape[0])
+    fig, axs = plt.subplots(1, 3)
+    axs[0].imshow(lattice[:, np.newaxis].T, aspect='auto')
+    axs[1].plot(t, np.diag(C))
+    axs[2].scatter(np.arange(eigenvalues.size), eigenvalues)
     plt.show()
+
+    if 0:
+        n = 3
+        b = 3
+        l = dl.build_lattice("cantor", n, block_scale=b)
+        L = l.size
+
+        Ms = np.linspace(-1.0, 5.0, 101)
+        #_, renorm_means = compute_phase("renorm", n, b, Ms)
+        _, site_elim_means = compute_phase("site_elim", n, b, Ms)
+        #plt.scatter(Ms, renorm_means, label='renorm')
+        plt.scatter(Ms, site_elim_means, label='site_elim')
+        plt.xlabel("M")
+        plt.ylabel('mean(C(r))')
+        plt.xticks([-1.0, 2.0, 5.0])
+        #plt.yticks([0., 1.0])
+        plt.legend()
+        plt.show()
 
     if 0:
         _, _, means = compute_phase_substitution(n, b, np.linspace(-1.0, 5.0, 25), np.linspace(-1.0, 5.0, 25))

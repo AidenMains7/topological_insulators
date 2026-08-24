@@ -73,15 +73,15 @@ def make_figure_layout():
     return fig
 
 if __name__ == "__main__":
-    L = 50
-    Ms = [-0.5, -0.2, 0.2, 0.5]
+    L = 300
+    Ms = [-0.5]
     colors = ['r', 'g', 'b', 'orange']
 
     fig, axs = plt.subplots(1, 1)
     axs = [axs]
 
     for m, c in zip(Ms, colors):
-        C, eigvals, eigvectors = compute_topological_marker(L, m, 1.)
+        C, eigvals, eigvectors = compute_topological_marker(compute_hamiltonian(L, m, 1.))
         t = np.arange(L)
         y = np.diag(C)
         y = y[::2] + y[1::2]
@@ -92,3 +92,5 @@ if __name__ == "__main__":
     axs[0].set_xticks(np.arange(0, L+1, 5))
     axs[0].set_ylabel("$C(\\mathbf {r})$", fontsize=16)
     axs[0].set_xlabel("$\\mathbf {r}$", fontsize=16)
+
+    plt.show()

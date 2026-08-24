@@ -72,6 +72,7 @@ class DefectLattice:
         Y, X = np.where(self.lattice >= 0)[:]
         if defect_type in ['interstitial', 'frenkel_pair']:
             self._X, self._Y = X / 2, Y / 2
+            self._defect_positions = self._defect_positions.astype(float) / 2
         else:
             self._X, self._Y = X, Y 
 
