@@ -1,5 +1,4 @@
 import numpy as np
-import matplotlib.pyplot as plt
 import scipy.linalg as spla
 import os, h5py
 from tqdm_joblib import tqdm_joblib, tqdm
@@ -44,11 +43,23 @@ def compute_topological_marker(eigenvalues, eigenvectors):
     alpha = Q @ X @ P
     C = (N_D * W @ (alpha + alpha.conj().T)).real
 
-    return C, eigenvalues, eigenvectors
+    return C
 
 
-def compute_wrapper(m, l, M, method, M_alt=None):
+def compute_wrapper(m, n, b, M, method, M_alt=None, save_data:bool = False, directory="./data/local_marker/") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     params = dict(M=M, M_alt=M_alt if M_alt != None else M, t=1.0, B=1.0, disorder_strength=0.0, disorder_seed=0)
+    l = lattice.build_lattice("cantor", n, block_scale=b)
+    filename = f"{method}_M={params["M"]:.3f}_M_alt={params["M_alt"]:.3f}_n={n}_L={l.size}.h5"
+    if os.path.exists(directory + filename):
+        with h5py.File(directory + filename, "r") as f:
+            C:np.ndarray = f["C"][()] # type: ignore
+            m_read = f["M"][()] # type: ignore
+            m_alt_read = f["M_alt"][()] # type: ignore
+            eigenvalues = f["eigenvalues"][()] # type: ignore
+            eigenvectors = f["eigenvectors"][()]             # type: ignore
+            assert np.isclose(params["M"], m_read) and np.isclose(params["M_alt"], m_alt_read) # type: ignore
+        return C, eigenvalues, eigenvectors # type: ignore
+
     if method == 'renorm':
         result = solve.schur_solve(m, "sector", 0, params=params, hermitian=True)
         eigenvalues = result["eigenvalues"]
@@ -57,8 +68,16 @@ def compute_wrapper(m, l, M, method, M_alt=None):
         H = m.assemble(True, **params).toarray()    
         eigenvalues, eigenvectors = compute_eigvals(H)
 
-    C, _, _ = compute_topological_marker(eigenvalues, eigenvectors)
-    return C
+    C = compute_topological_marker(eigenvalues, eigenvectors)
+
+    if save_data:
+        with h5py.File(directory + filename, "w") as f:
+            f.create_dataset(name="C", data=C)
+            f.create_dataset(name="eigenvalues", data=eigenvalues)
+            f.create_dataset(name="eigenvectors", data=eigenvectors)
+            f.create_dataset(name="M", data=params["M"])
+            f.create_dataset(name="M_alt", data=params["M_alt"])
+    return C, eigenvalues, eigenvectors
 
 
 def compute_phase(h_method:str, n:int, b:int, M_values:np.ndarray, directory:str = "./"):
@@ -73,7 +92,7 @@ def compute_phase(h_method:str, n:int, b:int, M_values:np.ndarray, directory:str
             return Ms, means
 
     def _worker(M):
-        C = compute_wrapper(m, l, M, h_method)
+        C, _, _ = compute_wrapper(m, n, b, M, h_method)
         return [M, np.mean(np.diag(C))]
 
     with tqdm_joblib(tqdm(total=len(M_values))) as progress_bar:
@@ -86,50 +105,16 @@ def compute_phase(h_method:str, n:int, b:int, M_values:np.ndarray, directory:str
     return Ms, means
 
 
-def plot_local_topological_marker(n, b, M, method, ax=None, M_alt=None):
-    l = lattice.build_lattice("cantor", n, block_scale=b)
+def compute_ldos(n, b, M, method, M_alt=None):
     m = model.build_model("cantor", n, hole_treatment=method, block_scale=b)
-    C = compute_wrapper(m, l, M, method, M_alt)
-    c_diag = np.diag(C)
-    c_diag = c_diag[::2] + c_diag[1::2]
+    _, eigenvalues, eigenvectors = compute_wrapper(m, n, b, M, method, M_alt, True)
 
-    t = np.arange(l.size)
-    y = np.full(t.shape, np.nan)
-    site_mask = l.astype(bool)
-    y[site_mask] = c_diag
+    pos_idxs = np.arange(len(eigenvalues))[eigenvalues > 0]
+    neg_idxs = np.arange(len(eigenvalues))[eigenvalues < 0]
 
-    if ax is None:
-        fig, ax = plt.subplots(1, 1)
-
-    extent = (np.min(t), np.max(t), max(-3.0, np.min(y)), min(3.0, np.max(y)))
-    ax.imshow(l[np.newaxis], aspect='auto', cmap='Greys', alpha=0.25, zorder=-1, extent=extent)
-    ax.plot(t, y)
-    ax.set_ylim(extent[2], extent[3])
-    ax.figure.suptitle(f"{method}\nn={n}, L={l.size}")
-    ax.axhline(-1.0)
-
-if __name__ == "__main__":
-
-    if 1: 
-        Ms = np.arange(-1, 5, 1)
-        #Ms = [-0.5, -0.1, -0.05, 0.05, 0.1, 0.5]
-        #Ms = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6]
-        fig, axs = plt.subplots(2, 3)
-        for ax, m in zip(axs.flatten(), Ms):
-            plot_local_topological_marker(3, 27, m, "site_elim", ax)
-            ax.annotate(
-                f"$M={m:.2f}$",
-                xy=(0.05, 0.95),
-                ha="left",
-                va="top",
-                xycoords='axes fraction'
-            )
-
-        
-        plt.tight_layout()
-        plt.savefig('renorm_0.png')
-        plt.show()
-
-
-    #plot_local_topological_marker(3, 9, -0.1, "renorm")
-    #plt.show()
+    smallest_pos = np.min(eigenvalues[pos_idxs])
+    largest_neg = np.max(eigenvalues[neg_idxs])
+    idxs = [smallest_pos, largest_neg]
+    ldos = np.sum(np.abs(eigenvectors[idxs, :]) ** 2, axis=0)
+    ldos = ldos[::2] + ldos[1::2]
+    return ldos
