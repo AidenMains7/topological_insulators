@@ -127,3 +127,24 @@ def build_model(fractal, n, *, hole_treatment="substituted", pbc=False,
     if hole_treatment == "site_elim":
         m.vacancies_from_label(sector=0)
     return m
+
+
+
+def build_model_arbitrary(L, ndim, *, pbc=False, pseudo_scalar=None):
+    if pseudo_scalar is None:
+        pseudo_scalar = (ndim == 3)
+
+    lat = np.full(tuple([L] * ndim), 1, dtype=int)
+
+    sector_labels = lat.ravel(order="F")
+    origin = (np.asarray(lat.shape, dtype=float) - 1.0) / 2.0
+
+    m = hypercubic_grid_model(
+        lattice=lat,
+        pbc_flags=pbc,
+        origin=origin,
+        hopping_modifier=peierls_phase if ndim == 3 else None,
+        real_space_functions=(uniform_disorder, sector_mass(sector_labels)),
+        **wilson_dirac_dvector(ndim, pseudo_scalar=pseudo_scalar),
+    )
+    return m
