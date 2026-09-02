@@ -1,15 +1,16 @@
 import numpy as np
+from scipy import linalg as spla
 import matplotlib.pyplot as plt
-from matplotlib import gridspec
+from matplotlib import gridspec, rcParams
 from brokenaxes import brokenaxes
 
-from project_tools import lattice, model
+from project_tools import lattice
 from compute_ltm import compute_wrapper, compute_ldos
 
 
-def get_ltm_data(n, b, M, method, M_alt=None):
-    m = model.build_model("cantor", n, hole_treatment=method, block_scale=b)
-    C, _, _ = compute_wrapper(m, n, b, M, method, M_alt, True)
+def get_ltm_data(n, b, M, method, M_alt=None, overwrite=False):
+    C, eigenvalues, V = compute_wrapper(n, b, M, method, M_alt, overwrite)
+
     c_diag = np.diag(C)
     c_diag = c_diag[::2] + c_diag[1::2]
 
@@ -17,10 +18,11 @@ def get_ltm_data(n, b, M, method, M_alt=None):
     L = l.size
     t = np.arange(L)
     y = np.full(L, np.nan)
-    if method in ["site_elim", "renorm"]:
+    if method in ["site_elim", "site_elim_alt", "renorm", "renorm_alt"]:
         site_mask = l.astype(bool)
         y[site_mask] = c_diag
-
+    else:
+        y = c_diag
     return t, y
 
 
@@ -51,17 +53,18 @@ def plot_local_topological_marker(n, b, M, method, ax=None, M_alt=None):
     return ax
 
 
-def get_ldos_scatter_data(n, b, M, method, M_alt=None):
+def get_ldos_data(n, b, M, method, M_alt=None, overwrite=False):
     l = lattice.build_lattice("cantor", n, block_scale=b)
-    ldos = compute_ldos(n, b, M, method, M_alt)
+    ldos = compute_ldos(n, b, M, method, M_alt, overwrite)
     
     L = l.size
     t = np.arange(L)
     y = np.full(L, np.nan)
-    if method in ["site_elim", "renorm"]:
+    if method in ["site_elim", "site_elim_alt", "renorm", "renorm_alt"]:
         site_mask = l.astype(bool)
         y[site_mask] = ldos
-
+    else:
+        y = ldos
     return t, y
 
 
@@ -82,85 +85,118 @@ def plot_ldos_imshow(n, b, M_values, method, M_alt=None, *args, **kwargs):
     plt.show()
 
 
-def make_broken_axes(x, y, cut_points, axs, forgiveness=0.01, **scatter_kwargs):
-    assert len(cut_points) % 2 == 0
+def compute_broken_axes_limits(arr, keep_points=[], threshold=0.01, jump_threshold=0.05, extrema_pad:float=0.01):
+    arr = arr[~np.isnan(arr)]
+    arr_unique = np.unique(np.round(arr, 6))
+    arr_range = np.nanmax(arr) - np.nanmin(arr)
 
-    for ax in axs:
-        for spine in ax.spines.values():
-            spine.set_linewidth(2.0)
-        ax.tick_params(width=2.0)
+    large_jumps_idxs = np.argwhere(np.diff(arr_unique) / arr_range >= jump_threshold)
+    edges = np.sort(np.concatenate((arr_unique[large_jumps_idxs], arr_unique[large_jumps_idxs + 1])).flatten())
+    edges += np.tile([+threshold * arr_range, -threshold * arr_range], edges.size // 2)
+    edges = [arr_unique[0] - arr_range * extrema_pad, arr_unique[-1] + arr_range * extrema_pad] + edges.tolist()
+    edges = np.sort(edges)
 
-    edges = [-0.01] + [p + j * forgiveness for p, j in zip(cut_points, [1, -1] * (len(cut_points) // 2))] + [1.01]
-    x_range = (np.min(x), np.max(x))
-    edges = [e * (x_range[1] - x_range[0]) + x_range[0] for e in edges]
-    xlims = [tuple(edges[i:i+2]) for i in range(0, len(edges), 2)]
-    
-    d = 0.01
+    add_points = []
+    remove_points = []
+    for kp in keep_points:
+        skip = False
+        for i in range(0, edges.size, 2):
+            if edges[i] < kp and kp < edges[i+1]:
+                skip = True
+        if not skip:
+            conflicting_edges = []
+            xi = kp - threshold * arr_range
+            xj = kp + threshold * arr_range
+            for e in edges:
+                if e > xi and e < xj:
+                    conflicting_edges.append(e)
 
-    for i, ax in enumerate(axs):
-        kwargs = dict(transform=ax.transAxes, color='black', clip_on=False, lw=2.0)
-        if i != 0:
-            ax.spines['left'].set_visible(False)
-            ax.plot((-d, +d), (-d, +d), **kwargs)
-            ax.plot((-d, +d), (1 - d, 1 + d), **kwargs)
+            for p in conflicting_edges: remove_points.append(p)
+            if conflicting_edges:
+                add_points.append(xj)
+            else:
+                add_points.append(xi)
+                add_points.append(xj)
 
-            ax.set_yticks([])
-            ax.set_yticklabels([])
-        if i != len(axs) - 1:
-            ax.spines['right'].set_visible(False)
-            ax.plot((1 - d, 1 + d), (-d, +d), **kwargs)
-            ax.plot((1 - d, 1 + d), (1 - d, 1 + d), **kwargs)
-
-        ax.set_xlim(xlims[i])
-        ax.scatter(x, y, **scatter_kwargs)
-
-    return axs
+    edges = list(edges) + add_points
+    for p in remove_points:
+        edges.remove(p)
+    edges = np.sort(edges)
+    lims = [(edges[i], edges[i+1]) for i in range(0, len(edges) - 1, 2)]
+    return lims
 
 
+def compute_cantor_lims(n:int, b:int, C_r_arrays:list[np.ndarray], x_threshold = 0.01, y_threshold = 0.01):
+    l = lattice.build_lattice("cantor", n, block_scale=b)
+    x = np.arange(l.size)[np.argwhere(l)].flatten().astype(float)
+    xlims = compute_broken_axes_limits(x, threshold=x_threshold, jump_threshold=3 ** (-n), extrema_pad=0.001)
+
+    all_c_values = np.concatenate(C_r_arrays).flatten()
+    ylims = compute_broken_axes_limits(all_c_values, keep_points=[0.], threshold=y_threshold, jump_threshold = 0.2, extrema_pad=0.01)
+    return xlims, ylims
 
 
-def plot_on_cantor(n, b, method):
-    cut_points = [1/9, 2/9, 1/3, 2/3, 7/9, 8/9]
-    fig, axs = plt.subplots(1, len(cut_points) // 2 + 1, figsize=(10, 5))
-
+def plot_on_cantor_set(method, n, b, break_xax=True, break_yax=True, data_func=get_ltm_data, overwrite=True):
+    l = lattice.build_lattice("cantor", n, block_scale=b)
     ms = [-1, 1, 3, 5]
+    data = []
+    for m in ms:
+        _, d = data_func(n, b, m, method, overwrite)
+        data.append(np.abs(d))
+
+    cmin, cmax = np.nanmin(data), np.nanmax(data)
+    crange = cmax - cmin
+    xlims = [(0, l.size)]
+    ylims = [(cmin - 0.1 * crange, cmax + 0.1 * crange)]
+    if break_xax or break_yax:
+        broken_xlims, broken_ylims = compute_cantor_lims(n, b, data, x_threshold=0.001, y_threshold=0.001)
+    if break_xax and method not in ["substituted", "substituted_alt"]:
+        xlims = broken_xlims
+    if break_yax:
+        ylims = broken_ylims
+    
+    fig = plt.figure(figsize=(20, 10))
+    bax = brokenaxes(xlims=xlims, ylims=ylims, d=0.005, despine=True, fig=fig)
+
     cs = ['k', 'r', 'b', 'g']
     shapes = ['.', 's', '^', 'v']
     offsets = [-0.1, 0, -0.1, 0]
     sizes = [36, 50, 36, 50]
     zorders = [1, 0, 1, 0]
-    ys = []
+
     for i in range(len(ms)):
-        x, y = get_ltm_data(n, b, ms[i], method)
-        ys.append(y)
-        axs = make_broken_axes(x, y, cut_points, axs, c=cs[i], marker=shapes[i], label=f"$M={ms[i]}$", s=sizes[i], zorder=zorders[i])
+        bax.scatter(np.arange(l.size), data[i], 
+                    c=cs[i], marker=shapes[i], s=sizes[i], zorder=zorders[i],
+                    label=f'$M={ms[i]}$')
+    axs = np.array(bax.axs).reshape(len(ylims), len(xlims))
 
-    for ax in axs: ax.axhline(-1.0, c='k', zorder=-10, ls='--')
+    if break_xax:
+        for ax in axs[-1, :]:
+            xmin, xmax = ax.get_xlim()
+            r = (xmax - xmin) / 5
+            ax.set_xticks(np.round([xmin + r, xmax - r], 0))
+            #ax.set_xticks([np.round(np.mean(ax.get_xlim()), 0)])
 
-    ymax, ymin = np.nanmax(ys[1]), np.nanmin(ys[1])
-    yticks = [ymax, 0., -1.0]
-    axs[0].set_yticks(yticks)
-    axs[0].set_yticklabels([round(t, 2) for t in yticks])
-    axs[0].legend(loc='upper left')
-    axs[0].set_ylabel("C(r)", fontsize=16)
-    fig.text(0.5, 0.02, "Site Index", ha='center', fontsize=16)
+    axs[0, -1].legend()
 
-    l = lattice.build_lattice("cantor", n, block_scale=b)
-    L = l.size
-    fig.suptitle(f"{method} n={n} L={L}")
-    plt.savefig(f"./figures/{method}_n={n}_L={L}.png")
+    fig = bax.fig
+    fig.subplots_adjust(hspace=0.1, wspace=0.1)
+    func_dir = 'ltm' if 'ltm' in data_func.__name__ else 'ldos'
+    tit = 'Local Topological Marker' if func_dir == 'ltm' else 'Local Density of States'
+    fig.suptitle(f"{tit}\n{method} : n={n} : L={l.size}")
+    plt.savefig(f'./figures/{func_dir}/{method}_n={n}_L={l.size}.svg')
+    plt.savefig(f'./figures/{func_dir}/{method}_n={n}_L={l.size}.png')
+
+
 
 if __name__ == "__main__":
-
-    ns = [2, 3, 4]
-    bs = [1, 3, 9, 27]
+    rcParams['axes.linewidth'] = 2.0
+    rcParams['xtick.major.width'] = 2.0
+    rcParams['ytick.major.width'] = 2.0
+    ns = [4]
+    bs = [27]
     for n in ns:
         for b in bs:
-            for m in ["renorm"]:
-                plot_on_cantor(n, b, m)
-                plt.close()
-
-    #n = 4; b = 9
-    #C, eigenvalues, eigenvectors = compute_wrapper(model.build_model("cantor", n, hole_treatment="renorm", block_scale=b), n, b, 1.0, "site_elim", None, True)
-    #plt.scatter(np.arange(len(eigenvalues)), eigenvalues)
-    #plt.show()
+            for m in ["substituted"]:
+                plot_on_cantor_set(m, n, b, True, True, get_ldos_data, overwrite=False)
+                plt.close() 
