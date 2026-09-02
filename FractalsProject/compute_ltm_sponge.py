@@ -1,9 +1,6 @@
 import numpy as np
-import scipy.linalg as spla
-from scipy.sparse import csr_array, kron as sp_kron, eye as sp_eye
+import scipy.sparse as sp
 import os, h5py
-from tqdm_joblib import tqdm_joblib, tqdm
-from joblib import Parallel, delayed
 
 from project_tools import lattice, model
 from hypercubic import solve
@@ -12,38 +9,58 @@ from matplotlib import pyplot as plt
 from matplotlib.colors import Normalize
 
 
-def compute_topological_marker(l, method, eigenvalues, eigenvectors, fermi_energy:float=0.0, symmetrize=True):
+def compute_topological_marker(
+    l: np.ndarray,
+    method: str,
+    eigenvalues: np.ndarray,
+    eigenvectors,
+    fermi_energy: float = 0.0,
+    symmetrize: bool = True,
+):
     filled_idxs = np.argwhere(eigenvalues < fermi_energy).flatten()
     empty_idxs = np.argwhere(eigenvalues > fermi_energy).flatten()
-    if np.sum(eigenvalues == fermi_energy) > 0:
+
+    if np.any(np.isclose(eigenvalues, fermi_energy)):
         raise ValueError("Fermi energy coincides with an eigenvalue.")
 
-    # Vectorized computation of projection operators P and Q
+    # Compute projection operators P and Q
+    # Works for both numpy dense ndarrays and scipy sparse matrices
     V_filled = eigenvectors[:, filled_idxs]
     P = V_filled @ V_filled.conj().T
 
     V_empty = eigenvectors[:, empty_idxs]
     Q = V_empty @ V_empty.conj().T
 
-    if method in ['site_elim', 'renorm']: 
+    if method in ["site_elim", "renorm"]:
         X, Y, Z = np.where(l > 0)
     else:
         X, Y, Z = np.where(l >= 0)
-    n_dof_per_site = eigenvectors.shape[0] // len(X)
-    X_op = np.diag(np.repeat(X, n_dof_per_site))
-    Y_op = np.diag(np.repeat(Y, n_dof_per_site))
-    Z_op = np.diag(np.repeat(Z, n_dof_per_site))
+
+    n_total = eigenvectors.shape[0]
+    n_dof_per_site = n_total // len(X)
+
+    # Position operators as sparse diagonal matrices (CSR format)
+    X_vec = np.repeat(X, n_dof_per_site).astype(np.complex128)
+    Y_vec = np.repeat(Y, n_dof_per_site).astype(np.complex128)
+    Z_vec = np.repeat(Z, n_dof_per_site).astype(np.complex128)
+
+    X_op = sp.diags(X_vec, format="csr")
+    Y_op = sp.diags(Y_vec, format="csr")
+    Z_op = sp.diags(Z_vec, format="csr")
     pos_ops = {"x": X_op, "y": Y_op, "z": Z_op}
 
-    N_D = 8 * np.pi * 1.0j
+    N_D = 8.0 * np.pi * 1.0j
 
-    sigma0 = np.array([[1., 0.], [0., 1.]]).astype(np.complex128)
-    sigma2 = np.array([[0., -1.j], [1.j, 0.]]).astype(np.complex128)
-
+    # Sparse construction of Chiral/Symmetry Operator W
+    sigma0 = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.complex128)
+    sigma2 = np.array([[0.0, -1.0j], [1.0j, 0.0]], dtype=np.complex128)
     G5 = -np.kron(sigma2, sigma0)
 
-    W = np.kron(np.eye(eigenvalues.shape[0] // 4), G5)
-
+    W = sp.kron(
+        sp.eye(n_total // 4, format="csr"),
+        sp.csr_matrix(G5),
+        format="csr",
+    )
 
     def eval_term(x1, x2, x3):
         A = Q @ x1 @ P @ x2 @ Q @ x3 @ P
@@ -59,19 +76,24 @@ def compute_topological_marker(l, method, eigenvalues, eigenvectors, fermi_energ
             (("x", "z", "y"), -1.0),
             (("z", "y", "x"), -1.0),
         ]
+        norm_factor = 6.0
     else:
-        permutations = [
-            (("x", "y", "z"), +1.0)
-        ]
-    term_sum = np.zeros(eigenvectors.shape, dtype=np.complex128)
+        permutations = [(("x", "y", "z"), +1.0)]
+        norm_factor = 1.0
+
+    # Initialize term_sum matching input matrix structure
+    if sp.issparse(P):
+        term_sum = sp.csr_matrix((n_total, n_total), dtype=np.complex128)
+    else:
+        term_sum = np.zeros((n_total, n_total), dtype=np.complex128)
+
     for (p1, p2, p3), sgn in permutations:
-        term_sum += (
-            sgn
-            * eval_term(pos_ops[p1], pos_ops[p2], pos_ops[p3]) 
-            / 6.0
+        term_sum = term_sum + (
+            (sgn / norm_factor)
+            * eval_term(pos_ops[p1], pos_ops[p2], pos_ops[p3])
         )
 
-    C = N_D * W @ term_sum
+    C = N_D * (W @ term_sum)
     return C
 
 
