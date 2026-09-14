@@ -11,6 +11,7 @@ from compute_ltm_cantor import compute_ldos
 from matplotlib import pyplot as plt
 from matplotlib.colors import Normalize
 
+DEFAULT_DATA_SAVE_DIRECTORY = "./data/local_marker/sponge/"
 
 def compute_topological_marker(
     l: np.ndarray,
@@ -100,12 +101,12 @@ def compute_topological_marker(
     return C
 
 
-def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True, directory="./data/local_marker/sponge/"):
+def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True, directory=DEFAULT_DATA_SAVE_DIRECTORY, M_alt=None):
     if method == 'cube':
         l = np.ones((L * b, L * b, L * b), dtype=int) # type: ignore
     else:
         l = lattice.build_lattice("sponge", n=n, block_scale=b, pasted=pasted)
-    params = {"M": M, "M_alt": M, "M_prime": 0.01, "disorder_seed": 0, "disorder_strength": 0.0, "t": 1., "B": 1., "g": 0, "gauge": "N"}
+    params = {"M": M, "M_alt": M_alt, "M_prime": 0.01, "disorder_seed": 0, "disorder_strength": 0.0, "t": 1., "B": 1., "g": 0, "gauge": "N"}
 
     size_tag = f"_L={l.shape[0]}" if method == 'cube' else f"_n={n}_L={l.shape[0]}"
     filename = f"{method}_M={params['M']:.3f}" + size_tag + ".h5"
@@ -149,7 +150,7 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     return C, eigenvalues, ldos, l
 
 
-def plot_lcm(method, M, l, C, b, plot_type='radial'):
+def plot_lcm(method, M, M_alt, l, n, b, C, plot_type='radial'):
     if method in ['site_elim', 'renorm']: 
         mask = l > 0
     else:
@@ -160,7 +161,7 @@ def plot_lcm(method, M, l, C, b, plot_type='radial'):
     Z -= np.mean(Z)
     r = np.sqrt(X ** 2 + Y ** 2 + Z ** 2)
 
-    n = round(np.log(l.shape[0] / b)/np.log(3))
+    n = round(np.log(l.shape[0] / b / (pasted + 1))/np.log(3))
 
     if (0.0 < M <= 4.0) or (8.0 < M <= 12.0):
         y = 1.0
@@ -173,7 +174,7 @@ def plot_lcm(method, M, l, C, b, plot_type='radial'):
     if method == 'cube':
         plt.title(f"L={l.shape[0]} : M={M:.2f}")
     else:
-        plt.title(f"{method} : L={l.shape[0]} : M={M:.2f}")
+        plt.title(f"{method} : n={n} : L={l.shape[0]} : M={M:.2f} : M_alt={M_alt:.2f}")
     plt.ylim(-3.0, 2.0)
 
     if plot_type == 'radial': 
@@ -190,11 +191,15 @@ def plot_lcm(method, M, l, C, b, plot_type='radial'):
         plt.scatter(pos, cs)
         plt.xlabel('Position along body diagonal'); plt.ylabel("$C(\\vec r)$")
 
-    plt.savefig(f"./figures/3D/{method}_L={l.shape[0]}_M={M:.2f}.png")
+    if method == 'cube':
+        plt.savefig(f"./figures/3D/{method}_L={l.shape[0]}_M={M:.2f}_M_alt={M_alt:.2f}.png")
+    else:
+        plt.savefig(f"./figures/3D/{method}_n={n}_b={b}_p={pasted}_M={M:.2f}_M_alt={M_alt:.2f}.png")
     plt.close()
 
 
-def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8):
+def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8,
+                   ax=None, plot_diagonal_half=False):
     """
     Plots a 3D voxel grid where voxels and colors share the same 3D spatial shape.
 
@@ -205,6 +210,8 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8):
         cmap (str or Colormap): Matplotlib colormap used if `colors` contains numerical data.
         edgecolors (str): Line color for voxel edges.
         alpha (float): Opacity of the voxel faces.
+        plot_diagonal_half (bool): If True, show only the half-space X >= Y,
+                       leaving the diagonal cross section visible.
 
     Returns:
         fig, ax: Matplotlib Figure and Axes3D objects.
@@ -214,6 +221,11 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8):
 
     if filled.shape != colors.shape[:3]:
         raise ValueError(f"Shape mismatch: voxels {filled.shape} vs colors {colors.shape[:3]}")
+
+    if plot_diagonal_half:
+        x, y, z = np.indices(filled.shape)
+        diagonal_half = (x >= y) & (y >= z)
+        filled = filled & diagonal_half
 
     # Convert scalar numeric color arrays to RGBA via the colormap
     if np.issubdtype(colors.dtype, np.number) and colors.ndim == 3:
@@ -228,8 +240,11 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8):
     else:
         facecolors = colors
 
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection='3d')
+    if ax == None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d')
+    else:
+        fig = ax.figure
     
     # Plot voxels
     v = ax.voxels(filled, facecolors=facecolors, edgecolors=edgecolors, alpha=alpha)
@@ -244,13 +259,19 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8):
             ax=ax,
             label='Value',
         )
-    return fig, ax
+    return v
 
 
 if __name__ == "__main__":
-    from itertools import product
-    M_values = [-2.0, 2.0, 6.0]
-    methods = ['site_elim', 'renorm']
+    method = 'substituted'; n=1; b=2; pasted=False
+
+    M_alt = 2.0; M = -0.05
+    C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt)
+    plot_lcm(method, M, M_alt, l, n, b, C, 'body_diagonal')
+    #C_box = np.full(l.shape, np.nan)
+    #C_box[l == 1] = C
+    #plot_3d_voxels(l == 1, C_box)
+    #plt.show()
 
     def worker(method, M):
         C, eigenvalues, ldos, l = compute_wrapper(method, M, L=24, n=1, pasted=True, b=4)
