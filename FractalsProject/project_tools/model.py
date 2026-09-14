@@ -130,11 +130,11 @@ def build_model(fractal, n, *, hole_treatment="substituted", pbc=False,
 
 
 
-def build_model_arbitrary(L, ndim, *, pbc=False, pseudo_scalar=None):
+def build_model_arbitrary(L, ndim, *, b=1, pbc=False, pseudo_scalar=None):
     if pseudo_scalar is None:
         pseudo_scalar = (ndim == 3)
 
-    lat = np.full(tuple([L] * ndim), 1, dtype=int)
+    lat = np.full(tuple([L * b] * ndim), 1, dtype=int)
 
     sector_labels = lat.ravel(order="F")
     origin = (np.asarray(lat.shape, dtype=float) - 1.0) / 2.0

@@ -86,7 +86,7 @@ def compute_topological_marker(eigenvalues, eigenvectors):
     return C
 
 
-def compute_wrapper(n, b, M, method, M_alt=None, overwrite:bool = False, directory="./data/local_marker/") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+def compute_wrapper(n, b, M, method, M_alt=None, overwrite:bool = False, directory="./data/local_marker/"):
     VALID_METHODS = ['renorm', 'renorm_alt', 'substituted', 'site_elim', 'substituted_alt', 'site_elim_alt']
     assert method in VALID_METHODS, f"method must be in {VALID_METHODS}"
 
