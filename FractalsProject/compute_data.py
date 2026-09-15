@@ -69,7 +69,7 @@ def phase_diagram(fractal, n, M_range, M_alt_range, *,
 def main():
     # ── compute flags ────────────────────────────────────────────────────────
     RUN_CANTOR = True
-    RUN_CARPET = True
+    RUN_CARPET = False
 
     # ── phase-diagram sweep helper ───────────────────────────────────────────
     # Size knobs per case: (n, upscale_to_n, block_scale)
@@ -102,18 +102,18 @@ def main():
         # All 15 cantor cases: (n, upscale_to_n, block_scale), grouped by L
         cantor_cases = [
             # L=81  (block_scale=1)
-            (2, 4, 1), (3, 4, 1), (4, None, 1),
+            #(2, 4, 1), (3, 4, 1), (4, None, 1),
             # L=162 (block_scale=2)
-            (2, 4, 2), (3, 4, 2), (4, None, 2),
+            #(2, 4, 2), (3, 4, 2), (4, None, 2),
             # L=243 (block_scale=3)
-            (2, 4, 3), (3, 4, 3), (4, None, 3),
+            #(2, 4, 3), (3, 4, 3), (4, None, 3),
             # L=324 (block_scale=4)
-            (2, 4, 4), (3, 4, 4), (4, None, 4),
+            #(2, 4, 4), (3, 4, 4), (4, None, 4),
             # L=405 (block_scale=5)
             (2, 4, 5), (3, 4, 5), (4, None, 5),
         ]
-        run_phase_diagrams("cantor", cantor_cases, M_res=121, M_alt_res=121,
-                           M_range=(-1.0, 5.0), M_alt_range=(-1.0, 5.0))
+        run_phase_diagrams("cantor", cantor_cases, M_res=25, M_alt_res=25,
+                           M_range=(0.75, 1.25), M_alt_range=(-.5, 0.0))
 
     # ── SECTION 2 — Sierpinski carpet Bott-index phase diagrams ───────────────
     if RUN_CARPET:

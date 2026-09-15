@@ -1,22 +1,16 @@
 """
 Geometrically trivial defects in non-Hermitian Chern insulators
 """
-
 import numpy as np
 import scipy.linalg as spla
 from scipy.sparse import dok_matrix
-from typing import Any
 
 import matplotlib.pyplot as plt
 from matplotlib.axes import Axes
 
 from itertools import product
 from cProfile import Profile
-import pstats
-import functools
-import h5py
-from tqdm_joblib import tqdm_joblib, tqdm
-from joblib import Parallel, delayed
+import pstats, functools
 
 
 def profile(func):
@@ -39,8 +33,8 @@ class DefectLattice:
                  schottky_separation:int=0, schottky_n_pairs:int=1, 
                  frenkel_x_disp:float = -1.5, frenkel_y_disp:float = -0.5,
                  break_c4:bool = False, dislocation_direction:str = 'x', core_separation:int = 1): 
-        assert Lx % 2 == 0
-        assert Ly % 2 == 0
+        #assert Lx % 2 == 0
+        #assert Ly % 2 == 0
         self._defect_type = defect_type
         self._pbc = pbc
         self._Lx = Lx
@@ -390,7 +384,8 @@ class DefectLattice:
             fig, ax = plt.subplots(1, 1, figsize=(6,6))
 
         ax.scatter(self.X, self.Y, c='k', s=100)
-        ax.scatter(self.X[self.defect_indices], self.Y[self.defect_indices], c='r', s=100)
+        ax.scatter(self.defect_positions[0], self.defect_positions[1], c='r', s=100)
+        plt.show()
         return ax
 
 
@@ -432,44 +427,6 @@ def compute_hamiltonian(Lattice:DefectLattice, m0:float, h_vector:"np.ndarray|tu
     return hamiltonian
 
 
-def get_separated_points(z, k=6, threshold=0.75):
-    z = np.asarray(z)
-    N = len(z)
-
-    # Build pairwise distance matrix
-    dz = z.reshape(N, 1) - z.reshape(1, N)
-    dist = np.abs(dz)
-
-    # Ignore self-distance
-    np.fill_diagonal(dist, np.inf)
-
-    # k-th nearest neighbor distance
-    knn = np.partition(dist, k-1, axis=1)[:, k-1]
-    knn = (knn - np.min(knn)) / np.max(knn)
-
-    # Add weight to smaller real and imag gap
-    z_real, z_imag = np.abs(z.real), np.abs(z.imag)
-    real_weight = 1.0 - (z_real - np.min(z_real)) / np.max(z_real)
-    imag_weight = 1.0 - (z_imag - np.min(z_imag)) / np.max(z_imag)
-
-    if False:
-        sum_weight = knn + real_weight + imag_weight
-        weights = [knn, real_weight, imag_weight, sum_weight]
-        fig, axs = plt.subplots(2, 4, figsize=(20, 10))   
-        x = np.arange(len(z))
-        for i, weight in enumerate(weights):
-            axs[0, i].scatter(x, weight, c=knn)
-            axs[1, i].scatter(z.real, z.imag, c=weight)
-        plt.show()
-
-    knn_idxs = np.argsort(knn)
-    real_idxs = np.argsort(real_weight)[-2:]
-    imag_idxs = np.argsort(imag_weight)[-2:]
-
-    idxs = np.concatenate((knn_idxs, real_idxs, imag_idxs))
-    return knn_idxs
-
-
 def compute_ipr(eigenvectors:np.ndarray):
     eigvec_sq = np.abs(eigenvectors) ** 2
     eigvec_sq = eigvec_sq[eigenvectors.shape[0] // 2:, :] + eigvec_sq[:eigenvectors.shape[0] // 2, :]
@@ -477,10 +434,12 @@ def compute_ipr(eigenvectors:np.ndarray):
     return IPR
 
 
-def get_close_to_zero_idxs(eigenvectors, n_idxs):
+def get_close_to_zero_idxs(eigenvectors, n_idxs, return_ipr=False):
     ipr = compute_ipr(eigenvectors)
     sort = np.argsort(ipr)
     idxs  = sort[-n_idxs:]
+    if return_ipr:
+        return idxs, ipr
     return idxs
 
 
@@ -501,16 +460,8 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
     if hcond > 1e10:
         print(f'Hamiltonian condition number for (m0, h0_vector, hsub_vector) = ({m0}, {h0_vector}, {hsub_vector}): {hcond}')
 
-    # Assuming particle-hole symmetry
-    #close_to_zero_idxs = np.lexsort((np.abs(eigenvalues.real), np.abs(eigenvalues.imag)))[:n_closest_to_zero]
-    abs_sorted_idxs = np.argsort(np.abs(eigenvalues), kind='stable')
-    close_to_zero_idxs = abs_sorted_idxs[:n_closest_to_zero]
-
-    left_ipr = compute_ipr(left_eigenvectors)
     right_ipr = compute_ipr(right_eigenvectors)
-    ipr = (left_ipr + right_ipr) / 2
-    ipr_sorted_idxs = np.argsort(left_ipr)
-    close_to_zero_idxs = ipr_sorted_idxs[-n_closest_to_zero:]
+    close_to_zero_idxs, left_ipr = get_close_to_zero_idxs(left_eigenvectors, n_closest_to_zero, True)
 
     close_left = left_eigenvectors[:, close_to_zero_idxs] # Eigenstates of selected eigenvalues
     close_right = right_eigenvectors[:, close_to_zero_idxs]
@@ -520,10 +471,10 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
     L = np.sum(np.abs(left_eigenvectors) ** 2, axis = 1)
     R = np.sum(np.abs(right_eigenvectors) ** 2, axis = 1)
 
-    def sum_over_orbitals(arr:np.ndarray):
+    def _sum_over_orbitals(arr:np.ndarray):
         return arr[0::2] + arr[1::2]
 
-    def ensure_eigenvector_shape_for_schottky(eigenvector):
+    def _ensure_eigenvector_shape_for_schottky(eigenvector):
         mask = np.full(hamiltonian.shape[0] + len(Lattice.defect_indices), True) 
         for i, idx in enumerate(Lattice.defect_indices): 
             mask[2 * idx + i % 2] = False
@@ -533,28 +484,25 @@ def compute_eigenvectors_eigenvalues(Lattice:DefectLattice, m0:float,
 
     # Properly handle Schottky Pair parity elimination
     if (Lattice.defect_indices is not None) and (Lattice.defect_type == 'schottky'):
-        L = ensure_eigenvector_shape_for_schottky(L)
-        R = ensure_eigenvector_shape_for_schottky(R)
-        close_left = ensure_eigenvector_shape_for_schottky(close_left)
-        close_right = ensure_eigenvector_shape_for_schottky(close_right)
+        L = _ensure_eigenvector_shape_for_schottky(L)
+        R = _ensure_eigenvector_shape_for_schottky(R)
+        close_left = _ensure_eigenvector_shape_for_schottky(close_left)
+        close_right = _ensure_eigenvector_shape_for_schottky(close_right)
 
     data_dictionary = {
         "eigenvalues" : eigenvalues, 
-        "L" : sum_over_orbitals(L), 
-        "R" : sum_over_orbitals(R), 
+        "L" : _sum_over_orbitals(L), 
+        "R" : _sum_over_orbitals(R), 
         "selected_idxs" : close_to_zero_idxs,
-        "selected_left_eigenvectors" : sum_over_orbitals(close_left),
-        "selected_right_eigenvectors" : sum_over_orbitals(close_right),
+        "selected_left_eigenvectors" : _sum_over_orbitals(close_left),
+        "selected_right_eigenvectors" : _sum_over_orbitals(close_right),
         "left_eigenvectors" : left_eigenvectors,
         "right_eigenvectors" : right_eigenvectors,
         "left_ipr" : left_ipr,
         "right_ipr": right_ipr,
-        "average_ipr": ipr,
-        "left_eigenvectors": left_eigenvectors,
-        "right_eigenvectors": right_eigenvectors
+        "hamiltonian": hamiltonian
     }
     return data_dictionary
-
 
 
 def main():
@@ -562,45 +510,4 @@ def main():
 
 
 if __name__ == "__main__":
-    if 0:
-        Ls = np.arange(10, 50, 2)
-
-        iprs = []
-        def _compute_iprs(L):
-            Lattice = DefectLattice(L, L, "vacancy", True)
-            eig_dict = compute_eigenvectors_eigenvalues(Lattice, -1.0, np.array([0., 0., 1.5]))
-            return np.max(eig_dict["left_ipr"])
-
-        with tqdm_joblib(tqdm(total=len(Ls), desc=f"")) as progress_bar:
-            data = Parallel(n_jobs=6)(delayed(_compute_iprs)(params) for params in Ls)
-
-        with h5py.File("./NonHermitian/Data/l_vs_ipr_max.h5", "w") as f:
-            f.create_dataset(name="Ls", data=Ls)
-            f.create_dataset(name="iprs", data=data)
-
-
-    if 1:
-        with h5py.File("./NonHermitian/Data/l_vs_ipr_max.h5", "r") as f:
-            Ls = np.array(f["Ls"][()])
-            ipr_maxes = np.array(f["iprs"][()])
-
-
-        def _fit_func(x, a, b):
-            return a * x + b
-
-
-
-        x = np.pow(1/Ls, 2)
-        y = ipr_maxes
-        from scipy.optimize import curve_fit
-        popt, _ = curve_fit(_fit_func, x, y, p0=[1., 0.005])
-        plt.scatter(x, y)
-        t = np.linspace(0, np.max(x)*1.1, 101)
-        plt.plot(t, _fit_func(t, *popt), 'k--', zorder=-1, label=f"Fit y={popt[0]:.2f}x+{popt[1]:.2e}")
-        plt.xlabel("$1/L^2$", fontsize=16)
-        plt.ylabel("IPR Max", fontsize=16)
-        plt.legend()
-
-        plt.xlim((0., np.max(x)*1.1))
-        plt.ylim((0., np.max(y)*1.1))
-        plt.show()
+    main()

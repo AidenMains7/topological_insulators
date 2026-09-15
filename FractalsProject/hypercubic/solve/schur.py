@@ -5,13 +5,14 @@ import scipy.sparse.linalg as spla
 from .eigensolve import _solve_hermitian, _solve_non_hermitian, is_hermitian, _site_prob
 
 
-def schur_solve(model, eliminate_label, eliminate_value, energy=0.0,
-                k=None, sigma=None, which=None,
-                return_eigenvalues=True, return_eigenvectors=True,
-                hermitian=None, herm_rtol=1e-8, herm_atol=1e-10,
-                return_LDOS=False, return_IPR=False,
-                solver_kwargs=None, apply_vacancies=True,
-                params=None, **extra_params):
+def schur_solve(model, eliminate_label, eliminate_value, energy=0.0, 
+                 eta=0.0, w=5e-2, amplification_factor=20.0,
+                 k=None, sigma=None, which=None,
+                 return_eigenvalues=True, return_eigenvectors=True,
+                 hermitian=None, herm_rtol=1e-8, herm_atol=1e-10,
+                 return_LDOS=False, return_IPR=False,
+                 solver_kwargs=None, apply_vacancies=True,
+                 params=None, **extra_params):
     from ..report.observables import build_LDOS_partial, build_IPR
     sk = dict(solver_kwargs) if solver_kwargs else {}
     merged_params = {}
@@ -35,6 +36,11 @@ def schur_solve(model, eliminate_label, eliminate_value, energy=0.0,
     A_h = np.repeat(keep_site_mask, d)
     B_h = np.repeat(eliminate_site_mask, d)
 
+    if w != 0.0:
+        disorder = np.random.random(H.shape[0]) * 2.0 - 1.0
+        disorder -= np.mean(disorder)
+        H += sps.csr_array(np.diag(disorder) * w / 2)
+
     H_AA = H[A_h][:, A_h]
     H_BB = H[B_h][:, B_h]
     H_AB = H[A_h][:, B_h]
@@ -44,13 +50,44 @@ def schur_solve(model, eliminate_label, eliminate_value, energy=0.0,
     if nB == 0:
         H_eff = H_AA.toarray() if sps.issparse(H_AA) else H_AA
     else:
-        if energy == 0.0:
-            M = -H_BB
-        else:
-            M = energy * sps.identity(nB, dtype=np.complex128, format="csr") - H_BB
-        lu = spla.splu(M.tocsc())
-        X = lu.solve(H_BA.toarray() if sps.issparse(H_BA) else H_BA)
+        H_BA_dense = H_BA.toarray() if sps.issparse(H_BA) else H_BA
         H_AA_dense = H_AA.toarray() if sps.issparse(H_AA) else H_AA
+        H_BB_dense = H_BB.toarray() if sps.issparse(H_BB) else H_BB
+
+        w_BB, v_BB = np.linalg.eigh(H_BB_dense)
+        gap = np.abs(energy - w_BB)
+        gap_min = gap.min()
+
+        if eta == "auto":
+            # Cap the elimination's amplification at `amplification_factor`
+            # relative to the natural 1/bandwidth scale of the eliminated
+            # sector. If H_BB is already safely gapped at `energy`, this
+            # comes out to 0 and the exact formula below is unchanged.
+            bandwidth = np.abs(w_BB).max()
+            if bandwidth == 0.0:
+                bandwidth = 1.0
+            max_allowed_inverse = amplification_factor / bandwidth
+            eta_eff = float(np.sqrt(max(0.0, (1.0 / max_allowed_inverse) ** 2 - gap_min ** 2)))
+        else:
+            eta_eff = float(eta)
+
+        if eta_eff == 0.0:
+            # Exact path -- identical to the original implementation.
+            if energy == 0.0:
+                M = -H_BB
+            else:
+                M = energy * sps.identity(nB, dtype=np.complex128, format="csr") - H_BB
+            lu = spla.splu(M.tocsc())
+            X = lu.solve(H_BA_dense)
+        else:
+            # Regularized path: Re[G^R_BB(energy)] from H_BB's own
+            # eigendecomposition -- stays exactly Hermitian, so everything
+            # downstream (eigh, LDOS, IPR) is unaffected.
+            denom = (energy - w_BB) ** 2 + eta_eff ** 2
+            reg_inv_eigs = -(energy - w_BB) / denom
+            ReG_BB = (v_BB * reg_inv_eigs) @ v_BB.conj().T
+            X = ReG_BB @ H_BA_dense
+
         H_eff = H_AA_dense - (H_AB @ X)
 
     if hermitian is None:
@@ -86,4 +123,3 @@ def schur_solve(model, eliminate_label, eliminate_value, energy=0.0,
                 result["IPR_right"] = build_IPR(pr)
 
     return result
-

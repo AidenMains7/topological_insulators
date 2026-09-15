@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.sparse as sp
 import os, h5py
+import threadpoolctl
 
 from project_tools import lattice, model
 from hypercubic import solve
@@ -98,7 +99,23 @@ def compute_topological_marker(
     return C
 
 
-def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True, directory=DEFAULT_DATA_SAVE_DIRECTORY, M_alt=None):
+def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True,
+                     directory=DEFAULT_DATA_SAVE_DIRECTORY, M_alt=None,
+                     n_threads=None, driver="evr"):
+    """
+    n_threads : int or None
+        Caps how many BLAS threads the dense diagonalization is allowed to
+        use (via threadpoolctl), for this call only -- doesn't touch global
+        env vars or affect anything outside this `with` block. None leaves
+        whatever's already configured (env vars / library defaults) alone.
+    driver : {"evr", "evd", "ev", "evx"}
+        LAPACK driver passed through to scipy.linalg.eigh. "evd"
+        (divide-and-conquer) does more total work than the default "evr" but
+        in a much more parallelizable structure, so it's the one most likely
+        to actually benefit from n_threads > 1 -- but which wins depends on
+        matrix size and core count, so benchmark both on the target machine
+        rather than assuming; "evr" was faster single-threaded in testing here.
+    """
     if method == 'cube':
         l = np.ones((L, L, L), dtype=int) # type: ignore
     else:
@@ -126,10 +143,15 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     else:
         m = model.build_model("sponge", n=n, block_scale=b, pasted=pasted, hole_treatment=method)
 
-    if method == 'renorm':
-        res = solve.schur_solve(m, "sector", 0, params=params, hermitian=True, return_LDOS=True)
-    else:
-        res = solve.solve_model(m, apply_vacancies=True if method in ['site_elim'] else False, hermitian=True, return_LDOS=True, params=params)
+    solver_kwargs = {"driver": driver}
+    with threadpoolctl.threadpool_limits(limits=n_threads, user_api="blas"):
+        if method == 'renorm':
+            res = solve.schur_solve(m, "sector", 0, params=params, hermitian=True,
+                                     return_LDOS=True, solver_kwargs=solver_kwargs)
+        else:
+            res = solve.solve_model(m, apply_vacancies=True if method in ['site_elim'] else False,
+                                     hermitian=True, return_LDOS=True, params=params,
+                                     solver_kwargs=solver_kwargs)
 
     eigenvalues = res['eigenvalues']
     eigenvectors = res['eigenvectors']
@@ -257,17 +279,15 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8,
 
 
 if __name__ == "__main__":
-    method = 'substituted'; n=1; b=2; pasted=False
+    from time import time
+    method = 'substituted'; n=1; b=2; pasted=True
 
-    M_alt = 2.0; M = -0.05
-    C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt)
+    M_alt = 2.0; M = -0.8
+    t0 = time()
+    C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt, n_threads=6)
+    print(f"{time()-t0:.2f}s")
     plot_lcm(method, M, M_alt, l, n, b, C, 'body_diagonal')
     #C_box = np.full(l.shape, np.nan)
     #C_box[l == 1] = C
     #plot_3d_voxels(l == 1, C_box)
     #plt.show()
-
-
-
-
-

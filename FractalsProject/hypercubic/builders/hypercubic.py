@@ -10,7 +10,7 @@ from ..dsl.dvector import make_operator_term
 
 
 def _normalize_pbc(pbc, nd):
-    if isinstance(pbc, bool):
+    if isinstance(pbc, (bool, np.bool)):
         return tuple([pbc] * nd)
     flags = tuple(bool(x) for x in pbc)
     if len(flags) != nd:
