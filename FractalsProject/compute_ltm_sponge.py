@@ -5,6 +5,7 @@ import threadpoolctl
 
 from project_tools import lattice, model
 from hypercubic import solve
+from compute_ltm_cantor import compute_ldos
 
 from matplotlib import pyplot as plt
 from matplotlib.colors import Normalize
@@ -117,21 +118,22 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
         rather than assuming; "evr" was faster single-threaded in testing here.
     """
     if method == 'cube':
-        l = np.ones((L, L, L), dtype=int) # type: ignore
+        l = np.ones((L * b, L * b, L * b), dtype=int) # type: ignore
     else:
         l = lattice.build_lattice("sponge", n=n, block_scale=b, pasted=pasted)
     params = {"M": M, "M_alt": M_alt, "M_prime": 0.01, "disorder_seed": 0, "disorder_strength": 0.0, "t": 1., "B": 1., "g": 0, "gauge": "N"}
 
     size_tag = f"_L={l.shape[0]}" if method == 'cube' else f"_n={n}_L={l.shape[0]}"
-    filename = f"{method}_M={params["M"]:.3f}" + size_tag + ".h5"
+    filename = f"{method}_M={params['M']:.3f}" + size_tag + ".h5"
 
     if os.path.exists(directory + filename):
         with h5py.File(directory + filename, "r") as f:
             C:np.ndarray = f["C"][()] # type: ignore
             eigenvalues:np.ndarray = f["eigenvalues"][()] # type: ignore
+            ldos = f["LDOS"][()] # type: ignore
             m_read = f["M"][()] # type: ignore
             assert np.isclose(params["M"], m_read) # type: ignore
-        return C, eigenvalues, l # type: ignore
+        return C, eigenvalues, ldos, l # type: ignore
 
     if method == 'cube' and L == None:
         raise ValueError()
@@ -139,7 +141,7 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
         raise ValueError()
     
     if method == 'cube':
-        m = model.build_model_arbitrary(L, 3)
+        m = model.build_model_arbitrary(L, 3, b=b)
     else:
         m = model.build_model("sponge", n=n, block_scale=b, pasted=pasted, hole_treatment=method)
 
@@ -156,14 +158,16 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     eigenvalues = res['eigenvalues']
     eigenvectors = res['eigenvectors']
     C = np.real(np.diag(compute_topological_marker(l, method, eigenvalues, eigenvectors)).reshape(-1, 4).sum(axis=1))
+    ldos = compute_ldos(eigenvalues, eigenvectors)
 
     if save_data:
         with h5py.File(directory + filename, "w") as f:
             f.create_dataset(name="C", data=C)
             f.create_dataset(name="eigenvalues", data=eigenvalues)
+            f.create_dataset(name="LDOS", data=ldos)
             f.create_dataset(name="M", data=params["M"])
 
-    return C, eigenvalues, l
+    return C, eigenvalues, ldos, l
 
 
 def plot_lcm(method, M, M_alt, l, n, b, C, plot_type='radial'):
@@ -291,3 +295,14 @@ if __name__ == "__main__":
     #C_box[l == 1] = C
     #plot_3d_voxels(l == 1, C_box)
     #plt.show()
+
+    def worker(method, M):
+        C, eigenvalues, ldos, l = compute_wrapper(method, M, L=24, n=1, pasted=True, b=4)
+        plot_lcm(method, M, l, C, 2, 'body_diagonal')
+
+    params = tuple(product(methods, M_values))
+
+    with tqdm_joblib(tqdm(total=len(params))) as progress_bar:
+        Parallel(n_jobs=1)(delayed(worker)(*p) for p in params)
+
+
