@@ -11,13 +11,17 @@ import matplotlib.pyplot as plt
 import scipy.sparse as spsp
 
 
-def compute_wannier_matrices(L:int):
+def compute_wannier_matrices(L:int, pbc:bool):
     Sx = spsp.dok_matrix((L, L), dtype=np.complex128)
     Cx = spsp.dok_matrix((L, L), dtype=Sx.dtype)
 
     for i in range(L - 1):
         Sx[i, i + 1] = 1j / 2
         Cx[i, i + 1] = 1.
+
+    if pbc:
+        Sx[0, -1] = 1j / 2
+        Cx[0, -1] = 1.
 
     Sx += Sx.conj().T
     Cx += Cx.conj().T
@@ -26,8 +30,8 @@ def compute_wannier_matrices(L:int):
     return I, Sx, Cx
 
 
-def compute_hamiltonian(l, M, B, t, M_alt=None, *args, **kwargs):
-    I, Sx, Cx = compute_wannier_matrices(l.size)
+def compute_hamiltonian(l, M, B, t, M_alt=None, pbc=False, *args, **kwargs):
+    I, Sx, Cx = compute_wannier_matrices(l.size, pbc)
 
     if M_alt is None:
         M_alt = M
@@ -89,7 +93,7 @@ def compute_topological_marker(eigenvalues, eigenvectors):
 
 
 def compute_wrapper(n, b, M, method, M_alt=None, pbc=False, overwrite:bool = False, directory="./data/local_marker/") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    VALID_METHODS = ['renorm', 'substituted', 'site_elim']
+    VALID_METHODS = ['renorm', 'substituted', 'site_elim', 'renorm_alt']
     assert method in VALID_METHODS, f"method must be in {VALID_METHODS}"
 
     l = lattice.build_lattice("cantor", n, block_scale=b)
@@ -107,16 +111,25 @@ def compute_wrapper(n, b, M, method, M_alt=None, pbc=False, overwrite:bool = Fal
             assert np.isclose(params["M"], m_read) and np.isclose(params["M_alt"], m_alt_read) # type: ignore
         return C, eigenvalues, ldos # type: ignore
 
-    m = model.build_model("cantor", n, hole_treatment=method, block_scale=b, pbc=pbc)
+    if 'alt' not in method:
+        m = model.build_model("cantor", n, hole_treatment=method, block_scale=b, pbc=pbc)
 
-    if method == 'renorm':
-        H = compute_hamiltonian(l, M, 1.0, 1.0, M_alt)
-        mask = (l == 1)
-        H_aa = H[np.ix_(mask, mask)]
-        H_bb = H[np.ix_(~mask, ~mask)]
-        #result = solve.schur_solve(m, "sector", 0, params=params, hermitian=True)
-        #eigenvalues = result["eigenvalues"]
-        #eigenvectors = result["eigenvectors"]
+    if method == 'renorm_alt':
+        H_init = compute_hamiltonian(l, M, 1.0, 1.0, M_alt, pbc=pbc)
+        disorder = np.random.random(H_init.shape[0]) * 2 - 1.0
+        disorder -= np.mean(disorder)
+        H_init += np.diag(disorder) * 1e-2
+
+        mask = np.repeat((l == 1).flatten(), 2)
+        H_aa = H_init[np.ix_(mask, mask)]
+        H_bb = H_init[np.ix_(~mask, ~mask)]
+        H_ab = H_init[np.ix_(mask, ~mask)]
+        H_ba = H_init[np.ix_(~mask, mask)]
+        H = H_aa - H_ab @ spla.solve(H_bb, H_ba, overwrite_a=True, overwrite_b=True)
+    elif method == 'renorm':
+        result = solve.schur_solve(m, "sector", 0, params=params, hermitian=True)
+        eigenvalues = result["eigenvalues"]
+        eigenvectors = result["eigenvectors"]
     elif method == 'site_elim':
         H = m.assemble(True, format='csr', **params).toarray()
     elif method == 'substituted':
@@ -124,6 +137,7 @@ def compute_wrapper(n, b, M, method, M_alt=None, pbc=False, overwrite:bool = Fal
 
     if method != "renorm":
         eigenvalues, eigenvectors = compute_eigvals(H)
+
     C = compute_topological_marker(eigenvalues, eigenvectors)
     ldos = compute_ldos(eigenvalues, eigenvectors)
 

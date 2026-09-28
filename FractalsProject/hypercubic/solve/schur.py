@@ -6,7 +6,7 @@ from .eigensolve import _solve_hermitian, _solve_non_hermitian, is_hermitian, _s
 
 
 def schur_solve(model, eliminate_label, eliminate_value, energy=0.0, 
-                 eta=0.0, w=5e-2, amplification_factor=20.0,
+                 eta=0.0, w=1e-3, amplification_factor=20.0,
                  k=None, sigma=None, which=None,
                  return_eigenvalues=True, return_eigenvectors=True,
                  hermitian=None, herm_rtol=1e-8, herm_atol=1e-10,
@@ -37,9 +37,12 @@ def schur_solve(model, eliminate_label, eliminate_value, energy=0.0,
     B_h = np.repeat(eliminate_site_mask, d)
 
     if w != 0.0:
-        disorder = np.random.random(H.shape[0]) * 2.0 - 1.0
+        disorder = np.random.random(H.shape[0] // 2) * 2.0 - 1.0
         disorder -= np.mean(disorder)
-        H += sps.csr_array(np.diag(disorder) * w / 2)
+        d_arr = np.empty(disorder.size * 2)
+        d_arr[::2] = disorder
+        d_arr[1::2] = -disorder
+        H += sps.csr_array(np.diag(d_arr) * w / 2)
 
     H_AA = H[A_h][:, A_h]
     H_BB = H[B_h][:, B_h]

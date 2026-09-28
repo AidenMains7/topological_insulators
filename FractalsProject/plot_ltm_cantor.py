@@ -58,9 +58,9 @@ def get_ltm_data(n, b, M, method, pbc, M_alt=None, overwrite=False):
 def get_ldos_data(n, b, M, method, pbc, M_alt=None, overwrite=False):
     """Near-zero-mode LDOS vs site index for one (M, M_alt) run."""
     _, eigvals, ldos = compute_wrapper(n, b, M, method, M_alt=M_alt, overwrite=overwrite, pbc=pbc)
-    fig, ax = plt.subplots(1,1)
-    ax.scatter(np.arange(eigvals.size), eigvals)
-    plt.show()
+    #fig, ax = plt.subplots(1,1)
+    #ax.scatter(np.arange(eigvals.size), eigvals)
+    #plt.show()
     l = lattice.build_lattice("cantor", n, block_scale=b)
     return _project_to_lattice(ldos, l, method)
 
@@ -193,7 +193,7 @@ def _add_region_inset(fig, l, data, M_values, region, *, bbox=(0.64, 0.6, 0.33, 
     y_local_max = 0.0
     for i, y in enumerate(data):
         y = np.asarray(y)
-        axins.plot(t[mask], y[mask], c=colors[i % len(colors)], marker=markers[i % len(markers)], zorder=(i+1)%2)
+        axins.scatter(t[mask], y[mask], c=colors[i % len(colors)], marker=markers[i % len(markers)], zorder=(i+1)%2)
         finite = y[mask][~np.isnan(y[mask])]
         if finite.size:
             y_local_max = max(y_local_max, finite.max())
@@ -202,7 +202,11 @@ def _add_region_inset(fig, l, data, M_values, region, *, bbox=(0.64, 0.6, 0.33, 
     #axins.imshow(l[np.newaxis, :], aspect="auto", cmap="Greys", alpha=0.2,
     #             extent=(x0, x1, 0, y_top), zorder=-1)
     axins.set_xlim(x0, x1)
-    axins.set_ylim(-0.25, y_top)
+
+    all_y_max = max([np.max(y[~np.isnan(y)]) for y in data])
+    all_y_min = min(np.min(y[~np.isnan(y)]) for y in data)
+
+    axins.set_ylim(all_y_min - all_y_max / 10, y_top)
     axins.set_title(f"zoom: sites {int(x0)}–{int(x1)}", fontsize=8)
     axins.tick_params(labelsize=6)
     axins.set_xticks([x0+1, (x1 + x0) / 2, x1-1])
@@ -229,9 +233,7 @@ def plot_on_cantor_set(method, n, b, pbc, break_xax=True, break_yax=True,
     """
     l = lattice.build_lattice("cantor", n, block_scale=b)
     data = [np.abs(data_func(n, b, M, method, pbc, overwrite=overwrite, M_alt=M)[1]) for M in M_values]
-    if 'ltm' in data_func.__name__: data = [np.where((d > -0.25) & (d < 1.25), d, np.nan) for d in data]
-
-    print(data[0])
+    if 'ltm' in data_func.__name__: data = [np.where((d >= -0.25) & (d <= 1.1), d, np.nan) for d in data]
 
     xlims, ylims = [(0, l.size)], None
     if break_xax or break_yax:
@@ -245,9 +247,13 @@ def plot_on_cantor_set(method, n, b, pbc, break_xax=True, break_yax=True,
         crange = cmax - cmin
         ylims = [(cmin - 0.1 * crange, cmax + 0.1 * crange)]
 
-    fig = plt.figure(figsize=(20, 10))
-    bax = brokenaxes(xlims=xlims, ylims=ylims, d=0.005, despine=True, fig=fig)
+    fig = plt.figure(figsize=(12, 4))
+    bax = brokenaxes(xlims=xlims, ylims=ylims, d=0.005, despine=True, fig=fig, tilt=60)
 
+    diag_handles = bax.diag_handles
+    for d in diag_handles:
+        d.set_linewidth(2.5)
+    
     colors = ["k", "r", "b", "g"]
     markers = ["^", "s", ".", "v"]
     markers = [".", "s", ".", "s"]
@@ -258,7 +264,7 @@ def plot_on_cantor_set(method, n, b, pbc, break_xax=True, break_yax=True,
         #            c=colors[i % len(colors)], marker=markers[i % len(markers)],
         #            s=sizes[i % len(sizes)], zorder=zorders[i % len(zorders)],
         #            label=f"$M={M}$")
-        bax.plot(np.arange(l.size), data[i], c=colors[i % len(colors)], marker=markers[i % len(markers)], zorder = zorders[i % len(markers)], label=f"$M={M}$")
+        bax.scatter(np.arange(l.size), data[i], c=colors[i % len(colors)], marker=markers[i % len(markers)], zorder = zorders[i % len(markers)], label=f"$M={M}$", rasterized=True)
 
     axs = np.array(bax.axs).reshape(len(ylims), len(xlims))
     if break_xax:
@@ -266,15 +272,16 @@ def plot_on_cantor_set(method, n, b, pbc, break_xax=True, break_yax=True,
             xmin, xmax = ax.get_xlim()
             r = (xmax - xmin) / 5
             r = 2
-            ax.set_xticks(np.round([xmin + r, xmax - r], 0))
+            ax.set_xticks([(xmax+xmin)/2])
+            #ax.set_xticks(np.round([xmin + r, xmax - r], 0))
             ax.set_xticklabels([str(int(t + 1)) for t in ax.get_xticks()])
-
+            
     axs[0, -1].legend()
 
     if zoom_region is not None:
         _add_region_inset(fig, l, data, M_values, zoom_region, bbox=zoom_bbox, colors=colors, markers=markers)
 
-    fig.subplots_adjust(hspace=0.1, wspace=0.1)
+    fig.subplots_adjust(hspace=0.1)
     func_dir = "ltm" if "ltm" in data_func.__name__ else "ldos"
     title = "Local Topological Marker" if func_dir == "ltm" else "Local Density of States"
     bc_tag = "PBC" if pbc else "OBC"
@@ -284,7 +291,7 @@ def plot_on_cantor_set(method, n, b, pbc, break_xax=True, break_yax=True,
         out_dir = FIGURE_ROOT / func_dir
         out_dir.mkdir(parents=True, exist_ok=True)
         stem = out_dir / (f"{method}_n={n}_L={l.size}_" + bc_tag)
-        fig.savefig(f"{stem}.svg", transparent=True)
+        fig.savefig(f"{stem}.svg", transparent=True, dpi=300)
     return fig
 
 
@@ -297,12 +304,15 @@ def main():
     rcParams["xtick.major.size"] = 5.0
     rcParams["ytick.major.size"] = 5.0
 
-    for n in (4,):
-        for b in (27,):
-            for method in ("renorm",):
-                plot_on_cantor_set(method, n, b, pbc=False, break_xax=True, break_yax=False,
-                                    data_func=get_ldos_data, overwrite=True, zoom_region=(0 - 1, b))
-                plt.close()
+    for data_func in (get_ldos_data,):
+        for pbc in (False, True,):
+            for n in (4,):
+                for b in (27,):
+                    for method in ("renorm",):
+                        plot_on_cantor_set(method, n, b, pbc=pbc, break_xax=True, break_yax=False,
+                                            data_func=data_func, overwrite=False, zoom_region=(0 - 1, b))
+                        plt.show()
+                        plt.close()
 
 
 if __name__ == "__main__":

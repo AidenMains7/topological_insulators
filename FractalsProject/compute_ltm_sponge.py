@@ -1,7 +1,11 @@
 import numpy as np
 import scipy.sparse as sp
 import os, h5py
+
+from itertools import product
 import threadpoolctl
+from tqdm_joblib import tqdm, tqdm_joblib
+from joblib import Parallel, delayed
 
 from project_tools import lattice, model
 from hypercubic import solve
@@ -9,8 +13,12 @@ from compute_ltm_cantor import compute_ldos
 
 from matplotlib import pyplot as plt
 from matplotlib.colors import Normalize
+from matplotlib import rcParams
 
 DEFAULT_DATA_SAVE_DIRECTORY = "./data/local_marker/sponge/"
+rcParams['axes.linewidth'] = 2.5
+rcParams['xtick.major.width'] = 2.5
+rcParams['ytick.major.width'] = 2.5
 
 def compute_topological_marker(
     l: np.ndarray,
@@ -125,7 +133,7 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
 
     size_tag = f"_L={l.shape[0]}" if method == 'cube' else f"_n={n}_L={l.shape[0]}"
     filename = f"{method}_M={params['M']:.3f}" + size_tag + ".h5"
-
+    print(directory + filename)
     if os.path.exists(directory + filename):
         with h5py.File(directory + filename, "r") as f:
             C:np.ndarray = f["C"][()] # type: ignore
@@ -170,7 +178,12 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     return C, eigenvalues, ldos, l
 
 
-def plot_lcm(method, M, M_alt, l, n, b, C, plot_type='radial'):
+def plot_lcm(ax, method, M, M_alt, l, n, b, C, plot_type='radial', pasted=False, **plot_kwargs):
+    ax_init_none = False
+    if ax == None:
+        fig, ax = plt.subplots(1, 1)
+        ax_init_none = True
+
     if method in ['site_elim', 'renorm']: 
         mask = l > 0
     else:
@@ -190,16 +203,16 @@ def plot_lcm(method, M, M_alt, l, n, b, C, plot_type='radial'):
     else:
         y = 0.0
 
-    plt.axhline(y, c='k', ls='--', alpha=0.5, zorder=-10)
+    ax.axhline(y, c='k', ls='--', alpha=0.5, zorder=-10)
     if method == 'cube':
-        plt.title(f"L={l.shape[0]} : M={M:.2f}")
+        ax.set_title(f"L={l.shape[0]} : M={M:.2f}")
     else:
-        plt.title(f"{method} : n={n} : L={l.shape[0]} : M={M:.2f} : M_alt={M_alt:.2f}")
-    plt.ylim(-3.0, 2.0)
+        ax.set_title(f"{method} : n={n} : L={l.shape[0]} : M={M:.2f} : M_alt={M_alt:.2f}")
+    ax.set_ylim(-3.0, 2.0)
 
     if plot_type == 'radial': 
-        plt.scatter(r, C.flatten(), alpha=0.5)
-        plt.xlabel('Distance from origin $\\vec r$'); plt.ylabel("$C(\\vec r)$")
+        ax.scatter(r, C.flatten(), alpha=0.5, **plot_kwargs)
+        ax.set_xlabel('Distance from origin $\\vec r$'); ax.set_ylabel("$C(\\vec r)$")
     elif plot_type == 'body_diagonal':
         pos = []
         cs = []
@@ -208,18 +221,26 @@ def plot_lcm(method, M, M_alt, l, n, b, C, plot_type='radial'):
         for i in range(l.shape[0]):
             pos.append(i)
             cs.append(C_box[i, i, i])
-        plt.scatter(pos, cs)
-        plt.xlabel('Position along body diagonal'); plt.ylabel("$C(\\vec r)$")
+        ax.scatter(pos, cs, **plot_kwargs)
+        ax.set_xlabel('Position along body diagonal'); ax.set_ylabel("$C(\\vec r)$")
 
-    if method == 'cube':
-        plt.savefig(f"./figures/3D/{method}_L={l.shape[0]}_M={M:.2f}_M_alt={M_alt:.2f}.png")
-    else:
-        plt.savefig(f"./figures/3D/{method}_n={n}_b={b}_p={pasted}_M={M:.2f}_M_alt={M_alt:.2f}.png")
-    plt.close()
+        xticks = np.linspace(0, np.max(pos), 2)
+        ax.set_xticks(xticks)
+        ax.set_xticklabels([str(round(t + 1, 2)) for t in xticks])
+
+        yticks = [-2.0, -1.0, 0.0, 1.0]
+        ax.set_yticks(yticks)
+
+    if ax_init_none == True:
+        if method == 'cube':
+            plt.savefig(f"./figures/3D/{method}_L={l.shape[0]}_M={M:.2f}_M_alt={M_alt:.2f}.svg")
+        else:
+            plt.savefig(f"./figures/3D/{method}_n={n}_b={b}_p={pasted}_M={M:.2f}_M_alt={M_alt:.2f}.svg")
+        plt.close()
 
 
 def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8,
-                   ax=None, plot_diagonal_half=False):
+                   ax=None, plot_diagonal_half=False, **plot_kwargs):
     """
     Plots a 3D voxel grid where voxels and colors share the same 3D spatial shape.
 
@@ -267,42 +288,126 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8,
         fig = ax.figure
     
     # Plot voxels
-    v = ax.voxels(filled, facecolors=facecolors, edgecolors=edgecolors, alpha=alpha)
+    v = ax.voxels(filled, facecolors=facecolors, edgecolors=edgecolors, alpha=alpha, **plot_kwargs)
 
     ax.set_xlabel('X')
     ax.set_ylabel('Y')
     ax.set_zlabel('Z')
 
-    if np.issubdtype(colors.dtype, np.number) and colors.ndim == 3:
-        fig.colorbar(
-            plt.cm.ScalarMappable(norm=norm, cmap=color_mapper),
-            ax=ax,
-            label='Value',
-        )
-    return v
+    #if np.issubdtype(colors.dtype, np.number) and colors.ndim == 3:
+    #    fig.colorbar(
+    #        plt.cm.ScalarMappable(norm=norm, cmap=color_mapper),
+    #        ax=ax,
+    #        label='Value',
+    #    )
+    return v, ax
+
+
+def plot_3d_path_visualization():
+    def _make_arrays(lattice_array):
+        L_half = lattice_array.shape[0] // 2
+        octant_idxs = np.arange(lattice_array.shape[0])[lattice_array.shape[0]//2:]
+        octant_mask = np.full(lattice_array.shape, False)
+        octant_mask[np.ix_(octant_idxs, octant_idxs, octant_idxs)] = True
+        octant = lattice_array[octant_mask].reshape([L_half]*3)
+        
+        color_array = (~octant.astype(bool)).astype(int)
+        # Get the path along y=z=0 from x=0 to x=L_half
+        color_array[0:L_half-1, 0, 0] = 2
+        # Then along x=L_half z=0 from y=0 to y=L_half
+        color_array[L_half-1, 0:L_half-1, 0] = 2
+        # Then along x=y=L_half from z=0 to z=L_half
+        color_array[L_half-1, L_half-1, 0:L_half-1] = 2
+        # Then from diag (L_half, L_half, L_half) to (0, 0, 0) with holes filled with np.nan
+        diag_idx = np.arange(L_half-1, -1, -1)
+        color_array[diag_idx, diag_idx, diag_idx] = 2
+
+        # Mask to show only a portion of the octant
+        positions = np.indices(octant.shape)
+        mask1 = positions[0] >= positions[1]
+        mask2 = positions[1] >= positions[2]
+        mask = ~(mask1 & mask2)
+        octant[mask] = False
+        return octant, color_array
+
+    l = lattice.build_lattice('sponge', n=1, block_scale=4, pasted=True)
+    l_cube = np.ones(l.shape)
+
+    o1, c1 = _make_arrays(l_cube)
+    o2, c2 = _make_arrays(l)
+
+    from matplotlib.colors import ListedColormap, LightSource
+    black = np.array([0., 0., 0., 1.])
+    red = np.array([1., 0., 0., 1.])
+    cmap_arr = np.array([black, red])
+    new_cmap = ListedColormap(cmap_arr)
+
+    fig, axs = plt.subplots(1, 2, subplot_kw={'projection': '3d'})
+
+    ls = LightSource(azdeg=315, altdeg=45)
+
+    plot_3d_voxels(o1, c1, new_cmap, 'w', 1.0, axs[0], shade=True, lightsource=ls)
+    plot_3d_voxels(o2, c2, new_cmap, 'w', 1.0, axs[1], shade=True, lightsource=ls)
+    plot_3d_voxels(o1, c1, new_cmap, None, 0.1, axs[1], shade=True, lightsource=ls)
+
+    for ax in axs:
+        ax.set_axis_off()
+        ax.view_init(elev=30, azim=-45, roll=0)
+
+    plt.savefig("./figures/3D/graphic.svg")
+    plt.show()
+
+
+def get_3d_ldos_path(l, ldos):
+    mask = (l == 1)
+    box = np.full(l.shape, np.nan)
+    box[mask] = ldos[::2] + ldos[1::2]
+
+    mask2 = np.full(l.shape, False)
+    idxs = np.arange(l.shape[0])[l.shape[0]//2:]
+    mask2[np.ix_(idxs, idxs, idxs)] = True
+    L_half = int(l.shape[0] / 2)
+
+    box = box[mask2].reshape(L_half, L_half, L_half)
+    # Get the path along y=z=0 from x=0 to x=L_half
+    leg1 = box[0:L_half-1, 0, 0]
+    # Then along x=L_half z=0 from y=0 to y=L_half
+    leg2 = box[L_half-1, 0:L_half-1, 0]
+    # Then along x=y=L_half from z=0 to z=L_half
+    leg3 = box[L_half-1, L_half-1, 0:L_half-1]
+    # Then from diag (L_half, L_half, L_half) to (0, 0, 0) with holes filled with np.nan
+    diag_idx = np.arange(L_half-1, -1, -1)
+    leg4 = box[diag_idx, diag_idx, diag_idx]
+
+    path = np.concatenate([leg1, leg2, leg3, leg4], dtype=float).flatten()
+    t = np.arange(path.size)
+    return t, path
 
 
 if __name__ == "__main__":
-    from time import time
-    method = 'substituted'; n=1; b=2; pasted=True
+    plot_3d_path_visualization()
+    raise SystemExit
+    methods = ['cube', 'site_elim', 'renorm']
+    Ms = [-2.0, 2.0, 6.0]
+    n = 1; b = 4
 
-    M_alt = 2.0; M = -0.8
-    t0 = time()
-    C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt, n_threads=6)
-    print(f"{time()-t0:.2f}s")
-    plot_lcm(method, M, M_alt, l, n, b, C, 'body_diagonal')
-    #C_box = np.full(l.shape, np.nan)
-    #C_box[l == 1] = C
-    #plot_3d_voxels(l == 1, C_box)
-    #plt.show()
+    fig, axs = plt.subplots(len(methods), 2, figsize=(12, 8), sharex=False, sharey=False)
+    #fig2, axs2 = plt.subplots(len(methods), len(Ms), figsize=(20, 20), sharex=True, sharey=True, subplot_kw={'projection':'3d'})
+    for i in range(len(methods)):
+        for j in range(len(Ms)):
+            method = methods[i]
+            M = Ms[j]
+            pasted=False if method == 'cube' else True
+            C, eigenvalues, ldos, l = compute_wrapper(method, M, L=24, n=n, pasted=pasted, b=1 if method == 'cube' else b)
+            plot_lcm(axs[i, 0], method, M, M, l, n, b, C,'body_diagonal', pasted=pasted, label=f"M={M}")
 
-    def worker(method, M):
-        C, eigenvalues, ldos, l = compute_wrapper(method, M, L=24, n=1, pasted=True, b=4)
-        plot_lcm(method, M, l, C, 2, 'body_diagonal')
+            t, path = get_3d_ldos_path(l, ldos)
+            L_half = int(l.shape[0] / 2)
 
-    params = tuple(product(methods, M_values))
+            axs[i, 1].scatter(t, path)
+            axs[i, 1].set_xticks(np.arange(0, path.size, L_half-1))
+            axs[i, 1].set_xticklabels([str(int(ti+1)) for ti in axs[i, 1].get_xticks()])
 
-    with tqdm_joblib(tqdm(total=len(params))) as progress_bar:
-        Parallel(n_jobs=1)(delayed(worker)(*p) for p in params)
-
-
+            axs[i, 0].legend()
+    plt.tight_layout()
+    plt.savefig(f"./figures/3D/.ldos.svg")
