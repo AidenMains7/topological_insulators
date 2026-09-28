@@ -132,8 +132,10 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     params = {"M": M, "M_alt": M_alt, "M_prime": 0.01, "disorder_seed": 0, "disorder_strength": 0.0, "t": 1., "B": 1., "g": 0, "gauge": "N"}
 
     size_tag = f"_L={l.shape[0]}" if method == 'cube' else f"_n={n}_L={l.shape[0]}"
-    filename = f"{method}_M={params['M']:.3f}" + size_tag + ".h5"
-    print(directory + filename)
+    filename = f"{method}_M={params['M']:.3f}_Malt={params['M_alt']}:.3f" + size_tag + ".h5"
+    print(filename)
+    print(os.path.exists(directory + filename))
+
     if os.path.exists(directory + filename):
         with h5py.File(directory + filename, "r") as f:
             C:np.ndarray = f["C"][()] # type: ignore
