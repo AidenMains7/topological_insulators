@@ -109,7 +109,9 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     params = {"M": M, "M_alt": M_alt, "M_prime": 0.01, "disorder_seed": 0, "disorder_strength": 0.0, "t": 1., "B": 1., "g": 0, "gauge": "N"}
 
     size_tag = f"_L={l.shape[0]}" if method == 'cube' else f"_n={n}_L={l.shape[0]}"
-    filename = f"{method}_M={params['M']:.3f}" + size_tag + ".h5"
+    filename = f"{method}_M={params['M']:.3f}_Malt={params['M_alt']}:.3f" + size_tag + ".h5"
+    print(filename)
+    print(os.path.exists(directory + filename))
 
     if os.path.exists(directory + filename):
         with h5py.File(directory + filename, "r") as f:
@@ -263,21 +265,16 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8,
 
 
 if __name__ == "__main__":
-    method = 'substituted'; n=1; b=2; pasted=False
+    method = 'substituted'; n=1; b=4; pasted=True
 
-    M_alt = 2.0; M = -0.05
-    C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt)
-    plot_lcm(method, M, M_alt, l, n, b, C, 'body_diagonal')
-    #C_box = np.full(l.shape, np.nan)
-    #C_box[l == 1] = C
-    #plot_3d_voxels(l == 1, C_box)
-    #plt.show()
+    M_alts = [2.0, -0.1, -0.05]
+    Ms = [-0.05, 2.0, 2.0]
 
-    def worker(method, M):
-        C, eigenvalues, ldos, l = compute_wrapper(method, M, L=24, n=1, pasted=True, b=4)
-        plot_lcm(method, M, l, C, 2, 'body_diagonal')
+    params = [tuple([Ms[i], M_alts[i]]) for i in range(len(Ms))]
 
-    params = tuple(product(methods, M_values))
+    def worker(M, M_alt):
+        C, eigenvalues, ldos, l = compute_wrapper(method, M, L=24, n=1, pasted=True, b=4, M_alt=M_alt)
+        #plot_lcm(method, M, M_alt, l, C, 2, 'body_diagonal')
 
     with tqdm_joblib(tqdm(total=len(params))) as progress_bar:
         Parallel(n_jobs=1)(delayed(worker)(*p) for p in params)
