@@ -129,5 +129,6 @@ def make_figure(D, spectrum_plot=False, do_imshow=False):
 
 
 
-make_figure(2, False, True)
-plt.savefig('carpet.png')
+#make_figure(2, False, True)
+#plt.savefig('carpet.png')
+print('hi')

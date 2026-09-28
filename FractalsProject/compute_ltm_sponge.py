@@ -106,7 +106,8 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
     params = {"M": M, "M_alt": M_alt, "M_prime": 0.01, "disorder_seed": 0, "disorder_strength": 0.0, "t": 1., "B": 1., "g": 0, "gauge": "N"}
 
     size_tag = f"_L={l.shape[0]}" if method == 'cube' else f"_n={n}_L={l.shape[0]}"
-    filename = f"{method}_M={params["M"]:.3f}" + size_tag + ".h5"
+    alt_tag = f"_M_alt={M_alt:.3f}" if method == "substituted" else ""    
+    filename = f"{method}_M={params['M']:.3f}" + alt_tag + size_tag + ".h5"
 
     if os.path.exists(directory + filename):
         with h5py.File(directory + filename, "r") as f:
@@ -125,6 +126,9 @@ def compute_wrapper(method, M, n=None, L=None, b=1, pasted=False, save_data=True
         m = model.build_model_arbitrary(L, 3)
     else:
         m = model.build_model("sponge", n=n, block_scale=b, pasted=pasted, hole_treatment=method)
+
+    print('model built')
+    print(f'l.shape={l.shape}')
 
     if method == 'renorm':
         res = solve.schur_solve(m, "sector", 0, params=params, hermitian=True, return_LDOS=True)
@@ -257,11 +261,16 @@ def plot_3d_voxels(voxels, colors, cmap='viridis', edgecolors='k', alpha=0.8,
 
 
 if __name__ == "__main__":
-    method = 'substituted'; n=1; b=2; pasted=False
+    from time import time
 
-    M_alt = 2.0; M = -0.05
-    C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt)
-    plot_lcm(method, M, M_alt, l, n, b, C, 'body_diagonal')
+    method = 'substituted'; n=1; b=4; pasted=True
+    params = ((2.0, -0.05), (2.0, -0.1), (-0.05, 2.0), (-0.1, 2.0))
+    for (M, M_alt) in params:
+        t0 = time()
+        print(M, M_alt)
+        C, eigenvalues, l = compute_wrapper(method, M, L=None, n=n, b=b, pasted=pasted, M_alt=M_alt)
+        print(f"{time()-t0:.2f}s")
+        plot_lcm(method, M, M_alt, l, n, b, C, 'body_diagonal')
     #C_box = np.full(l.shape, np.nan)
     #C_box[l == 1] = C
     #plot_3d_voxels(l == 1, C_box)
