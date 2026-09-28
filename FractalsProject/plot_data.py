@@ -237,8 +237,8 @@ def plot_result(path):
 def main():
     # ── plot flags ───────────────────────────────────────────────────────────
     PLOT_PHASE_DIAGRAMS = 1
-    PLOT_WITTEN         = 1
-    PLOT_LDOS           = 1
+    PLOT_WITTEN         = 0
+    PLOT_LDOS           = 0
 
     if PLOT_PHASE_DIAGRAMS:
         # All available phase diagrams for one fractal: columns = n, rows = L.
