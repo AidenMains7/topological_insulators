@@ -10,6 +10,7 @@ from hypercubic import solve
 import matplotlib.pyplot as plt
 import scipy.sparse as spsp
 
+
 def compute_wannier_matrices(L:int):
     Sx = spsp.dok_matrix((L, L), dtype=np.complex128)
     Cx = spsp.dok_matrix((L, L), dtype=Sx.dtype)
@@ -47,6 +48,7 @@ def compute_hamiltonian(l, M, B, t, M_alt=None, *args, **kwargs):
     pauli_x = np.array([[0.0 + 0.0j, 1.0 + 0.0j], [1.0 + 0.0j, 0.0 + 0.0j]])
     pauli_y = np.array([[0.0 + 0.0j, -1j], [1j, 0.0 + 0.0j]])
     return np.kron(d1, pauli_x) + np.kron(d2, pauli_y)
+
 
 def compute_eigvals(H):
     eigvals, eigvectors = spla.eigh(H, overwrite_a=True)
@@ -86,14 +88,14 @@ def compute_topological_marker(eigenvalues, eigenvectors):
     return C
 
 
-def compute_wrapper(n, b, M, method, M_alt=None, overwrite:bool = False, directory="./data/local_marker/") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    VALID_METHODS = ['renorm', 'renorm_alt', 'substituted', 'site_elim', 'substituted_alt', 'site_elim_alt']
+def compute_wrapper(n, b, M, method, M_alt=None, pbc=False, overwrite:bool = False, directory="./data/local_marker/") -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    VALID_METHODS = ['renorm', 'substituted', 'site_elim']
     assert method in VALID_METHODS, f"method must be in {VALID_METHODS}"
 
     l = lattice.build_lattice("cantor", n, block_scale=b)
     params = dict(M=M, M_alt=M_alt if M_alt != None else M, t=1.0, B=1.0, disorder_strength=0.0, disorder_seed=0)
 
-    filename = f"{method}_M={params['M']:.3f}_M_alt={params['M_alt']:.3f}_n={n}_L={l.size}.h5"
+    filename = f"{method}_M={params['M']:.3f}_M_alt={params['M_alt']:.3f}_n={n}_L={l.size}_pbc={pbc}.h5"
     cache_path = directory + filename
     if os.path.exists(cache_path) and not overwrite:
         with h5py.File(cache_path, "r") as f:
@@ -105,48 +107,32 @@ def compute_wrapper(n, b, M, method, M_alt=None, overwrite:bool = False, directo
             assert np.isclose(params["M"], m_read) and np.isclose(params["M_alt"], m_alt_read) # type: ignore
         return C, eigenvalues, ldos # type: ignore
 
-    if method in ["renorm", "site_elim", "substituted"]:
-        m = model.build_model("cantor", n, hole_treatment=method, block_scale=b)
+    m = model.build_model("cantor", n, hole_treatment=method, block_scale=b, pbc=pbc)
 
     if method == 'renorm':
-        result = solve.schur_solve(m, "sector", 0, params=params, hermitian=True)
-        eigenvalues = result["eigenvalues"]
-        eigenvectors = result["eigenvectors"]
+        H = compute_hamiltonian(l, M, 1.0, 1.0, M_alt)
+        mask = (l == 1)
+        H_aa = H[np.ix_(mask, mask)]
+        H_bb = H[np.ix_(~mask, ~mask)]
+        #result = solve.schur_solve(m, "sector", 0, params=params, hermitian=True)
+        #eigenvalues = result["eigenvalues"]
+        #eigenvectors = result["eigenvectors"]
     elif method == 'site_elim':
         H = m.assemble(True, format='csr', **params).toarray()
     elif method == 'substituted':
         H = m.assemble(False, format='csr', **params).toarray() 
-    else: 
-        H = compute_hamiltonian(l, **params)
-        #H = m.assemble(False, format='csr', **params).toarray()  
-        if method == "substituted_alt":
-            pass
-        else:
-            mask = np.repeat(l.astype(bool), 2)
-            W = np.random.random(H.shape[0]) * 2 - 1
-            W *= 1e-6
-            W -= np.mean(W)
-            H += np.diag(W)
-            H_aa = H[np.ix_(mask, mask)]
-            H_ab = H[np.ix_(mask, ~mask)]
-            H_ba = H[np.ix_(~mask, mask)]
-            H_bb = H[np.ix_(~mask, ~mask)]
-            if method == "site_elim_alt":
-                H = H_aa
-            elif method == 'renorm_alt':
-                H = H_aa + H_ab @ spla.solve(H_bb, H_ba)
+
     if method != "renorm":
         eigenvalues, eigenvectors = compute_eigvals(H)
     C = compute_topological_marker(eigenvalues, eigenvectors)
     ldos = compute_ldos(eigenvalues, eigenvectors)
 
-    if overwrite:
-        with h5py.File(directory + filename, "w") as f:
-            f.create_dataset(name="C", data=C)
-            f.create_dataset(name="eigenvalues", data=eigenvalues)
-            f.create_dataset(name="LDOS", data=ldos)
-            f.create_dataset(name="M", data=params["M"])
-            f.create_dataset(name="M_alt", data=params["M_alt"])
+    with h5py.File(directory + filename, "w") as f:
+        f.create_dataset(name="C", data=C)
+        f.create_dataset(name="eigenvalues", data=eigenvalues)
+        f.create_dataset(name="LDOS", data=ldos)
+        f.create_dataset(name="M", data=params["M"])
+        f.create_dataset(name="M_alt", data=params["M_alt"])
     return C, eigenvalues, ldos
 
 
